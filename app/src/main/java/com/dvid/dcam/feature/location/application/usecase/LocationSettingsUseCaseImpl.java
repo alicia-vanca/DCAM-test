@@ -7,7 +7,7 @@ import java.util.List;
 
 public final class LocationSettingsUseCaseImpl implements LocationSettingsUseCase {
     private static final List<GpsMode> MODES =
-            List.of(GpsMode.GPS, GpsMode.GPS_AGPS, GpsMode.GMAP);
+            List.of(GpsMode.AUTOMATIC, GpsMode.SATELLITE, GpsMode.NETWORK);
     private static final List<Integer> VALUES = List.of(
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
             11, 12, 13, 14, 15, 16, 17, 18, 19, 20,

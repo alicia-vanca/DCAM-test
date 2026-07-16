@@ -49,7 +49,7 @@ final class LocationControlUseCaseImplTest {
 
     private static final class FakeStore implements GpsSettingsStore {
         private GpsSettings settings = new GpsSettings(
-                GpsMode.GPS, 1, 1, LocationSystemState.UNKNOWN);
+                GpsMode.SATELLITE, 1, 1, LocationSystemState.UNKNOWN);
 
         @Override public GpsSettings load() { return settings; }
         @Override public void save(GpsSettings value) { settings = value; }

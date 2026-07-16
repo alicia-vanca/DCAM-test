@@ -7,6 +7,7 @@ import com.dvid.dcam.feature.location.application.port.GpsSettingsStore;
 import com.dvid.dcam.feature.location.domain.GpsMode;
 import com.dvid.dcam.feature.location.domain.GpsSettings;
 import com.dvid.dcam.feature.location.domain.LocationSystemState;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 final class LocationSettingsUseCaseImplTest {
@@ -14,14 +15,15 @@ final class LocationSettingsUseCaseImplTest {
         FakeStore store = new FakeStore();
         LocationSettingsUseCase settings = new LocationSettingsUseCaseImpl(store);
 
-        settings.changeMode(GpsMode.GPS_AGPS);
+        settings.changeMode(GpsMode.AUTOMATIC);
         settings.changeUpdateDistanceMeters(10);
         settings.changeReportIntervalSeconds(5);
 
-        assertEquals(GpsMode.GPS_AGPS, settings.currentSettings().getMode());
+        assertEquals(GpsMode.AUTOMATIC, settings.currentSettings().getMode());
         assertEquals(10, settings.currentSettings().getUpdateDistanceMeters());
         assertEquals(5, settings.currentSettings().getReportIntervalSeconds());
-        assertEquals(3, settings.supportedModes().size());
+        assertEquals(List.of(GpsMode.AUTOMATIC, GpsMode.SATELLITE, GpsMode.NETWORK),
+                settings.supportedModes());
         assertEquals(30, settings.supportedSamplingValues().size());
     }
 
@@ -36,7 +38,7 @@ final class LocationSettingsUseCaseImplTest {
 
     private static final class FakeStore implements GpsSettingsStore {
         private GpsSettings settings = new GpsSettings(
-                GpsMode.GPS, 1, 1, LocationSystemState.UNKNOWN);
+                GpsMode.SATELLITE, 1, 1, LocationSystemState.UNKNOWN);
 
         @Override public GpsSettings load() { return settings; }
         @Override public void save(GpsSettings value) { settings = value; }

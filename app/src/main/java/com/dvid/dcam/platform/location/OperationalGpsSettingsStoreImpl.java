@@ -24,7 +24,7 @@ public final class OperationalGpsSettingsStoreImpl implements GpsSettingsStore {
 
     @Override public GpsSettings load() {
         return new GpsSettings(
-                parseMode(preferences.getString(MODE, GpsMode.GPS.name())),
+                parseMode(preferences.getString(MODE, GpsMode.AUTOMATIC.name())),
                 positive(preferences.getInt(UPDATE_DISTANCE, 1)),
                 positive(preferences.getInt(REPORT_INTERVAL, 1)),
                 parseState(preferences.getString(SYSTEM_STATE, LocationSystemState.UNKNOWN.name())));
@@ -48,8 +48,12 @@ public final class OperationalGpsSettingsStoreImpl implements GpsSettingsStore {
     private static int positive(int value) { return value > 0 ? value : 1; }
 
     private static GpsMode parseMode(String value) {
-        try { return GpsMode.valueOf(value.trim().toUpperCase(Locale.ROOT)); }
-        catch (RuntimeException ignored) { return GpsMode.GPS; }
+        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        if ("GPS".equals(normalized)) return GpsMode.SATELLITE;
+        if ("GPS_AGPS".equals(normalized)) return GpsMode.AUTOMATIC;
+        if ("GMAP".equals(normalized)) return GpsMode.NETWORK;
+        try { return GpsMode.valueOf(normalized); }
+        catch (RuntimeException ignored) { return GpsMode.AUTOMATIC; }
     }
 
     private static LocationSystemState parseState(String value) {

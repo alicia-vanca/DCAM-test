@@ -50,8 +50,8 @@
     </string-array>
 
     <string-array name="gps_settings_items">
-        <item>Sử dụng GPS</item>
-        <item>GPS hoặc GPS + AGPS</item>
+        <item>Lưu vị trí</item>
+        <item>Tự động, Vệ tinh hoặc Vị trí mạng</item>
         <item>Tần suất cập nhật vị trí</item>
         <item>Tần suất upload vị trí</item>
     </string-array>

@@ -44,16 +44,15 @@ public final class AndroidLocationControlGatewayImpl implements LocationControlG
     @Override public boolean isModeAvailable(GpsMode mode) {
         if (mode == null) return false;
         PackageManager packageManager = context.getPackageManager();
-        if (mode == GpsMode.GMAP) {
+        if (mode == GpsMode.SATELLITE) {
+            return packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS);
+        }
+        if (mode == GpsMode.NETWORK) {
             return hasLocationCapability()
                     && (googleApiAvailability.isGooglePlayServicesAvailable(context)
                     == ConnectionResult.SUCCESS || hasSystemFusedCapability());
         }
-        if (mode == GpsMode.GPS || mode == GpsMode.GPS_AGPS) {
-            return packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS);
-        }
-        return packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS)
-                || packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_NETWORK);
+        return hasLocationCapability();
     }
 
     @Override public boolean setEnabled(boolean enabled) {

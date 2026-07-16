@@ -1,8 +1,8 @@
 package com.dvid.dcam.feature.location.domain;
 
-/** Product positioning modes; GMAP prefers Google Fused and falls back to Android system fused. */
+/** User-facing location source policy; platform adapters choose concrete Android providers. */
 public enum GpsMode {
-    GPS,
-    GPS_AGPS,
-    GMAP
+    AUTOMATIC,
+    SATELLITE,
+    NETWORK
 }

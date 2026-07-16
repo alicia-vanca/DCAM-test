@@ -41,20 +41,26 @@ public final class AndroidLocationSourceImpl implements LocationSource {
             GpsSettings settings,
             Consumer<GpsCoordinate> onCoordinate,
             Consumer<LocationTrackingState> onStateChanged) {
-        if (settings == null || onCoordinate == null) throw new IllegalArgumentException("GPS arguments are required");
-        if (onStateChanged == null) throw new IllegalArgumentException("GPS state callback is required");
+        if (settings == null || onCoordinate == null) throw new IllegalArgumentException("Location arguments are required");
+        if (onStateChanged == null) throw new IllegalArgumentException("Location state callback is required");
         stopUpdates();
         fusedSource.stop();
         consumer = onCoordinate;
-        if (settings.getMode() == GpsMode.GMAP) {
-            if (fusedSource.isGooglePlayServicesAvailable()) {
-                return fusedSource.start(settings, this::acceptCoordinate, onStateChanged);
-            }
-            return startSystemFused(settings);
-        }
         if (!hasCoarsePermission()
-                || (settings.getMode() != GpsMode.GMAP && !hasFinePermission())) {
+                || settings.getMode() == GpsMode.SATELLITE && !hasFinePermission()) {
             return LocationTrackingState.PERMISSION_REQUIRED;
+        }
+        if (settings.getMode() == GpsMode.NETWORK) {
+            return startNetworkLocation(settings, onStateChanged);
+        }
+        if (settings.getMode() == GpsMode.AUTOMATIC) {
+            LocationTrackingState networkState = startNetworkLocation(settings, onStateChanged);
+            if (networkState != LocationTrackingState.LOCATION_UNAVAILABLE
+                    && networkState != LocationTrackingState.NO_PROVIDER) {
+                return networkState;
+            }
+            fusedSource.stop();
+            if (!hasFinePermission()) return LocationTrackingState.PERMISSION_REQUIRED;
         }
         if (locationManager == null) return LocationTrackingState.LOCATION_UNAVAILABLE;
         List<String> selectedProviders = providers(settings.getMode());
@@ -62,6 +68,13 @@ public final class AndroidLocationSourceImpl implements LocationSource {
         return startLocationManager(settings, selectedProviders);
     }
 
+    private LocationTrackingState startNetworkLocation(
+            GpsSettings settings, Consumer<LocationTrackingState> onStateChanged) {
+        if (fusedSource.isGooglePlayServicesAvailable()) {
+            return fusedSource.start(settings, this::acceptCoordinate, onStateChanged);
+        }
+        return startSystemFused(settings);
+    }
     private LocationTrackingState startSystemFused(GpsSettings settings) {
         if (!hasCoarsePermission()) return LocationTrackingState.PERMISSION_REQUIRED;
         if (locationManager == null) {
@@ -105,13 +118,13 @@ public final class AndroidLocationSourceImpl implements LocationSource {
     private List<String> providers(GpsMode mode) {
         List<String> result = new ArrayList<>();
         if (hasFinePermission() && enabled(LocationManager.GPS_PROVIDER)) result.add(LocationManager.GPS_PROVIDER);
-        if (mode == GpsMode.GPS_AGPS && hasCoarsePermission()
+        if (mode == GpsMode.AUTOMATIC && hasCoarsePermission()
                 && enabled(LocationManager.NETWORK_PROVIDER)) result.add(LocationManager.NETWORK_PROVIDER);
         return result;
     }
 
     /**
-     * Providers usable as a GMAP fallback when Google Play Services is absent.
+     * Providers usable for network location when Google Play Services is absent.
      * The framework fused provider is preferred; network is a vendor-backed fallback
      * on devices that expose it.
      */

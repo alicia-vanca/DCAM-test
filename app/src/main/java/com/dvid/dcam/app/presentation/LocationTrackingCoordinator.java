@@ -43,9 +43,9 @@ public final class LocationTrackingCoordinator {
     public LocationTrackingState refresh() {
         if (!featureEnabled.getAsBoolean()) return stopAs(LocationTrackingState.STOPPED);
         GpsSettings current = settings.currentSettings();
-        boolean permissionGranted = current.getMode() == GpsMode.GMAP
-                ? coarsePermissionGranted.getAsBoolean()
-                : finePermissionGranted.getAsBoolean();
+        boolean permissionGranted = current.getMode() == GpsMode.SATELLITE
+                ? finePermissionGranted.getAsBoolean()
+                : coarsePermissionGranted.getAsBoolean();
         if (!permissionGranted) return stopAs(LocationTrackingState.PERMISSION_REQUIRED);
 
         LocationSystemState systemState = control.currentState();

@@ -5,7 +5,11 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.StatFs;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -66,6 +70,11 @@ public final class SettingsControlRenderer {
                         break;
                     case RADIO:
                         radio(parent, item.getLabel(), item.getOptions(), item.getSelectedIndex(),
+                                selected -> onSelection.accept(item.getId(), selected));
+                        break;
+                    case DESCRIBED_RADIO:
+                        describedRadio(parent, item.getLabel(), item.getDescribedRadioOptions(),
+                                item.getSelectedIndex(),
                                 selected -> onSelection.accept(item.getId(), selected));
                         break;
                     case STORAGE_RADIO:
@@ -135,6 +144,8 @@ public final class SettingsControlRenderer {
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView labelView = label(label);
         Switch switchView = new Switch(context);
+        switchView.setThumbTintList(context.getColorStateList(R.color.settings_switch_thumb_tint));
+        switchView.setTrackTintList(context.getColorStateList(R.color.settings_switch_track_tint));
         switchView.setChecked(checked);
         switchView.setOnCheckedChangeListener((button, isChecked) -> {
             if (onChanged != null) onChanged.accept(isChecked);
@@ -322,6 +333,44 @@ public final class SettingsControlRenderer {
         parent.addView(row);
     }
 
+    private void describedRadio(LinearLayout parent, String label,
+            List<DescribedRadioOptionUiState> options, int selectedIndex,
+            IntConsumer onSelected) {
+        LinearLayout row = baseRow();
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.addView(label(label));
+        RadioGroup group = new RadioGroup(context);
+        group.setOrientation(RadioGroup.VERTICAL);
+        int checkedIndex = clamp(selectedIndex, 0, options.size() - 1);
+        for (int index = 0; index < options.size(); index++) {
+            DescribedRadioOptionUiState state = options.get(index);
+            RadioButton button = new RadioButton(context);
+            button.setId(View.generateViewId());
+            button.setTag(index);
+            String text = state.getLabel() + "\n" + state.getDescription();
+            SpannableString styledText = new SpannableString(text);
+            int descriptionStart = state.getLabel().length() + 1;
+            styledText.setSpan(new RelativeSizeSpan(0.82f), descriptionStart, text.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            styledText.setSpan(new ForegroundColorSpan(Color.LTGRAY),
+                    descriptionStart, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            button.setText(styledText);
+            button.setTextColor(Color.WHITE);
+            button.setTextSize(14);
+            button.setPadding(0, dp(6), dp(8), dp(10));
+            group.addView(button, new RadioGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (index == checkedIndex) group.check(button.getId());
+        }
+        group.setOnCheckedChangeListener((radioGroup, checkedId) -> {
+            View checked = radioGroup.findViewById(checkedId);
+            if (checked != null && onSelected != null) {
+                onSelected.accept((Integer) checked.getTag());
+            }
+        });
+        row.addView(group);
+        parent.addView(row);
+    }
     private void storageRadio(
             LinearLayout parent, String label, List<StorageOptionUiState> options, int selectedIndex,
             IntConsumer onSelected) {

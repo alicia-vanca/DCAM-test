@@ -66,7 +66,7 @@ final class LocationTrackingCoordinatorTest {
 
     private static final class FakeSettings implements LocationSettingsUseCase {
         private GpsSettings current = new GpsSettings(
-                GpsMode.GPS, 1, 1, LocationSystemState.ENABLED);
+                GpsMode.SATELLITE, 1, 1, LocationSystemState.ENABLED);
 
         @Override public GpsSettings currentSettings() { return current; }
         @Override public List<GpsMode> supportedModes() { return List.of(GpsMode.values()); }

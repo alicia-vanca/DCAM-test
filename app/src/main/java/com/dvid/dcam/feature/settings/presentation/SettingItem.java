@@ -10,6 +10,7 @@ public final class SettingItem {
         CHOICE,
         SLIDER,
         RADIO,
+        DESCRIBED_RADIO,
         STORAGE_RADIO,
         ACTION
     }
@@ -20,6 +21,7 @@ public final class SettingItem {
     private final String value;
     private final List<String> options;
     private final List<StorageOptionUiState> storageOptions;
+    private final List<DescribedRadioOptionUiState> describedRadioOptions;
     private final int selectedIndex;
     private final boolean checked;
     private final int min;
@@ -31,7 +33,9 @@ public final class SettingItem {
 
     private SettingItem(
             SettingId id, Type type, String label, String value, List<String> options,
-            List<StorageOptionUiState> storageOptions, int selectedIndex, boolean checked,
+            List<StorageOptionUiState> storageOptions,
+            List<DescribedRadioOptionUiState> describedRadioOptions,
+            int selectedIndex, boolean checked,
             int min, int max, int numberValue, String unit, boolean enabled, int indentLevel) {
         this.id = id;
         this.type = type;
@@ -39,6 +43,8 @@ public final class SettingItem {
         this.value = value;
         this.options = options == null ? List.of() : List.copyOf(options);
         this.storageOptions = storageOptions == null ? List.of() : List.copyOf(storageOptions);
+        this.describedRadioOptions = describedRadioOptions == null
+                ? List.of() : List.copyOf(describedRadioOptions);
         this.selectedIndex = selectedIndex;
         this.checked = checked;
         this.min = min;
@@ -52,7 +58,7 @@ public final class SettingItem {
     private static SettingItem item(SettingId id, Type type, String label, String value,
             List<String> options, int selectedIndex, boolean checked, int min, int max,
             int numberValue, String unit) {
-        return new SettingItem(id, type, label, value, options, null, selectedIndex, checked,
+        return new SettingItem(id, type, label, value, options, null, null, selectedIndex, checked,
                 min, max, numberValue, unit, true, 0);
     }
 
@@ -79,9 +85,14 @@ public final class SettingItem {
         return item(id, Type.RADIO, label, null, options, selectedIndex, false, 0, 0, 0, null);
     }
 
+    public static SettingItem describedRadio(SettingId id, String label,
+            List<DescribedRadioOptionUiState> options, int selectedIndex) {
+        return new SettingItem(id, Type.DESCRIBED_RADIO, label, null, null, null, options,
+                selectedIndex, false, 0, 0, 0, null, true, 0);
+    }
     public static SettingItem storageRadio(SettingId id, String label,
             List<StorageOptionUiState> options, int selectedIndex) {
-        return new SettingItem(id, Type.STORAGE_RADIO, label, null, null, options,
+        return new SettingItem(id, Type.STORAGE_RADIO, label, null, null, options, null,
                 selectedIndex, false, 0, 0, 0, null, true, 0);
     }
 
@@ -90,12 +101,14 @@ public final class SettingItem {
     }
 
     public SettingItem withEnabled(boolean enabled) {
-        return new SettingItem(id, type, label, value, options, storageOptions, selectedIndex,
+        return new SettingItem(id, type, label, value, options, storageOptions,
+                describedRadioOptions, selectedIndex,
                 checked, min, max, numberValue, unit, enabled, indentLevel);
     }
 
     public SettingItem withIndentLevel(int indentLevel) {
-        return new SettingItem(id, type, label, value, options, storageOptions, selectedIndex,
+        return new SettingItem(id, type, label, value, options, storageOptions,
+                describedRadioOptions, selectedIndex,
                 checked, min, max, numberValue, unit, enabled, Math.max(0, indentLevel));
     }
 
@@ -105,6 +118,9 @@ public final class SettingItem {
     public String getValue() { return value; }
     public List<String> getOptions() { return options; }
     public List<StorageOptionUiState> getStorageOptions() { return storageOptions; }
+    public List<DescribedRadioOptionUiState> getDescribedRadioOptions() {
+        return describedRadioOptions;
+    }
     public int getSelectedIndex() { return selectedIndex; }
     public boolean isChecked() { return checked; }
     public int getMin() { return min; }

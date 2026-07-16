@@ -79,6 +79,7 @@ import com.dvid.dcam.feature.storage.domain.StorageWarningStatus;
 import com.dvid.dcam.feature.settings.presentation.SettingsUiState;
 import com.dvid.dcam.feature.settings.presentation.StorageOptionUiState;
 import com.dvid.dcam.feature.settings.presentation.DeveloperButtonBindingsScreen;
+import com.dvid.dcam.feature.settings.presentation.DescribedRadioOptionUiState;
 import com.dvid.dcam.feature.settings.presentation.SettingId;
 import com.dvid.dcam.feature.settings.presentation.SettingItem;
 import com.dvid.dcam.feature.settings.presentation.SettingsControlRenderer;
@@ -654,7 +655,7 @@ public final class MainActivity extends ComponentActivity {
 
     private SettingsScreenModel settingsModel(MainScreen screen) {
         if (screen == MainScreen.DEVELOPER_SETTINGS) {
-            return developerFeatureToggles.developerSettings();
+            return developerSettingsModel();
         }
         SettingsScreenModel model;
         if (screen == MainScreen.RECORD_SETTINGS) model = settingsUiState.recording();
@@ -692,23 +693,32 @@ public final class MainActivity extends ComponentActivity {
         return List.copyOf(options);
     }
 
-    private SettingsScreenModel locationSettingsModel() {
+    private SettingsScreenModel developerSettingsModel() {
+        List<SettingsSection> sections = new ArrayList<>(
+                developerFeatureToggles.developerSettings().getSections());
         GpsSettings current = locationSettings.currentSettings();
         List<GpsMode> modes = locationSettings.supportedModes();
+        List<DescribedRadioOptionUiState> options = new ArrayList<>();
+        for (GpsMode mode : modes) options.add(gpsModeOption(mode));
+        sections.add(new SettingsSection(getString(R.string.location_source_developer_section),
+                List.of(SettingItem.describedRadio(SettingId.GPS_POSITIONING_MODE,
+                        getString(R.string.gps_positioning_mode), options,
+                        Math.max(0, modes.indexOf(current.getMode())))
+                        .withEnabled(developerFeatureToggles.isEffectivelyEnabled(FeatureGate.GPS)))));
+        return new SettingsScreenModel(sections);
+    }
+
+    private SettingsScreenModel locationSettingsModel() {
+        GpsSettings current = locationSettings.currentSettings();
         LocationSystemState systemState = locationControl.currentState();
         boolean systemStateKnown = systemState == LocationSystemState.ENABLED
                 || systemState == LocationSystemState.DISABLED;
-        List<String> modeLabels = new ArrayList<>();
-        for (GpsMode mode : modes) modeLabels.add(gpsModeLabel(mode));
         List<SettingItem> items = List.of(
                 SettingItem.checkbox(SettingId.GPS_LOCATION_ENABLED,
                         getString(R.string.gps_use_location),
                         systemState == LocationSystemState.ENABLED
                                 && hasRequiredLocationPermission(current.getMode()))
                         .withEnabled(systemStateKnown),
-                SettingItem.choice(SettingId.GPS_POSITIONING_MODE,
-                        getString(R.string.gps_positioning_mode), modeLabels,
-                        Math.max(0, modes.indexOf(current.getMode()))),
                 SettingItem.slider(SettingId.GPS_UPDATE_DISTANCE_METERS,
                         getString(R.string.gps_update_distance), 1, 30,
                         current.getUpdateDistanceMeters(), "m"),
@@ -719,12 +729,18 @@ public final class MainActivity extends ComponentActivity {
                 new SettingsSection(getString(R.string.gps_sampling_section), items)));
     }
 
-    private String gpsModeLabel(GpsMode mode) {
+    private DescribedRadioOptionUiState gpsModeOption(GpsMode mode) {
         switch (mode) {
-            case GPS: return getString(R.string.gps_mode_gps);
-            case GPS_AGPS: return getString(R.string.gps_mode_gps_agps);
-            case GMAP: return getString(R.string.gps_mode_gmap);
-            default: throw new IllegalArgumentException("Unsupported GPS mode " + mode);
+            case AUTOMATIC:
+                return new DescribedRadioOptionUiState(getString(R.string.location_mode_automatic),
+                        getString(R.string.location_mode_automatic_description));
+            case SATELLITE:
+                return new DescribedRadioOptionUiState(getString(R.string.location_mode_satellite),
+                        getString(R.string.location_mode_satellite_description));
+            case NETWORK:
+                return new DescribedRadioOptionUiState(getString(R.string.location_mode_network),
+                        getString(R.string.location_mode_network_description));
+            default: throw new IllegalArgumentException("Unsupported location mode " + mode);
         }
     }
 
@@ -790,6 +806,8 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private static FeatureGate[] requiredGatesForSetting(MainScreen screen, SettingItem item) {
+        if (screen == MainScreen.DEVELOPER_SETTINGS
+                && item.getId() == SettingId.GPS_POSITIONING_MODE) return noGates();
         if (item.getId() == SettingId.GPS_LOCATION_ENABLED
                 || item.getId() == SettingId.GPS_POSITIONING_MODE
                 || item.getId() == SettingId.GPS_UPDATE_DISTANCE_METERS
@@ -934,12 +952,11 @@ public final class MainActivity extends ComponentActivity {
         }
         if (id == SettingId.GPS_POSITIONING_MODE) {
             List<GpsMode> modes = locationSettings.supportedModes();
-        LocationSystemState systemState = locationControl.currentState();
-        boolean systemStateKnown = systemState == LocationSystemState.ENABLED
-                || systemState == LocationSystemState.DISABLED;
             if (selectedIndex >= 0 && selectedIndex < modes.size()) {
-                locationSettings.changeMode(modes.get(selectedIndex));
-                restartLocationTracking();
+                GpsMode mode = modes.get(selectedIndex);
+                locationSettings.changeMode(mode);
+                if (!hasRequiredLocationPermission(mode)) requestLocationPermission();
+                else restartLocationTracking();
             }
             return;
         }
@@ -1413,13 +1430,13 @@ public final class MainActivity extends ComponentActivity {
 
     private boolean hasRequiredLocationPermission() {
         return hasRequiredLocationPermission(locationSettings == null
-                ? GpsMode.GPS : locationSettings.currentSettings().getMode());
+                ? GpsMode.SATELLITE : locationSettings.currentSettings().getMode());
     }
 
     private boolean hasRequiredLocationPermission(GpsMode mode) {
-        return mode == GpsMode.GMAP
-                ? DcamPermissions.locationGranted(this)
-                : DcamPermissions.fineLocationGranted(this);
+        return mode == GpsMode.SATELLITE
+                ? DcamPermissions.fineLocationGranted(this)
+                : DcamPermissions.locationGranted(this);
     }
 
     private void navigateBack() {

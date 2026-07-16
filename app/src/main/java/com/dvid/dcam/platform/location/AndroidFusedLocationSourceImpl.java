@@ -19,7 +19,7 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 import java.util.function.Consumer;
 
-/** Google Fused Location Provider adapter used by the GMAP mode when GMS is available. */
+/** Google Fused Location Provider adapter used by Automatic and Network location modes when GMS is available. */
 public final class AndroidFusedLocationSourceImpl implements LocationSource {
     private final Context context;
     private final FusedLocationProviderClient client;

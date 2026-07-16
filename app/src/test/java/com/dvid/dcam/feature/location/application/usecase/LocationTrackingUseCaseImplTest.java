@@ -54,11 +54,11 @@ final class LocationTrackingUseCaseImplTest {
 
     private static final class FakeSettings implements LocationSettingsUseCase {
         private GpsSettings settings = new GpsSettings(
-                GpsMode.GPS, 1, 1, LocationSystemState.ENABLED);
+                GpsMode.SATELLITE, 1, 1, LocationSystemState.ENABLED);
 
         @Override public GpsSettings currentSettings() { return settings; }
         @Override public java.util.List<GpsMode> supportedModes() {
-            return java.util.List.of(GpsMode.GPS, GpsMode.GPS_AGPS, GpsMode.GMAP);
+            return java.util.List.of(GpsMode.SATELLITE, GpsMode.AUTOMATIC, GpsMode.NETWORK);
         }
         @Override public java.util.List<Integer> supportedSamplingValues() {
             return java.util.List.of(1);
