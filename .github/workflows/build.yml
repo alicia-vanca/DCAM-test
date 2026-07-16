@@ -41,7 +41,7 @@ jobs:
 
       - name: Build APK
         run: |
-          printf 'loggly.token=%s\n' '${{ secrets.LOGGLY_TOKEN }}' > application-local.properties
+          printf 'LOGGLY_TOKEN=%s\n' '${{ secrets.LOGGLY_TOKEN }}' > application-local.properties
           if [ "${GITHUB_REF_NAME}" = "release" ]; then
             ./gradlew clean assembleRelease
             mkdir -p build/release
