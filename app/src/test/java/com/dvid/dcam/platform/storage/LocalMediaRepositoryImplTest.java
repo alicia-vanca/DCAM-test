@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dvid.dcam.feature.media.domain.MediaEntry;
-import com.dvid.dcam.feature.settings.domain.StorageMode;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -44,7 +44,7 @@ final class LocalMediaRepositoryImplTest {
 
     @Test void stagedCaptureIsAbsentFromFinalMediaAndMediaBrowsing() throws Exception {
         Path root = Files.createTempDirectory("dcam-media");
-        DcamStorage storage = new DcamStorage(StorageMode.INTERNAL, root.toFile());
+        DcamStorage storage = new DcamStorage(MediaPartitionLocation.INTERNAL, root.toFile());
         Path staged = storage.outputFile(DcamFileType.VIDEO, "CAM001", "000000",
                 LocalDateTime.of(2026, 6, 19, 10, 3, 24), false).toPath();
         Files.write(staged, new byte[] {1, 2, 3});

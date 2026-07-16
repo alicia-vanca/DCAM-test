@@ -2,6 +2,7 @@ package com.dvid.dcam.feature.settings.presentation;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -15,9 +16,6 @@ import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
-import android.widget.ProgressBar;
-import android.os.StatFs;
-import java.io.File;
 import java.util.ArrayList;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -64,13 +62,12 @@ public final class SettingsControlRenderer {
                                 value -> onNumber.accept(item.getId(), value));
                         break;
                     case RADIO:
-                        if (item.getId() == SettingId.DEFAULT_STORAGE) {
-                            storageRadio(parent, item.getLabel(), item.getOptions(), item.getSelectedIndex(),
-                                    selected -> onSelection.accept(item.getId(), selected));
-                        } else {
-                            radio(parent, item.getLabel(), item.getOptions(), item.getSelectedIndex(),
-                                    selected -> onSelection.accept(item.getId(), selected));
-                        }
+                        radio(parent, item.getLabel(), item.getOptions(), item.getSelectedIndex(),
+                                selected -> onSelection.accept(item.getId(), selected));
+                        break;
+                    case STORAGE_RADIO:
+                        storageRadio(parent, item.getLabel(), item.getStorageOptions(), item.getSelectedIndex(),
+                                selected -> onSelection.accept(item.getId(), selected));
                         break;
                     case ACTION:
                         action(parent, item.getLabel(), () -> {
@@ -112,7 +109,7 @@ public final class SettingsControlRenderer {
         heading.setTextSize(12);
         heading.setAllCaps(true);
         heading.setTypeface(null, android.graphics.Typeface.BOLD);
-        heading.setPadding(dp(4), dp(18), dp(4), dp(6));
+        heading.setPadding(dp(4), dp(8), dp(4), dp(4));
         parent.addView(heading, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
@@ -206,7 +203,45 @@ public final class SettingsControlRenderer {
             onSelected.accept(position);
             popup.dismiss();
         });
-        popup.showAsDropDown(anchor, anchor.getWidth() - width, 0);
+
+        int desiredHeight = 0;
+        int widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY);
+        int heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        for (int index = 0; index < adapter.getCount(); index++) {
+            View option = adapter.getView(index, null, list);
+            option.measure(widthSpec, heightSpec);
+            desiredHeight += option.getMeasuredHeight();
+        }
+        desiredHeight += Math.max(0, adapter.getCount() - 1) * list.getDividerHeight();
+        Rect popupPadding = new Rect();
+        if (popup.getBackground() != null) popup.getBackground().getPadding(popupPadding);
+        desiredHeight += popupPadding.top + popupPadding.bottom;
+        Rect visibleFrame = new Rect();
+        anchor.getWindowVisibleDisplayFrame(visibleFrame);
+        int[] anchorLocation = new int[2];
+        anchor.getLocationOnScreen(anchorLocation);
+        int spaceAbove = anchorLocation[1] - visibleFrame.top;
+        int spaceBelow = visibleFrame.bottom - anchorLocation[1] - anchor.getHeight();
+        int visibleHeight = visibleFrame.bottom - visibleFrame.top;
+        int maxHeight = Math.max(dp(48), Math.round(visibleHeight * 0.9f));
+        int popupHeight = Math.min(desiredHeight, maxHeight);
+        boolean overlapAnchor = desiredHeight > Math.max(spaceAbove, spaceBelow);
+        boolean expandAbove = !overlapAnchor && desiredHeight > spaceBelow && spaceAbove > spaceBelow;
+        int popupTop;
+        if (overlapAnchor) {
+            int anchorCenter = anchorLocation[1] + anchor.getHeight() / 2;
+            popupTop = anchorCenter - popupHeight / 2;
+            popupTop = clamp(popupTop, visibleFrame.top, visibleFrame.bottom - popupHeight);
+        } else {
+            popupTop = expandAbove
+                    ? anchorLocation[1] - popupHeight
+                    : anchorLocation[1] + anchor.getHeight();
+        }
+        popup.setHeight(popupHeight);
+        popup.showAsDropDown(
+                anchor,
+                anchor.getWidth() - width,
+                popupTop - anchorLocation[1] - anchor.getHeight());
     }
 
     public void slider(
@@ -257,12 +292,15 @@ public final class SettingsControlRenderer {
         row.addView(label(label));
         RadioGroup group = new RadioGroup(context);
         group.setOrientation(RadioGroup.VERTICAL);
+        group.setPadding(0, 0, 0, 0);
         int checkedIndex = clamp(selectedIndex, 0, options.size() - 1);
         for (int i = 0; i < options.size(); i++) {
             RadioButton button = new RadioButton(context);
             button.setText(options.get(i));
             button.setTextColor(Color.WHITE);
             button.setTextSize(14);
+            button.setMinHeight(dp(34));
+            button.setMinimumHeight(dp(34));
             button.setId(View.generateViewId());
             button.setTag(i);
             group.addView(button, new RadioGroup.LayoutParams(
@@ -280,68 +318,101 @@ public final class SettingsControlRenderer {
     }
 
     private void storageRadio(
-            LinearLayout parent, String label, List<String> options, int selectedIndex,
+            LinearLayout parent, String label, List<StorageOptionUiState> options, int selectedIndex,
             IntConsumer onSelected) {
         LinearLayout row = baseRow();
         row.setOrientation(LinearLayout.VERTICAL);
         row.addView(label(label));
-        RadioGroup group = new RadioGroup(context);
+        LinearLayout group = new LinearLayout(context);
         group.setOrientation(RadioGroup.VERTICAL);
+        group.setPadding(0, 0, 0, 0);
         int checkedIndex = clamp(selectedIndex, 0, options.size() - 1);
-        File[] roots = context.getExternalFilesDirs(null);
         List<RadioButton> buttons = new ArrayList<>();
         for (int i = 0; i < options.size(); i++) {
+            StorageOptionUiState storage = options.get(i);
             LinearLayout option = new LinearLayout(context);
             option.setOrientation(LinearLayout.VERTICAL);
+
+            LinearLayout firstLine = new LinearLayout(context);
+            firstLine.setOrientation(LinearLayout.HORIZONTAL);
+            firstLine.setGravity(Gravity.CENTER_VERTICAL);
             RadioButton button = new RadioButton(context);
-            button.setText(options.get(i).split("\\n", 2)[0]);
+            button.setText(storage.getLabel());
             button.setTextColor(Color.WHITE);
             button.setTextSize(14);
-            button.setId(View.generateViewId());
+            button.setGravity(Gravity.CENTER_VERTICAL);
+            button.setIncludeFontPadding(false);
+            button.setMinHeight(dp(34));
+            button.setMinimumHeight(dp(34));
             button.setTag(i);
             buttons.add(button);
+            boolean auto = storage.getLabel().equals(context.getString(R.string.storage_auto));
+            TextView detail = value(storage.getDetail());
+            detail.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+            detail.setTextColor(storage.isAvailable() ? Color.LTGRAY : Color.GRAY);
+            button.setEnabled(storage.isAvailable());
+            option.setEnabled(storage.isAvailable());
+            option.setAlpha(storage.isAvailable() ? 1f : 0.45f);
             button.setOnClickListener(view -> {
                 for (RadioButton candidate : buttons) candidate.setChecked(candidate == view);
                 if (onSelected != null) onSelected.accept((Integer) view.getTag());
             });
-            option.addView(button);
-            if (i < 2) addStorageBar(option, i == 0
-                    ? (roots.length > 0 ? roots[0] : null)
-                    : roots.length > 1 ? roots[1] : null);
-            group.addView(option, new RadioGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            option.setClickable(storage.isAvailable());
+            option.setFocusable(storage.isAvailable());
+            option.setOnClickListener(view -> button.performClick());
+            firstLine.addView(button, weighted());
+            if (!auto) firstLine.addView(detail, wrap());
+            option.addView(firstLine);
+
+            android.widget.ProgressBar progress = null;
+            TextView description = null;
+            if (!auto) {
+                progress = new android.widget.ProgressBar(
+                        context, null, android.R.attr.progressBarStyleHorizontal);
+                progress.setMax(100);
+                progress.setProgress(storage.getUsedPercent());
+                progress.setIndeterminate(false);
+                progress.setEnabled(storage.isAvailable());
+                LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+                progressParams.setMargins(0, 0, 0, 0);
+                option.addView(progress, progressParams);
+            }
+            if (auto) {
+                description = value(storage.getDetail());
+                description.setGravity(Gravity.START);
+                description.setPadding(0, 0, 0, 0);
+                option.addView(description);
+            }
+            android.widget.ProgressBar alignedProgress = progress;
+            TextView alignedDescription = description;
+            option.addOnLayoutChangeListener((view, left, top, right, bottom,
+                    oldLeft, oldTop, oldRight, oldBottom) -> {
+                int contentLeft = button.getCompoundPaddingLeft();
+                if (alignedProgress != null) {
+                    LinearLayout.LayoutParams params = (LinearLayout.LayoutParams)
+                            alignedProgress.getLayoutParams();
+                    if (params.leftMargin != contentLeft) {
+                        params.leftMargin = contentLeft;
+                        alignedProgress.setLayoutParams(params);
+                    }
+                }
+                if (alignedDescription != null
+                        && alignedDescription.getPaddingLeft() != contentLeft) {
+                    alignedDescription.setPadding(contentLeft,
+                            alignedDescription.getPaddingTop(),
+                            alignedDescription.getPaddingRight(),
+                            alignedDescription.getPaddingBottom());
+                }
+            });
+            LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            optionParams.setMargins(0, dp(4), 0, dp(12));
+            group.addView(option, optionParams);
             button.setChecked(i == checkedIndex);
         }
         row.addView(group);
         parent.addView(row);
-    }
-
-    private void addStorageBar(LinearLayout option, File root) {
-        long total = 0L;
-        long free = 0L;
-        if (root != null) {
-            try {
-                StatFs stats = new StatFs(root.getAbsolutePath());
-                total = stats.getTotalBytes();
-                free = stats.getAvailableBytes();
-            } catch (RuntimeException ignored) {}
-        }
-        long used = Math.max(0L, total - free);
-        TextView usage = value(root == null ? "Unavailable" : "Used " + formatStorage(used)
-                + " / " + formatStorage(total));
-        usage.setPadding(dp(52), 0, dp(4), 0);
-        option.addView(usage);
-        ProgressBar bar = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(1000);
-        bar.setProgress(total <= 0L ? 0 : (int) Math.min(1000.0, used * 1000.0 / total));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(10));
-        params.setMargins(dp(52), 0, dp(4), dp(6));
-        option.addView(bar, params);
-    }
-
-    private String formatStorage(long bytes) {
-        return String.format(java.util.Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 
     public void action(LinearLayout parent, String label, Runnable onClick) {

@@ -1,10 +1,15 @@
 package com.dvid.dcam.app;
 
+import com.dvid.dcam.feature.settings.domain.AppLanguage;
+import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCase;
+import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
+import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCase;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -15,7 +20,6 @@ import android.os.Bundle;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.StatFs;
 import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.View;
@@ -56,13 +60,12 @@ import com.dvid.dcam.feature.auth.domain.UserSource;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.media.application.usecase.OpenMediaUseCase;
 import com.dvid.dcam.feature.media.domain.MediaEntry;
-import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.StorageSettingsUseCase;
-import com.dvid.dcam.feature.settings.domain.StorageMode;
-import com.dvid.dcam.feature.settings.domain.AppLanguage;
+import com.dvid.dcam.feature.storage.application.usecase.StorageSettingsUseCase;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
+import com.dvid.dcam.feature.storage.domain.StorageVolumeStatus;
+import com.dvid.dcam.feature.storage.domain.StorageWarningStatus;
 import com.dvid.dcam.feature.settings.presentation.SettingsUiState;
+import com.dvid.dcam.feature.settings.presentation.StorageOptionUiState;
 import com.dvid.dcam.feature.settings.presentation.DeveloperButtonBindingsScreen;
 import com.dvid.dcam.feature.settings.presentation.SettingId;
 import com.dvid.dcam.feature.settings.presentation.SettingItem;
@@ -73,6 +76,7 @@ import com.dvid.dcam.platform.config.AndroidLanguagePreferenceStoreImpl;
 import com.dvid.dcam.platform.camera.CameraXCameraGatewayImpl;
 import com.dvid.dcam.platform.device.DcamKioskController;
 import com.dvid.dcam.platform.device.AndroidDeviceSettings;
+import com.dvid.dcam.platform.device.AndroidDeviceCapabilities;
 import com.dvid.dcam.platform.input.HardwareButtonLayout;
 import com.dvid.dcam.platform.input.HardwareButtonRouter;
 import com.dvid.dcam.platform.logging.DcamLogger;
@@ -80,7 +84,6 @@ import com.dvid.dcam.platform.database.AppDatabase;
 import com.dvid.dcam.platform.permission.DcamPermissions;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -96,6 +99,7 @@ public final class MainActivity extends ComponentActivity {
         @Override public void run() {
             updateCameraClock();
             updateManagedTopBar();
+            updateStorageWarning();
             cameraClock.postDelayed(this, 1_000L);
         }
     };
@@ -114,6 +118,7 @@ public final class MainActivity extends ComponentActivity {
     private StorageSettingsUseCase storageSettings;
     private SettingsControlRenderer settingsRenderer;
     private SettingsUiState settingsUiState;
+    private AndroidDeviceCapabilities deviceCapabilities;
     private MainMenuModel menuModel;
     private ActivityResultLauncher<String[]> permissionLauncher;
     private DcamKioskController kioskController;
@@ -129,6 +134,7 @@ public final class MainActivity extends ComponentActivity {
     private int devModeTapCount;
     private long devModeTapWindowStartedAtMs;
     private boolean audioRecording;
+    private Boolean storageWarningVisible;
     private Long audioStartedAtMillis;
     private Runnable sosHoldAction;
     private final BroadcastReceiver wifiStateReceiver = new BroadcastReceiver() {
@@ -139,6 +145,15 @@ public final class MainActivity extends ComponentActivity {
             }
         }
     };
+    private final BroadcastReceiver storageMountedReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (!Intent.ACTION_MEDIA_MOUNTED.equals(intent.getAction())
+                    || latestState == null
+                    || latestState.getScreen() != MainScreen.STORAGE_SETTINGS) return;
+            renderedScreen = null;
+            render(latestState);
+        }
+    };
 
     @Override protected void attachBaseContext(Context newBase) {
         super.attachBaseContext(AndroidLanguagePreferenceStoreImpl.localizedContext(newBase));
@@ -147,6 +162,7 @@ public final class MainActivity extends ComponentActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         composition = AppComposition.create(this);
+        deviceCapabilities = new AndroidDeviceCapabilities(this);
         languageSettings = composition.languageSettingsUseCase();
         developerFeatureToggles = composition.developerFeatureToggles();
         developerButtonBindingsScreen = new DeveloperButtonBindingsScreen(
@@ -164,8 +180,11 @@ public final class MainActivity extends ComponentActivity {
         settingsRenderer = new SettingsControlRenderer(this);
         settingsUiState = new SettingsUiState(mediaEncryptionSettings.isMediaEncryptionEnabled(),
                 videoMd5Settings.isVideoMd5Enabled(),
-                storageSettings.currentMode().ordinal(), deviceSettings.isAutoRotateEnabled(),
+                storageSettings.supportedModes().indexOf(storageSettings.currentMode()),
+                deviceSettings.isAutoRotateEnabled(),
                 deviceSettings.isWifiEnabled());
+        settingsUiState.setSupportedRecordResolutions(deviceCapabilities.supportedRecordQualities());
+        settingsUiState.setRecordResolution(deviceCapabilities.selectedRecordQuality());
         applyAutoRotate(deviceSettings.isAutoRotateEnabled());
         menuModel = new MainMenuModel();
         kioskController = new DcamKioskController(this);
@@ -206,6 +225,10 @@ public final class MainActivity extends ComponentActivity {
         viewModel.state().observe(this, this::render);
         ContextCompat.registerReceiver(this, wifiStateReceiver,
                 new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION),
+                ContextCompat.RECEIVER_NOT_EXPORTED);
+        IntentFilter storageFilter = new IntentFilter(Intent.ACTION_MEDIA_MOUNTED);
+        storageFilter.addDataScheme("file");
+        ContextCompat.registerReceiver(this, storageMountedReceiver, storageFilter,
                 ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
@@ -349,6 +372,7 @@ public final class MainActivity extends ComponentActivity {
         updateStatus(state);
         updateSavingNotice(previousState, state);
         showSavedNotice(previousState, state);
+        showLowStorageRecordingNotice(previousState, state);
     }
 
     private void updateSavingNotice(MainUiState previousState, MainUiState state) {
@@ -368,6 +392,14 @@ public final class MainActivity extends ComponentActivity {
         if (message == null || !message.startsWith("Saved ")
                 || message.equals(previousState.getMessage())) return;
         FloatingNotice.show(this, getString(R.string.media_saved, message.substring(6)));
+    }
+
+    private void showLowStorageRecordingNotice(MainUiState previousState, MainUiState state) {
+        String message = state.getMessage();
+        String expected = "Storage failed: " + getString(R.string.low_storage_recording_blocked);
+        if (!expected.equals(message)
+                || previousState != null && message.equals(previousState.getMessage())) return;
+        FloatingNotice.show(this, R.string.low_storage_recording_blocked);
     }
 
     private void renderCamera() {
@@ -535,7 +567,10 @@ public final class MainActivity extends ComponentActivity {
         }
         SettingsScreenModel model;
         if (screen == MainScreen.RECORD_SETTINGS) model = settingsUiState.recording();
-        else if (screen == MainScreen.STORAGE_SETTINGS) model = settingsUiState.storage(storageOptions());
+        else if (screen == MainScreen.STORAGE_SETTINGS) {
+            model = settingsUiState.storageWithVolumes(storageOptions(), getString(R.string.storage_settings),
+                    getString(R.string.default_storage), getString(R.string.low_storage_warning));
+        }
         else if (screen == MainScreen.USER_SETTINGS) {
             settingsUiState.setVideoEncryptionEnabled(mediaEncryptionSettings.isMediaEncryptionEnabled());
             model = settingsUiState.security();
@@ -549,31 +584,41 @@ public final class MainActivity extends ComponentActivity {
         return filterUnavailableSettings(screen, model);
     }
 
-    private List<String> storageOptions() {
-        File[] roots = getExternalFilesDirs(null);
-        File internal = roots.length == 0 ? getFilesDir() : roots[0];
-        File external = roots.length < 2 ? null : roots[1];
-        return List.of(
-                storageOption("Internal", internal),
-                storageOption("External", external),
-                "Auto\nPrioritize External; fallback to Internal before recording");
-    }
-
-    private String storageOption(String label, File root) {
-        if (root == null) return label + "\nUnavailable";
-        try {
-            StatFs stats = new StatFs(root.getAbsolutePath());
-            long total = stats.getTotalBytes();
-            long free = stats.getAvailableBytes();
-            long used = Math.max(0L, total - free);
-            int freePercent = total <= 0L ? 0 : (int) Math.round(free * 100.0 / total);
-            return label + "\nUsed " + storageSize(used) + " / " + storageSize(total)
-                    + "\nFree " + storageSize(free) + " (" + freePercent + "%)";
-        } catch (RuntimeException failure) {
-            return label + "\nUnavailable";
+    private List<StorageOptionUiState> storageOptions() {
+        List<StorageVolumeStatus> volumes = storageSettings.storageVolumes();
+        List<StorageOptionUiState> options = new ArrayList<>();
+        for (MediaPartitionLocation mode : storageSettings.supportedModes()) {
+            if (mode == MediaPartitionLocation.AUTO) {
+                options.add(new StorageOptionUiState(getString(R.string.storage_auto),
+                        getString(R.string.storage_auto_description), 0, true));
+            } else {
+                int label = mode == MediaPartitionLocation.INTERNAL
+                        ? R.string.storage_internal : R.string.storage_external;
+                options.add(storageOption(getString(label), storageVolume(volumes, mode)));
+            }
         }
+        return List.copyOf(options);
     }
 
+    private StorageOptionUiState storageOption(String label, StorageVolumeStatus volume) {
+        if (volume == null || !volume.isAvailable()) {
+            return new StorageOptionUiState(label, getString(R.string.storage_unavailable), 0, false);
+        }
+        long total = volume.getTotalBytes();
+        int usedPercent = total <= 0L ? 0
+                : (int) Math.round(volume.getUsedBytes() * 100.0 / total);
+        String detail = getString(R.string.storage_usage,
+                storageSize(volume.getUsedBytes()), storageSize(total));
+        return new StorageOptionUiState(label, detail, usedPercent, true);
+    }
+
+    private static StorageVolumeStatus storageVolume(
+            List<StorageVolumeStatus> volumes, MediaPartitionLocation mode) {
+        for (StorageVolumeStatus volume : volumes) {
+            if (volume.getMode() == mode) return volume;
+        }
+        return null;
+    }
     private static String storageSize(long bytes) {
         double gib = bytes / (1024.0 * 1024.0 * 1024.0);
         return String.format(Locale.US, "%.1f GB", gib);
@@ -732,6 +777,12 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void selectSetting(SettingId id, int selectedIndex) {
+        if (id == SettingId.RECORD_RESOLUTION) {
+            settingsUiState.select(id, selectedIndex);
+            deviceCapabilities.selectRecordQuality(settingsUiState.recordResolution());
+            composition.reloadRecordingQuality();
+            return;
+        }
         if (id == SettingId.LANGUAGE) {
             if (selectedIndex >= 0 && selectedIndex < renderedLanguages.length) {
                 changeLanguage(renderedLanguages[selectedIndex]);
@@ -739,9 +790,9 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         if (id == SettingId.DEFAULT_STORAGE) {
-            StorageMode[] modes = storageSettings.supportedModes();
-            if (selectedIndex >= 0 && selectedIndex < modes.length) {
-                storageSettings.changeMode(modes[selectedIndex]);
+            List<MediaPartitionLocation> modes = storageSettings.supportedModes();
+            if (selectedIndex >= 0 && selectedIndex < modes.size()) {
+                storageSettings.changeMode(modes.get(selectedIndex));
                 recreate();
             }
             return;
@@ -765,6 +816,9 @@ public final class MainActivity extends ComponentActivity {
 
     private void updateNumberSetting(SettingId id, int value) {
         settingsUiState.updateNumber(id, value);
+        if (id == SettingId.LOW_STORAGE_WARNING_GB) {
+            storageSettings.changeWarningGb(value);
+        }
     }
 
     private void updateBooleanSetting(SettingId id, boolean checked) {
@@ -1005,6 +1059,20 @@ public final class MainActivity extends ComponentActivity {
         cameraScreen.audioRecordingTimer.setText(audioRecording ? audioDurationText() : "");
     }
 
+    private void updateStorageWarning() {
+        if (captureRuntime == null || cameraScreen == null) return;
+        StorageWarningStatus warning = storageSettings.warningStatus();
+        long free = warning.getFreeBytes();
+        boolean warningVisible = warning.isVisible();
+        if (storageWarningVisible != null && storageWarningVisible == warningVisible) return;
+        storageWarningVisible = warningVisible;
+        if (warningVisible) {
+            captureRuntime.showStorageWarning(
+                    getString(R.string.low_storage_preview_warning, storageSize(free)));
+        } else {
+            captureRuntime.clearStorageWarning();
+        }
+    }
     private void updateFloatingRecordingStatus(MainUiState state) {
         boolean videoRecording = state != null
                 && state.getCapture().getMode() != RecordingMode.IDLE
@@ -1092,6 +1160,7 @@ public final class MainActivity extends ComponentActivity {
 
     @Override protected void onDestroy() {
         unregisterReceiver(wifiStateReceiver);
+        unregisterReceiver(storageMountedReceiver);
         DcamLogger.i("MainActivity destroyed");
         cameraClock.removeCallbacks(cameraClockTick);
         releaseCaptureRuntime();
@@ -1149,3 +1218,8 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 }
+
+
+
+
+

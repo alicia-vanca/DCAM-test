@@ -11,6 +11,7 @@ import android.os.IBinder;
 import android.os.Process;
 import com.dvid.dcam.platform.logging.DcamLogger;
 import com.dvid.dcam.platform.logging.LogglyDrainService;
+import com.dvid.dcam.platform.device.AndroidDeviceCapabilities;
 
 public final class DcamApplication extends Application {
     private final ServiceConnection logglyConnection = new ServiceConnection() {
@@ -21,6 +22,7 @@ public final class DcamApplication extends Application {
     @Override public void onCreate() {
         super.onCreate();
         if (processName().endsWith(":loggly")) return;
+        new AndroidDeviceCapabilities(this).evaluate();
         DcamLogger.setRemoteUploadsEnabled(true);
         DcamLogger.setContinuousDrainEnabled(LogglyDrainService.start(this));
         try {

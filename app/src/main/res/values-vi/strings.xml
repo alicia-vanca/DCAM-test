@@ -47,4 +47,15 @@
     <string name="wifi">Wi-Fi</string>
     <string name="wifi_requires_device_owner">C&#7847;n quy&#7873;n Ch&#7911; s&#7903; h&#7919;u thi&#7871;t b&#7883; &#273;&#7875; &#273;i&#7873;u khi&#7875;n Wi-Fi</string>
     <string name="connect_wifi">K&#7871;t n&#7889;i Wi-Fi</string>
+    <string name="default_storage">B&#7897; nh&#7899; m&#7863;c &#273;&#7883;nh</string>
+    <string name="low_storage_warning">C&#7843;nh b&#225;o dung l&#432;&#7907;ng th&#7845;p</string>
+    <string name="storage_internal">B&#7897; nh&#7899; trong</string>
+    <string name="storage_external">B&#7897; nh&#7899; ngo&#224;i</string>
+    <string name="storage_auto">T&#7921; &#273;&#7897;ng</string>
+    <string name="storage_auto_description">&#431;u ti&#234;n b&#7897; nh&#7899; ngo&#224;i; d&#249;ng b&#7897; nh&#7899; trong khi b&#7897; nh&#7899; ngo&#224;i kh&#244;ng kh&#7843; d&#7909;ng ho&#7863;c kh&#244;ng &#273;&#7911; dung l&#432;&#7907;ng</string>
+    <string name="storage_unavailable">Kh&#244;ng kh&#7843; d&#7909;ng</string>
+    <string name="storage_usage">%1$s / %2$s</string>
+    <string name="low_storage_preview_warning">Dung l&#432;&#7907;ng th&#7845;p: c&#242;n tr&#7889;ng %1$s</string>
+    <string name="low_storage_recording_blocked">Dung l&#432;&#7907;ng th&#7845;p. Kh&#244;ng th&#7875; ghi video ho&#7863;c b&#7843;n ghi quan tr&#7885;ng.</string>
+    <string name="storage_capture_stopped">Dung l&#432;&#7907;ng g&#7847;n &#273;&#7847;y. &#272;&#227; d&#7915;ng ghi v&#224; l&#432;u an to&#224;n.</string>
 </resources>

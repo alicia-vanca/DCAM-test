@@ -135,6 +135,18 @@ final class LayerDependencyTest {
         }
     }
 
+    @Test void uiLayersDoNotReadFilesystemCapacityDirectly() throws IOException {
+        String filesystemCapacity =
+                "android\\.os\\.StatFs|java\\.io\\.File|getExternalFilesDirs|getUsableSpace\\(";
+        List<String> violations = new ArrayList<>();
+        collectSourceTextViolations(mainJavaRoot().resolve("com/dvid/dcam/app"),
+                filesystemCapacity, violations);
+        collectSourceTextViolations(mainJavaRoot().resolve("com/dvid/dcam/feature"),
+                filesystemCapacity, violations);
+        assertTrue(violations.isEmpty(),
+                "UI/application code must obtain storage capacity through a boundary:\n"
+                        + String.join("\n", violations));
+    }
     @Test void mainActivityRemainsDeveloperBindingScreenAgnostic() throws IOException {
         Path mainActivity = mainJavaRoot().resolve("com/dvid/dcam/app/MainActivity.java");
         String source = Files.readString(mainActivity, StandardCharsets.UTF_8);

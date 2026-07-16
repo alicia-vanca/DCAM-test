@@ -1,4 +1,4 @@
-package com.dvid.dcam.platform.storage;
+package com.dvid.dcam.feature.storage.domain;
 
 /** Result of the synchronous storage precheck performed before visual capture starts. */
 public final class CaptureStorageCheck {

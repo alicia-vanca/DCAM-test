@@ -11,9 +11,8 @@ def appLocalPropertiesFile = rootProject.file('application-local.properties')
 if (appPropertiesFile.exists()) appPropertiesFile.withInputStream { appProperties.load(it) }
 if (appLocalPropertiesFile.exists()) appLocalPropertiesFile.withInputStream { appProperties.load(it) }
 
-def buildConfigName = { key -> key.toUpperCase().replaceAll('[^A-Z0-9]+', '_') }
 def buildConfigValue = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
-def propertyValue = { key -> System.getenv(buildConfigName(key)) ?: appProperties.getProperty(key, '') }
+def propertyValue = { key -> System.getenv(key) ?: appProperties.getProperty(key, '') }
 
 android {
     namespace = 'com.dvid.dcam'
@@ -31,7 +30,7 @@ android {
         versionCode = 1
         versionName = '1.0'
         appProperties.stringPropertyNames().each { key ->
-            buildConfigField 'String', buildConfigName(key), buildConfigValue(propertyValue(key))
+            buildConfigField 'String', key, buildConfigValue(propertyValue(key))
         }
 
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'

@@ -6,18 +6,17 @@ import java.util.List;
  * The UI still follows normal get/update/render flow.
  */
 public final class SettingsUiState {
-    private static final List<String> RECORD_RESOLUTIONS = List.of("720p", "1080p", "1440p", "4K");
+    private List<String> recordResolutions = List.of("SD", "HD", "FHD");
     private static final List<String> STORAGE_OPTIONS = List.of("Internal", "External", "Auto");
     private static final List<String> USB_OPTIONS = List.of("Off", "Password", "Admin only");
 
-    private String recordResolution = "1080p";
+    private String recordResolution = "FHD";
     private int segmentLengthMinutes = 5;
     private boolean loopRecordingEnabled = true;
     private boolean videoMd5Enabled;
     private boolean videoEncryptionEnabled;
     private int defaultStorageIndex;
     private int lowStorageWarningGb = 2;
-    private boolean recycleOldRecordings = true;
     private boolean protectSettingsMenu = true;
     private int usbAccessIndex;
     private boolean fullScreenDisplay;
@@ -37,7 +36,7 @@ public final class SettingsUiState {
     public void select(SettingId id, int selectedIndex) {
         switch (id) {
             case RECORD_RESOLUTION:
-                recordResolution = RECORD_RESOLUTIONS.get(clamp(selectedIndex, RECORD_RESOLUTIONS.size()));
+                recordResolution = recordResolutions.get(clamp(selectedIndex, recordResolutions.size()));
                 break;
             case DEFAULT_STORAGE:
                 defaultStorageIndex = clamp(selectedIndex, STORAGE_OPTIONS.size());
@@ -71,9 +70,6 @@ public final class SettingsUiState {
             case CREATE_VIDEO_MD5:
                 videoMd5Enabled = checked;
                 break;
-            case RECYCLE_OLD_RECORDINGS:
-                recycleOldRecordings = checked;
-                break;
             case ENCRYPT_VIDEO_FILES:
                 videoEncryptionEnabled = checked;
                 break;
@@ -101,10 +97,26 @@ public final class SettingsUiState {
         videoEncryptionEnabled = enabled;
     }
 
+    public void setSupportedRecordResolutions(List<String> supported) {
+        if (supported == null || supported.isEmpty()) return;
+        recordResolutions = List.copyOf(supported);
+        if (!recordResolutions.contains(recordResolution)) recordResolution = recordResolutions.get(recordResolutions.size() - 1);
+    }
+
+    public void setRecordResolution(String resolution) {
+        if (recordResolutions.contains(resolution)) recordResolution = resolution;
+    }
+
+    public String recordResolution() { return recordResolution; }
+
+    public void setLowStorageWarningGb(int value) {
+        lowStorageWarningGb = clamp(value, 1, 20);
+    }
+
     public SettingsScreenModel recording() {
         return new SettingsScreenModel(List.of(new SettingsSection("Recording", List.of(
                 SettingItem.choice(SettingId.RECORD_RESOLUTION, "Record resolution",
-                        RECORD_RESOLUTIONS, RECORD_RESOLUTIONS.indexOf(recordResolution)),
+                        recordResolutions, recordResolutions.indexOf(recordResolution)),
                 SettingItem.slider(SettingId.VIDEO_SEGMENT_LENGTH_MINUTES, "Video segment length",
                         1, 30, segmentLengthMinutes, "min"),
                 SettingItem.checkbox(SettingId.LOOP_RECORDING, "Loop recording", loopRecordingEnabled),
@@ -112,17 +124,29 @@ public final class SettingsUiState {
     }
 
     public SettingsScreenModel storage() {
-        return storage(STORAGE_OPTIONS);
+        return storage(STORAGE_OPTIONS, "Storage", "Default storage", "Low-storage warning");
     }
 
     public SettingsScreenModel storage(List<String> storageOptions) {
-        return new SettingsScreenModel(List.of(new SettingsSection("Storage", List.of(
-                SettingItem.radio(SettingId.DEFAULT_STORAGE, "Default storage",
+        return storage(storageOptions, "Storage", "Default storage", "Low-storage warning");
+    }
+
+    public SettingsScreenModel storageWithVolumes(List<StorageOptionUiState> storageOptions, String sectionTitle,
+            String defaultStorageLabel, String lowStorageWarningLabel) {
+        return new SettingsScreenModel(List.of(new SettingsSection(sectionTitle, List.of(
+                SettingItem.storageRadio(SettingId.DEFAULT_STORAGE, defaultStorageLabel,
                         storageOptions, defaultStorageIndex),
-                SettingItem.slider(SettingId.LOW_STORAGE_WARNING_GB, "Low-storage warning",
-                        1, 20, lowStorageWarningGb, "GB"),
-                SettingItem.checkbox(SettingId.RECYCLE_OLD_RECORDINGS,
-                        "Recycle old recordings", recycleOldRecordings)))));
+                SettingItem.slider(SettingId.LOW_STORAGE_WARNING_GB, lowStorageWarningLabel,
+                        1, 20, lowStorageWarningGb, "GB")))));
+    }
+
+    public SettingsScreenModel storage(List<String> storageOptions, String sectionTitle,
+            String defaultStorageLabel, String lowStorageWarningLabel) {
+        return new SettingsScreenModel(List.of(new SettingsSection(sectionTitle, List.of(
+                SettingItem.radio(SettingId.DEFAULT_STORAGE, defaultStorageLabel,
+                        storageOptions, defaultStorageIndex),
+                SettingItem.slider(SettingId.LOW_STORAGE_WARNING_GB, lowStorageWarningLabel,
+                        1, 20, lowStorageWarningGb, "GB")))));
     }
 
     public SettingsScreenModel security() {

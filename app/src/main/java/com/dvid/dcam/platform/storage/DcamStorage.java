@@ -3,7 +3,11 @@ package com.dvid.dcam.platform.storage;
 import android.content.Context;
 import android.os.Environment;
 import com.dvid.dcam.BuildConfig;
-import com.dvid.dcam.feature.settings.domain.StorageMode;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCapacityPolicy;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
+import com.dvid.dcam.feature.storage.domain.StorageVolumeStatus;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
+import com.dvid.dcam.feature.storage.domain.StorageMode;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,43 +16,53 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class DcamStorage {
-    private final StorageMode requestedMode;
+public final class DcamStorage implements
+        com.dvid.dcam.feature.storage.application.port.ActiveStorageSource,
+        com.dvid.dcam.feature.storage.application.port.ActiveStoragePolicyGateway {
+    private final StorageMode storageMode;
+    private volatile MediaPartitionLocation requestedMode;
     private final Context context;
     private final File internalRoot;
     private volatile List<File> externalRoots;
-    private final DcamStorageCapacityPolicy capacityPolicy;
-    private volatile StorageMode resolvedMode;
+    private final CaptureStorageCapacityPolicy capacityPolicy;
+    private volatile MediaPartitionLocation resolvedMode;
     private volatile File root;
 
     public DcamStorage(File root) {
-        this(null, StorageMode.INTERNAL, StorageMode.INTERNAL, root, root,
-                List.of(), new DcamStorageCapacityPolicy());
+        this(null, StorageMode.APP_DATA, MediaPartitionLocation.INTERNAL, MediaPartitionLocation.INTERNAL, root, root,
+                List.of(), new CaptureStorageCapacityPolicy());
     }
 
-    public DcamStorage(StorageMode mode, File root) {
-        this(null, mode, mode == StorageMode.AUTO ? StorageMode.INTERNAL : mode,
-                root, root, List.of(), new DcamStorageCapacityPolicy());
+    public DcamStorage(MediaPartitionLocation mode, File root) {
+        this(null, StorageMode.APP_DATA, mode, mode == MediaPartitionLocation.AUTO ? MediaPartitionLocation.INTERNAL : mode,
+                root, root, List.of(), new CaptureStorageCapacityPolicy());
+    }
+
+    public DcamStorage(StorageMode storageMode, MediaPartitionLocation mode, File root) {
+        this(null, storageMode, mode, mode == MediaPartitionLocation.AUTO ? MediaPartitionLocation.INTERNAL : mode,
+                root, root, List.of(), new CaptureStorageCapacityPolicy());
     }
 
     public DcamStorage(
-            StorageMode requestedMode,
-            StorageMode resolvedMode,
+            MediaPartitionLocation requestedMode,
+            MediaPartitionLocation resolvedMode,
             File internalRoot,
             File root,
-            DcamStorageCapacityPolicy capacityPolicy) {
-        this(null, requestedMode, resolvedMode, internalRoot, root, List.of(), capacityPolicy);
+            CaptureStorageCapacityPolicy capacityPolicy) {
+        this(null, StorageMode.APP_DATA, requestedMode, resolvedMode, internalRoot, root, List.of(), capacityPolicy);
     }
 
     private DcamStorage(
             Context context,
-            StorageMode requestedMode,
-            StorageMode resolvedMode,
+            StorageMode storageMode,
+            MediaPartitionLocation requestedMode,
+            MediaPartitionLocation resolvedMode,
             File internalRoot,
             File root,
             List<File> externalRoots,
-            DcamStorageCapacityPolicy capacityPolicy) {
+            CaptureStorageCapacityPolicy capacityPolicy) {
         this.context = context;
+        this.storageMode = storageMode == null ? StorageMode.APP_DATA : storageMode;
         this.requestedMode = requestedMode;
         this.resolvedMode = resolvedMode;
         this.internalRoot = internalRoot;
@@ -58,20 +72,25 @@ public final class DcamStorage {
     }
 
     public static DcamStorage from(Context context) {
-        return from(context, StorageMode.from(BuildConfig.STORAGE_MODE));
+        return from(context, StorageMode.from(BuildConfig.DEFAULT_STORAGE_MODE), MediaPartitionLocation.AUTO);
     }
 
-    public static DcamStorage from(Context context, StorageMode requestedMode) {
+    public static DcamStorage from(Context context, MediaPartitionLocation requestedMode) {
+        return from(context, StorageMode.APP_DATA, requestedMode);
+    }
+
+    public static DcamStorage from(Context context, StorageMode storageMode,
+            MediaPartitionLocation requestedMode) {
         File[] appRoots = context.getExternalFilesDirs(null);
         File internalRoot = appRoots.length > 0 && appRoots[0] != null
                 ? appRoots[0]
                 : context.getFilesDir();
-        DcamStorageCapacityPolicy policy = new DcamStorageCapacityPolicy();
-        DcamStorageCandidate internal = candidate(StorageMode.INTERNAL, internalRoot, true);
+        CaptureStorageCapacityPolicy policy = new CaptureStorageCapacityPolicy();
+        DcamStorageCandidate internal = candidate(MediaPartitionLocation.INTERNAL, internalRoot, true);
         List<DcamStorageCandidate> external = new ArrayList<>();
         for (int i = 1; i < appRoots.length; i++) {
             if (appRoots[i] != null) {
-                external.add(candidate(StorageMode.EXTERNAL, appRoots[i], false));
+                external.add(candidate(MediaPartitionLocation.EXTERNAL, appRoots[i], false));
             }
         }
         DcamStorageResolution resolution =
@@ -80,14 +99,29 @@ public final class DcamStorage {
         for (DcamStorageCandidate candidate : external) {
             externalRootFiles.add(candidate.getRoot());
         }
-        return new DcamStorage(context.getApplicationContext(), requestedMode, resolution.getResolvedMode(),
+        return new DcamStorage(context.getApplicationContext(), storageMode, requestedMode, resolution.getResolvedMode(),
                 internalRoot, resolution.getRoot(), externalRootFiles, policy);
     }
 
-    public StorageMode getRequestedMode() { return requestedMode; }
-    public StorageMode getMode() { return resolvedMode; }
-    public boolean isFallback() { return requestedMode != StorageMode.INTERNAL && resolvedMode == StorageMode.INTERNAL; }
-    public boolean isPublicDcim() { return false; }
+    public MediaPartitionLocation getRequestedMode() { return requestedMode; }
+    public MediaPartitionLocation getMode() { return resolvedMode; }
+
+    @Override public synchronized void changeRequestedLocation(MediaPartitionLocation location) {
+        requestedMode = location == null ? MediaPartitionLocation.AUTO : location;
+        refreshExternalRoots();
+        resolveRootForNextCapture();
+    }
+    public boolean isFallback() { return requestedMode != MediaPartitionLocation.INTERNAL && resolvedMode == MediaPartitionLocation.INTERNAL; }
+    public boolean isPublicDcim() { return storageMode == StorageMode.PUBLIC_DCIM; }
+
+    @Override public synchronized StorageVolumeStatus activeStorageVolume() {
+        refreshExternalRoots();
+        resolveRootForNextCapture();
+        boolean available = root != null && (root.exists() || root.mkdirs());
+        return new StorageVolumeStatus(resolvedMode, available,
+                available ? root.getTotalSpace() : 0L,
+                available ? root.getUsableSpace() : 0L);
+    }
     public File captureRoot() { return root; }
     public File rootDirectory() { return new File(root, "Media"); }
     public File tempDirectory() { return new File(root, "Temp"); }
@@ -212,6 +246,12 @@ public final class DcamStorage {
         return capacityPolicy.check(mounted, writable, availableBytes);
     }
 
+    public synchronized long availableBytesForNextCapture() {
+        refreshExternalRoots();
+        resolveRootForNextCapture();
+        return root == null ? 0L : Math.max(0L, root.getUsableSpace());
+    }
+
     public long recordingFileSizeLimit() {
         return capacityPolicy.recordingFileSizeLimit(Math.max(0L, root.getUsableSpace()));
     }
@@ -226,15 +266,15 @@ public final class DcamStorage {
     }
 
     private void resolveRootForNextCapture() {
-        if (requestedMode == StorageMode.INTERNAL) {
-            resolvedMode = StorageMode.INTERNAL;
+        if (requestedMode == MediaPartitionLocation.INTERNAL) {
+            resolvedMode = MediaPartitionLocation.INTERNAL;
             root = internalRoot;
             return;
         }
-        DcamStorageCandidate internal = candidate(StorageMode.INTERNAL, internalRoot, true);
+        DcamStorageCandidate internal = candidate(MediaPartitionLocation.INTERNAL, internalRoot, true);
         List<DcamStorageCandidate> external = new ArrayList<>();
         for (File externalRoot : externalRoots) {
-            external.add(candidate(StorageMode.EXTERNAL, externalRoot, false));
+            external.add(candidate(MediaPartitionLocation.EXTERNAL, externalRoot, false));
         }
         DcamStorageResolution resolution =
                 new DcamStorageRootResolver(capacityPolicy).resolve(requestedMode, internal, external);
@@ -252,7 +292,7 @@ public final class DcamStorage {
         externalRoots = List.copyOf(refreshed);
     }
 
-    private static DcamStorageCandidate candidate(StorageMode mode, File root, boolean internal) {
+    private static DcamStorageCandidate candidate(MediaPartitionLocation mode, File root, boolean internal) {
         boolean mounted = root != null && (internal
                 || Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState(root)));
         boolean writable = mounted && prepareDirectory(new File(root, "Temp")) && root.canWrite();
@@ -272,3 +312,14 @@ public final class DcamStorage {
         directories.add(candidate);
     }
 }
+
+
+
+
+
+
+
+
+
+
+

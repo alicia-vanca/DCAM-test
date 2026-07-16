@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.camera;
 
+import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -11,6 +12,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.video.PendingRecording;
 import androidx.camera.video.Quality;
 import androidx.camera.video.QualitySelector;
+import androidx.camera.video.FallbackStrategy;
 import androidx.camera.video.Recorder;
 import androidx.camera.video.Recording;
 import androidx.camera.video.VideoCapture;
@@ -18,21 +20,23 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 import com.dvid.dcam.core.config.domain.DcamConfig;
+import com.dvid.dcam.R;
 import com.dvid.dcam.core.logging.application.port.LogSink;
 import com.dvid.dcam.feature.capture.application.port.CameraGateway;
 import com.dvid.dcam.feature.capture.application.usecase.CaptureEventUseCase;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.auth.application.usecase.OperatorSessionUseCase;
 import com.dvid.dcam.feature.auth.domain.OperatorSession;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
 import com.dvid.dcam.platform.recording.RecordingForegroundService;
 import com.dvid.dcam.platform.storage.DcamFileType;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
-import com.dvid.dcam.platform.storage.CaptureStorageCheck;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 import com.dvid.dcam.platform.storage.CaptureStorageFailureClassifier;
+import com.dvid.dcam.platform.device.AndroidDeviceCapabilities;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.function.Consumer;
 
 /** CameraX camera adapter. CameraX types do not escape through CameraGateway. */
@@ -47,7 +51,8 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     private final MediaEncryptionSettingsUseCase mediaEncryptionSettings;
     private final OperatorSessionUseCase operatorSession;
     private final ImageCapture imageCapture = new ImageCapture.Builder().build();
-    private final VideoCapture<Recorder> videoCapture;
+    private VideoCapture<Recorder> videoCapture;
+    private boolean videoAvailable;
     private Preview cameraPreview;
     private ListenableFuture<ProcessCameraProvider> providerFuture;
     private Recording activeRecording;
@@ -65,8 +70,29 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         this.mediaEncryptionSettings = mediaEncryptionSettings;
         this.operatorSession = operatorSession;
         this.previewView = previewView;
-        Recorder recorder = new Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.FHD)).build();
-        videoCapture = VideoCapture.withOutput(recorder);
+        videoCapture = createVideoCapture();
+        bindIfPermitted();
+    }
+
+    private QualitySelector selectedQuality() {
+        String selected = new AndroidDeviceCapabilities(context).selectedRecordQuality();
+        List<Quality> qualities = new java.util.ArrayList<>();
+        if ("4K".equals(selected)) qualities.add(Quality.UHD);
+        if ("FHD".equals(selected) || "4K".equals(selected)) qualities.add(Quality.FHD);
+        if ("HD".equals(selected) || "FHD".equals(selected) || "4K".equals(selected)) qualities.add(Quality.HD);
+        qualities.add(Quality.SD);
+        return QualitySelector.fromOrderedList(qualities, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD));
+    }
+
+    private VideoCapture<Recorder> createVideoCapture() {
+        return VideoCapture.withOutput(new Recorder.Builder().setQualitySelector(selectedQuality()).build());
+    }
+
+    public void reloadVideoQuality() {
+        if (activeRecording != null) return;
+        videoCapture = createVideoCapture();
+        cameraPreview = null;
+        videoAvailable = false;
         bindIfPermitted();
     }
 
@@ -94,12 +120,29 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
             try {
                 ProcessCameraProvider provider = providerFuture.get();
                 CameraXPreviewView attachedPreview = previewView;
+                CameraSelector cameraSelector;
+                if (provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {
+                    cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+                } else if (provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)) {
+                    cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
+                    log.warn("Back camera unavailable; using front camera", null);
+                } else {
+                    throw new IllegalStateException("No usable camera found");
+                }
                 cameraPreview = new Preview.Builder().build();
                 cameraPreview.setSurfaceProvider(
                         attachedPreview == null ? null : attachedPreview.surfaceProvider());
                 provider.unbindAll();
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA,
-                        cameraPreview, imageCapture, videoCapture);
+                try {
+                    provider.bindToLifecycle(lifecycleOwner, cameraSelector,
+                            cameraPreview, imageCapture, videoCapture);
+                    videoAvailable = true;
+                } catch (IllegalArgumentException videoError) {
+                    videoAvailable = false;
+                    log.warn("Video capture unavailable; keeping photo camera active", videoError);
+                    provider.bindToLifecycle(lifecycleOwner, cameraSelector,
+                            cameraPreview, imageCapture);
+                }
                 if (attachedPreview != null) attachedPreview.clearMessage();
             } catch (Exception error) { showError(error.getMessage()); }
         }, ContextCompat.getMainExecutor(context));
@@ -169,6 +212,11 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     }
 
     private void startRecording(DcamFileType type) {
+        if (!videoAvailable) {
+            log.warn("Video start ignored: camera does not support a usable video quality", null);
+            onPreview(view -> view.showError("Video recording unavailable on this camera"));
+            return;
+        }
         if (activeRecording != null) {
             if (type == DcamFileType.SOS) {
                 pendingRecordingType = DcamFileType.SOS;
@@ -181,6 +229,12 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         }
         String fileUserId = activeFileUserId();
         if (fileUserId == null) return;
+        if (lowStorageThresholdReached()) {
+            String warning = context.getString(R.string.low_storage_recording_blocked);
+            captureEvents.captureFailed("Storage", warning);
+            onPreview(view -> view.showError(warning));
+            return;
+        }
         if (!ensureStorageReady("Recording")) return;
         LocalDateTime at = LocalDateTime.now();
         boolean encrypt = mediaEncryptionSettings.isMediaEncryptionEnabled();
@@ -215,8 +269,15 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                             : "CameraX error " + done.getError();
                     log.error(operation + " failed: " + mediaFile.getFileName()
                             + " error=" + done.getError(), null);
-                    captureEvents.captureFailed(operation, detail);
-                    finishRecordingAttempt();
+                    if (storageFailure) {
+                        log.warn("Storage limit stopped recording; finalizing staged media: "
+                                + mediaFile.getFileName(), null);
+                        finalizeStorageLimitedRecording(mediaFile, encrypt,
+                                done.getOutputResults().getOutputUri());
+                    } else {
+                        captureEvents.captureFailed(operation, detail);
+                        finishRecordingAttempt();
+                    }
                 }
                 else {
                     try {
@@ -249,6 +310,34 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                         finishRecordingAttempt();
                     }
                 }
+            }
+        });
+    }
+
+    private void finalizeStorageLimitedRecording(DcamMediaFile mediaFile, boolean encrypt,
+            android.net.Uri savedUri) {
+        try {
+            if (encrypt) mediaOutput.encryptSaved(context, mediaFile, savedUri,
+                    config.getMediaEncryptionPassword());
+        } catch (Exception failure) {
+            reportFinalizationFailure("Recording encryption", mediaFile, failure);
+            finishRecordingAttempt();
+            return;
+        }
+        mediaOutput.finalizeSaved(context, mediaFile,
+                new DcamMediaOutput.FinalizationCallback() {
+            @Override public void onSuccess(java.io.File finalFile) {
+                onMain(() -> {
+                    captureEvents.recordingStoppedForStorage(mediaFile.getFileName());
+                    finishRecordingAttempt();
+                });
+            }
+
+            @Override public void onFailure(Exception failure) {
+                onMain(() -> {
+                    reportFinalizationFailure("Recording", mediaFile, failure);
+                    finishRecordingAttempt();
+                });
             }
         });
     }
@@ -303,6 +392,13 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         return false;
     }
 
+    private boolean lowStorageThresholdReached() {
+        int warningGb = context.getSharedPreferences("dcam_storage", Context.MODE_PRIVATE).getInt("warning_gb", 2);
+        long threshold = warningGb * 1024L * 1024L * 1024L;
+        long available = mediaOutput.availableBytesForNextCapture();
+        return available > 0L && available <= threshold;
+    }
+
     private String activeFileUserId() {
         OperatorSession session = operatorSession.current();
         if (session != null) return session.getFileUserId();
@@ -329,3 +425,5 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         cameraPreview = null;
     }
 }
+
+

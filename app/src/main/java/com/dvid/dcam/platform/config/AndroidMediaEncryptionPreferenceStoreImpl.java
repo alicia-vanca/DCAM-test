@@ -1,9 +1,9 @@
 package com.dvid.dcam.platform.config;
 
+import com.dvid.dcam.feature.settings.application.port.MediaEncryptionPreferenceStore;
 import android.content.Context;
 import android.content.SharedPreferences;
 import com.dvid.dcam.core.config.domain.DcamConfig;
-import com.dvid.dcam.feature.settings.application.port.MediaEncryptionPreferenceStore;
 
 /** Android SharedPreferences implementation of media encryption preference. */
 public final class AndroidMediaEncryptionPreferenceStoreImpl implements MediaEncryptionPreferenceStore {

@@ -1,9 +1,12 @@
 package com.dvid.dcam.platform.storage;
 
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCapacityPolicy;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.dvid.dcam.feature.settings.domain.StorageMode;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
+import com.dvid.dcam.feature.storage.domain.StorageMode;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 public class DcamStorageTest {
     @Test public void stagesVideoImageAndSosOutsideFinalMediaFolders() {
-        DcamStorage storage = new DcamStorage(StorageMode.INTERNAL, new File("AppData"));
+        DcamStorage storage = new DcamStorage(MediaPartitionLocation.INTERNAL, new File("AppData"));
         LocalDateTime at = LocalDateTime.of(2026, 6, 19, 10, 3, 24);
 
         assertEquals("AppData/Temp/DCAM_CAM001_000000_20260619_100324.mp4",
@@ -25,7 +28,7 @@ public class DcamStorageTest {
     }
 
     @Test public void stagesAudioBeforeDurablePublication() {
-        File file = new DcamStorage(StorageMode.INTERNAL, new File("AppData")).outputFile(
+        File file = new DcamStorage(MediaPartitionLocation.INTERNAL, new File("AppData")).outputFile(
                 DcamFileType.AUDIO, "CAM001", "000000",
                 LocalDateTime.of(2026, 6, 19, 10, 3, 24), false);
 
@@ -33,24 +36,24 @@ public class DcamStorageTest {
     }
 
     @Test public void buildsDeviceOnlyConfigPath() {
-        File file = new DcamStorage(StorageMode.INTERNAL, new File("AppData")).configsFile();
+        File file = new DcamStorage(MediaPartitionLocation.INTERNAL, new File("AppData")).configsFile();
 
         assertEquals("AppData/Config/dcam_config.cson", file.getPath().replace('\\', '/'));
     }
 
     @Test public void defaultsMissingStorageSettingToAutoAndReadsLegacyInternalAlias() {
-        assertEquals(StorageMode.AUTO, StorageMode.from(null));
-        assertEquals(StorageMode.AUTO, StorageMode.from(""));
-        assertEquals(StorageMode.INTERNAL, StorageMode.from("APP_DATA"));
+        assertEquals(MediaPartitionLocation.AUTO, MediaPartitionLocation.from(null));
+        assertEquals(MediaPartitionLocation.AUTO, MediaPartitionLocation.from(""));
+        assertEquals(MediaPartitionLocation.AUTO, MediaPartitionLocation.from("APP_DATA"));
     }
 
     @Test public void externalResolutionUsesOneMediaRootAndKeepsConfigInternal() {
         DcamStorage storage = new DcamStorage(
-                StorageMode.AUTO,
-                StorageMode.EXTERNAL,
+                MediaPartitionLocation.AUTO,
+                MediaPartitionLocation.EXTERNAL,
                 new File("InternalAppData"),
                 new File("ExternalAppData"),
-                new DcamStorageCapacityPolicy());
+                new CaptureStorageCapacityPolicy());
         LocalDateTime at = LocalDateTime.of(2026, 6, 19, 10, 3, 24);
 
         assertEquals("ExternalAppData/Temp/DCAM_CAM001_000000_20260619_100324.mp4",
@@ -67,8 +70,8 @@ public class DcamStorageTest {
         File internal = root.resolve("internal").toFile();
         File external = root.resolve("external").toFile();
         DcamStorage storage = new DcamStorage(
-                StorageMode.AUTO, StorageMode.EXTERNAL, internal, external,
-                new DcamStorageCapacityPolicy());
+                MediaPartitionLocation.AUTO, MediaPartitionLocation.EXTERNAL, internal, external,
+                new CaptureStorageCapacityPolicy());
         DcamMediaFile media = storage.durableAudioMediaFile(
                 "CAM001", "000000", LocalDateTime.of(2026, 7, 14, 16, 22, 7), false);
         Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});
@@ -83,4 +86,13 @@ public class DcamStorageTest {
     }
 
     private static String path(File file) { return file.getPath().replace('\\', '/'); }
+    @Test public void publicationPolicyUsesStorageModeFlag() {
+        assertFalse(new DcamStorage(StorageMode.APP_DATA, MediaPartitionLocation.INTERNAL,
+                new File("AppData")).isPublicDcim());
+        assertTrue(new DcamStorage(StorageMode.PUBLIC_DCIM, MediaPartitionLocation.INTERNAL,
+                new File("AppData")).isPublicDcim());
+    }
 }
+
+
+

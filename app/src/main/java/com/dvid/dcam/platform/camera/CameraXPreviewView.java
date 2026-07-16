@@ -57,6 +57,16 @@ public final class CameraXPreviewView extends FrameLayout {
         clearMessage();
     }
 
+    public void showStorageWarning(String text) {
+        message.setVisibility(VISIBLE);
+        message.setTextColor(Color.rgb(255, 196, 0));
+        message.setText(text);
+    }
+
+    public void clearStorageWarning() {
+        clearMessage();
+    }
+
     void showError(String text) {
         message.setVisibility(VISIBLE);
         message.setTextColor(Color.RED);
