@@ -87,7 +87,7 @@ public final class DcamKioskController {
             devicePolicyManager.clearPackagePersistentPreferredActivities(admin, packageName);
             devicePolicyManager.setPermissionPolicy(
                     admin, DevicePolicyManager.PERMISSION_POLICY_PROMPT);
-            for (String permission : DcamPermissions.runtime()) {
+            for (String permission : DcamPermissions.allRuntime()) {
                 devicePolicyManager.setPermissionGrantState(
                         admin, packageName, permission,
                         DevicePolicyManager.PERMISSION_GRANT_STATE_DEFAULT);
@@ -111,7 +111,7 @@ public final class DcamKioskController {
     }
 
     private void grantRuntimePermissions() {
-        for (String permission : DcamPermissions.runtime()) {
+        for (String permission : DcamPermissions.allRuntime()) {
             boolean granted = devicePolicyManager.setPermissionGrantState(
                     admin, packageName, permission,
                     DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED);

@@ -11,12 +11,12 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
+import android.widget.Switch;
 import android.widget.RadioGroup;
 import java.util.ArrayList;
 import android.widget.SeekBar;
@@ -134,13 +134,13 @@ public final class SettingsControlRenderer {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView labelView = label(label);
-        CheckBox checkBox = new CheckBox(context);
-        checkBox.setChecked(checked);
-        checkBox.setOnCheckedChangeListener((button, isChecked) -> {
+        Switch switchView = new Switch(context);
+        switchView.setChecked(checked);
+        switchView.setOnCheckedChangeListener((button, isChecked) -> {
             if (onChanged != null) onChanged.accept(isChecked);
         });
         row.addView(labelView, weighted());
-        row.addView(checkBox, wrap());
+        row.addView(switchView, wrap());
         parent.addView(row);
     }
 

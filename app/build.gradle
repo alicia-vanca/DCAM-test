@@ -71,6 +71,7 @@ dependencies {
     implementation project(':core')
 
     implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.fragment:fragment:1.5.4'
     implementation 'androidx.lifecycle:lifecycle-livedata:2.11.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel:2.11.0'
     implementation "androidx.camera:camera-camera2:${cameraXVersion}"
@@ -81,6 +82,7 @@ dependencies {
     implementation "androidx.room:room-runtime:${roomVersion}"
     annotationProcessor "androidx.room:room-compiler:${roomVersion}"
     implementation 'org.springframework.security:spring-security-crypto:6.3.1'
+    implementation 'com.google.android.gms:play-services-location:21.3.0'
 
     testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:${junitVersion}"

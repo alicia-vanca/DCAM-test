@@ -85,4 +85,17 @@
     <string name="low_storage_preview_warning">Low storage: %1$s free</string>
     <string name="low_storage_recording_blocked">Low storage. Video and important recording are unavailable.</string>
     <string name="storage_capture_stopped">Storage almost full. Recording stopped and saved safely.</string>
-</resources>
+    <string name="gps_use_location">Use GPS</string>
+    <string name="gps_sampling_section">GPS sampling</string>
+    <string name="gps_positioning_mode">Positioning mode</string>
+    <string name="gps_update_distance">Update distance (m)</string>
+    <string name="gps_report_interval">Report interval (s)</string>
+    <string name="gps_mode_gps">GPS</string>
+    <string name="gps_mode_gps_agps">GPS + AGPS</string>
+    <string name="gps_mode_gmap">GMAP</string>
+    <string name="gps_settings_unavailable">Location settings are unavailable</string>
+    <string name="gps_permission_required">GPS permission required</string>
+    <string name="gps_location_disabled">Location is disabled</string>
+    <string name="gps_unavailable">GPS is unavailable</string>
+    <string name="gps_provider_error">GPS provider error</string>
+    <string name="gps_waiting_for_fix">Waiting for GPS fix</string></resources>

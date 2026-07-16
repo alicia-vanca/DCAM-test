@@ -61,4 +61,17 @@
     <string name="low_storage_preview_warning">Dung l&#432;&#7907;ng th&#7845;p: c&#242;n tr&#7889;ng %1$s</string>
     <string name="low_storage_recording_blocked">Dung l&#432;&#7907;ng th&#7845;p. Kh&#244;ng th&#7875; ghi video ho&#7863;c b&#7843;n ghi quan tr&#7885;ng.</string>
     <string name="storage_capture_stopped">Dung l&#432;&#7907;ng g&#7847;n &#273;&#7847;y. &#272;&#227; d&#7915;ng ghi v&#224; l&#432;u an to&#224;n.</string>
-</resources>
+    <string name="gps_use_location">S&#7917; d&#7909;ng GPS</string>
+    <string name="gps_sampling_section">L&#7845;y m&#7851;u GPS</string>
+    <string name="gps_positioning_mode">Ch&#7871; &#273;&#7897; &#273;&#7883;nh v&#7883;</string>
+    <string name="gps_update_distance">Kho&#7843;ng c&#225;ch c&#7853;p nh&#7853;t (m)</string>
+    <string name="gps_report_interval">T&#7847;n su&#7845;t b&#225;o c&#225;o (gi&#226;y)</string>
+    <string name="gps_mode_gps">GPS</string>
+    <string name="gps_mode_gps_agps">GPS + AGPS</string>
+    <string name="gps_mode_gmap">GMAP</string>
+    <string name="gps_settings_unavailable">Kh&#244;ng th&#7875; m&#7903; c&#224;i &#273;&#7863;t Location</string>
+    <string name="gps_permission_required">C&#7847;n quy&#7873;n truy c&#7853;p GPS</string>
+    <string name="gps_location_disabled">Location &#273;ang t&#7855;t</string>
+    <string name="gps_unavailable">GPS kh&#244;ng kh&#7843; d&#7909;ng</string>
+    <string name="gps_provider_error">L&#7895;i provider GPS</string>
+    <string name="gps_waiting_for_fix">&#272;ang ch&#7901; t&#237;n hi&#7879;u GPS</string></resources>
