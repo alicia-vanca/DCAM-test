@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
+import android.os.StatFs;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -14,11 +15,13 @@ import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.PopupWindow;
+import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import java.util.ArrayList;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import java.io.File;
 import com.dvid.dcam.R;
 import java.util.List;
 import java.util.function.BiConsumer;
@@ -183,10 +186,12 @@ public final class SettingsControlRenderer {
         list.setAdapter(adapter);
 
         int width = choicePopupWidth(options);
+        int height = choicePopupHeight(options.size());
         PopupWindow popup = new PopupWindow(
-                list, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+                list, width, height, true);
         popup.setBackgroundDrawable(context.getDrawable(R.drawable.bg_choice_popup));
         popup.setOutsideTouchable(true);
+        popup.setClippingEnabled(true);
         list.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
             int position = action == MotionEvent.ACTION_CANCEL
@@ -415,6 +420,33 @@ public final class SettingsControlRenderer {
         parent.addView(row);
     }
 
+    private void addStorageBar(LinearLayout option, File root) {
+        long total = 0L;
+        long free = 0L;
+        if (root != null) {
+            try {
+                StatFs stats = new StatFs(root.getAbsolutePath());
+                total = stats.getTotalBytes();
+                free = stats.getAvailableBytes();
+            } catch (RuntimeException ignored) {}
+        }
+        long used = Math.max(0L, total - free);
+        TextView usage = value(root == null ? "Unavailable" : "Used " + formatStorage(used)
+                + " / " + formatStorage(total));
+        usage.setPadding(dp(52), 0, dp(4), 0);
+        option.addView(usage);
+        ProgressBar bar = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(1000);
+        bar.setProgress(total <= 0L ? 0 : (int) Math.min(1000.0, used * 1000.0 / total));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(10));
+        params.setMargins(dp(52), 0, dp(4), dp(6));
+        option.addView(bar, params);
+    }
+
+    private String formatStorage(long bytes) {
+        return String.format(java.util.Locale.US, "%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
+    }
     public void action(LinearLayout parent, String label, Runnable onClick) {
         LinearLayout row = baseRow();
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -481,6 +513,10 @@ public final class SettingsControlRenderer {
             widestText = Math.max(widestText, measureView.getPaint().measureText(option));
         }
         return Math.max(dp(96), (int) Math.ceil(widestText) + dp(34));
+    }
+
+    private int choicePopupHeight(int optionCount) {
+        return Math.max(dp(48), optionCount * dp(48) + Math.max(0, optionCount - 1));
     }
 
     private static int clamp(int value, int min, int max) {

@@ -44,6 +44,9 @@
     <string name="wifi_disconnected">Wi-Fi &#273;&#227; ng&#7855;t k&#7871;t n&#7889;i</string>
     <string name="wifi_signal_level">T&#237;n hi&#7879;u Wi-Fi m&#7913;c %1$d tr&#234;n 4</string>
     <string name="auto_rotate">T&#7921; xoay m&#224;n h&#236;nh</string>
+    <string name="write_settings_title">Cần quyền cài đặt hệ thống</string>
+    <string name="write_settings_required">Cho phép DCAM thay đổi các chế độ trong Cài đặt hệ thống.</string>
+    <string name="write_settings_unavailable">Không thể mở quyền thay đổi cài đặt hệ thống trên thiết bị này.</string>
     <string name="wifi">Wi-Fi</string>
     <string name="wifi_requires_device_owner">C&#7847;n quy&#7873;n Ch&#7911; s&#7903; h&#7919;u thi&#7871;t b&#7883; &#273;&#7875; &#273;i&#7873;u khi&#7875;n Wi-Fi</string>
     <string name="connect_wifi">K&#7871;t n&#7889;i Wi-Fi</string>
