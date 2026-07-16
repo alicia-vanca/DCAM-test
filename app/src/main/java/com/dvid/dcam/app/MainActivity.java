@@ -5,9 +5,11 @@ import android.content.Context;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.content.pm.ActivityInfo;
 import android.os.BatteryManager;
@@ -118,6 +120,9 @@ public final class MainActivity extends ComponentActivity {
     private ActivityResultLauncher<String[]> permissionLauncher;
     private DcamKioskController kioskController;
     private AndroidDeviceSettings deviceSettings;
+    private ContentObserver autoRotateObserver;
+    private boolean writeSettingsRequestInFlight;
+    private AlertDialog writeSettingsDialog;
     private MainUiState latestState;
     private MainScreen renderedScreen;
     private ScreenCameraBinding cameraScreen;
@@ -197,11 +202,11 @@ public final class MainActivity extends ComponentActivity {
         openMedia = composition.createOpenMediaUseCase(this);
         viewModel = new ViewModelProvider(
                 this, new MainViewModelFactory(
-                        composition.config(), composition.initialDeviceStatus(),
-                        composition.refreshDeviceStatusUseCase(), composition.browseMediaUseCase(),
-                        composition.authenticateOperatorUseCase(),
-                        composition.operatorSessionUseCase(),
-                        composition.manageOperatorUsersUseCase()))
+                composition.config(), composition.initialDeviceStatus(),
+                composition.refreshDeviceStatusUseCase(), composition.browseMediaUseCase(),
+                composition.authenticateOperatorUseCase(),
+                composition.operatorSessionUseCase(),
+                composition.manageOperatorUsersUseCase()))
                 .get(MainViewModel.class);
         viewModel.state().observe(this, this::render);
         ContextCompat.registerReceiver(this, wifiStateReceiver,
@@ -211,6 +216,8 @@ public final class MainActivity extends ComponentActivity {
 
     @Override protected void onResume() {
         super.onResume();
+        writeSettingsRequestInFlight = false;
+        syncAutoRotateFromDevice();
         hideSystemStatusBar();
         refreshWifiSetting();
         if (kioskController != null) {
@@ -220,6 +227,37 @@ public final class MainActivity extends ComponentActivity {
         if (viewModel != null) viewModel.refreshDeviceStatus();
         cameraClock.removeCallbacks(cameraClockTick);
         cameraClock.post(cameraClockTick);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        registerAutoRotateObserver();
+    }
+
+    @Override
+    protected void onStop() {
+        unregisterAutoRotateObserver();
+        super.onStop();
+    }
+
+    private void registerAutoRotateObserver() {
+        if (autoRotateObserver != null) return;
+        autoRotateObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+            @Override
+            public void onChange(boolean selfChange) {
+                syncAutoRotateFromDevice();
+            }
+        };
+        getContentResolver().registerContentObserver(
+                Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
+                false, autoRotateObserver);
+    }
+
+    private void unregisterAutoRotateObserver() {
+        if (autoRotateObserver == null) return;
+        getContentResolver().unregisterContentObserver(autoRotateObserver);
+        autoRotateObserver = null;
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -781,8 +819,12 @@ public final class MainActivity extends ComponentActivity {
             videoMd5Settings.setVideoMd5Enabled(checked);
         }
         if (id == SettingId.AUTO_ROTATE) {
-            deviceSettings.setAutoRotateEnabled(checked);
-            applyAutoRotate(checked);
+            if (deviceSettings.setAutoRotateEnabled(checked)) {
+                applyAutoRotate(checked);
+            } else {
+                syncAutoRotateFromDevice();
+                requestWriteSystemSettingsAccess();
+            }
         }
         if (id == SettingId.WIFI_ENABLED && !deviceSettings.setWifiEnabled(checked)) {
             settingsUiState.updateBoolean(id, deviceSettings.isWifiEnabled());
@@ -796,6 +838,52 @@ public final class MainActivity extends ComponentActivity {
         setRequestedOrientation(enabled
                 ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER
                 : ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+    }
+
+    private void syncAutoRotateFromDevice() {
+        if (deviceSettings == null || settingsUiState == null) return;
+        boolean enabled = deviceSettings.isAutoRotateEnabled();
+        settingsUiState.updateBoolean(SettingId.AUTO_ROTATE, enabled);
+        applyAutoRotate(enabled);
+        if (latestState != null) {
+            renderedScreen = null;
+            render(latestState);
+        }
+    }
+
+    private void requestWriteSystemSettingsAccess() {
+        if (deviceSettings == null || deviceSettings.canWriteSystemSettings()) {
+            syncAutoRotateFromDevice();
+            return;
+        }
+        if (writeSettingsRequestInFlight || isFinishing() || isDestroyed()
+                || writeSettingsDialog != null && writeSettingsDialog.isShowing()) return;
+        Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                Uri.parse("package:" + getPackageName()));
+        if (intent.resolveActivity(getPackageManager()) == null) {
+            FloatingNotice.show(this, R.string.write_settings_unavailable);
+            return;
+        }
+        writeSettingsDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.write_settings_title)
+                .setMessage(R.string.write_settings_required)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, (dialog, which) ->
+                        openWriteSystemSettings(intent))
+                .setOnDismissListener(dialog -> writeSettingsDialog = null)
+                .show();
+    }
+
+    private void openWriteSystemSettings(Intent intent) {
+        if (writeSettingsRequestInFlight || isFinishing() || isDestroyed()) return;
+        writeSettingsRequestInFlight = true;
+        try {
+            startActivity(intent);
+        } catch (RuntimeException failure) {
+            writeSettingsRequestInFlight = false;
+            DcamLogger.e("Unable to open modify system settings", failure);
+            FloatingNotice.show(this, R.string.write_settings_unavailable);
+        }
     }
 
     private void performSettingAction(SettingId id) {

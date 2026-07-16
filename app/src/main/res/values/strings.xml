@@ -68,6 +68,9 @@
     <string name="wifi_disconnected">Wi-Fi disconnected</string>
     <string name="wifi_signal_level">Wi-Fi signal level %1$d of 4</string>
     <string name="auto_rotate">Auto-rotate</string>
+    <string name="write_settings_title">System settings permission required</string>
+    <string name="write_settings_required">Allow DCAM to modify modes in System Settings.</string>
+    <string name="write_settings_unavailable">System settings access is unavailable on this device.</string>
     <string name="wifi">Wi-Fi</string>
     <string name="wifi_requires_device_owner">Wi-Fi control requires Device Owner</string>
     <string name="connect_wifi">Connect Wi-Fi</string>

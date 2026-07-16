@@ -186,10 +186,12 @@ public final class SettingsControlRenderer {
         list.setAdapter(adapter);
 
         int width = choicePopupWidth(options);
+        int height = choicePopupHeight(options.size());
         PopupWindow popup = new PopupWindow(
-                list, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+                list, width, height, true);
         popup.setBackgroundDrawable(context.getDrawable(R.drawable.bg_choice_popup));
         popup.setOutsideTouchable(true);
+        popup.setClippingEnabled(true);
         list.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
             int position = action == MotionEvent.ACTION_CANCEL
@@ -328,7 +330,7 @@ public final class SettingsControlRenderer {
         }
         long used = Math.max(0L, total - free);
         TextView usage = value(root == null ? "Unavailable" : "Used " + formatStorage(used)
-                + " / " + formatStorage(total));
+                                                              + " / " + formatStorage(total));
         usage.setPadding(dp(52), 0, dp(4), 0);
         option.addView(usage);
         ProgressBar bar = new ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal);
@@ -410,6 +412,10 @@ public final class SettingsControlRenderer {
             widestText = Math.max(widestText, measureView.getPaint().measureText(option));
         }
         return Math.max(dp(96), (int) Math.ceil(widestText) + dp(34));
+    }
+
+    private int choicePopupHeight(int optionCount) {
+        return Math.max(dp(48), optionCount * dp(48) + Math.max(0, optionCount - 1));
     }
 
     private static int clamp(int value, int min, int max) {

@@ -2,23 +2,34 @@ package com.dvid.dcam.platform.device;
 
 import android.app.admin.DevicePolicyManager;
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.net.wifi.WifiManager;
+import android.provider.Settings;
 
-/** Persistent app rotation preference and Device Owner Wi-Fi control. */
+/** Android system rotation and Device Owner Wi-Fi control. */
 public final class AndroidDeviceSettings {
-    private static final String PREFS_NAME = "dcam_device";
-    private static final String AUTO_ROTATE = "auto_rotate";
     private final Context context;
 
     public AndroidDeviceSettings(Context context) {
         this.context = context.getApplicationContext();
     }
 
-    public boolean isAutoRotateEnabled() { return prefs().getBoolean(AUTO_ROTATE, true); }
+    public boolean isAutoRotateEnabled() {
+        return Settings.System.getInt(context.getContentResolver(),
+                Settings.System.ACCELEROMETER_ROTATION, 1) == 1;
+    }
 
-    public void setAutoRotateEnabled(boolean enabled) {
-        prefs().edit().putBoolean(AUTO_ROTATE, enabled).apply();
+    public boolean canWriteSystemSettings() {
+        return Settings.System.canWrite(context);
+    }
+
+    public boolean setAutoRotateEnabled(boolean enabled) {
+        if (!canWriteSystemSettings()) return false;
+        try {
+            return Settings.System.putInt(context.getContentResolver(),
+                    Settings.System.ACCELEROMETER_ROTATION, enabled ? 1 : 0);
+        } catch (SecurityException denied) {
+            return false;
+        }
     }
 
     public boolean isWifiEnabled() {
@@ -36,9 +47,5 @@ public final class AndroidDeviceSettings {
         DevicePolicyManager policy = context.getSystemService(DevicePolicyManager.class);
         WifiManager wifi = context.getSystemService(WifiManager.class);
         return isDeviceOwner() && wifi != null && wifi.setWifiEnabled(enabled);
-    }
-
-    private SharedPreferences prefs() {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 }
