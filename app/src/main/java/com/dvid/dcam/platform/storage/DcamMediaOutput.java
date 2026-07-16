@@ -1,4 +1,5 @@
 package com.dvid.dcam.platform.storage;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 
 import android.content.Context;
 import android.net.Uri;
@@ -20,6 +21,7 @@ public interface DcamMediaOutput {
     DcamMediaFile durableAudioMediaFile(
             String cameraId, String fileUserId, LocalDateTime at, boolean encrypted) throws IOException;
     CaptureStorageCheck checkCaptureReady();
+    long availableBytesForNextCapture();
     long recordingFileSizeLimit();
     ImageCapture.OutputFileOptions imageOptions(Context context, DcamMediaFile mediaFile);
     PendingRecording prepareVideoRecording(

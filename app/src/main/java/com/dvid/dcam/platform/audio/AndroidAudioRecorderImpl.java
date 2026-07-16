@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.audio;
 
+import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -11,9 +12,8 @@ import com.dvid.dcam.core.logging.application.port.LogSink;
 import com.dvid.dcam.feature.capture.application.port.AudioRecorder;
 import com.dvid.dcam.feature.auth.application.usecase.OperatorSessionUseCase;
 import com.dvid.dcam.feature.auth.domain.OperatorSession;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
 import com.dvid.dcam.platform.storage.DcamFileType;
-import com.dvid.dcam.platform.storage.CaptureStorageCheck;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
 import com.dvid.dcam.platform.recording.RecordingForegroundService;

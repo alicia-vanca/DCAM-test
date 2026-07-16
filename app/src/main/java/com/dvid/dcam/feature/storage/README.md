@@ -1,19 +1,20 @@
 # Storage
 
-Trạng thái: planned feature, chưa implement.
+Status: implemented.
 
-Feature này dành cho nghiệp vụ storage ở mức app, ví dụ chính sách dung lượng, cleanup policy, hoặc quy tắc lưu trữ theo nghiệp vụ.
+`feature.storage` owns Android-free storage policy and application boundaries:
 
-Filesystem/MediaStore implementation cụ thể nên nằm ở `platform/storage`.
+- Publication policy: `StorageMode` (`APP_DATA`, `PUBLIC_DCIM`).
+- Physical partition preference: `MediaPartitionLocation` (`INTERNAL`, `EXTERNAL`, `AUTO`).
+- Capacity checks, active-volume status, warning state, and recovery result.
+- Application ports for preferences, capacity snapshots, active runtime policy, and active volume.
+- `StorageSettingsUseCase` keeps persisted preference and live capture policy synchronized.
 
-Khi bắt đầu implement, thêm code theo cấu trúc:
+Android filesystem, MediaStore, SharedPreferences, mount handling, and storage resolution adapters live under `platform/storage` and `platform/config`. Concrete wiring lives in `AppComposition`.
 
-```text
-storage/
-├── domain/
-├── application/
-│   ├── usecase/
-│   └── port/
-└── presentation/     nếu feature có UI state riêng
-```
+Rules:
 
+- Keep storage selection policy single-source through `DcamStorageRootResolver`.
+- Never infer publication mode from paths; use `StorageMode`.
+- Never use enum ordinals as UI or persistence IDs.
+- Changing partition preference must update the active runtime policy before the next capture.

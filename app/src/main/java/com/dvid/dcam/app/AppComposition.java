@@ -1,5 +1,11 @@
 package com.dvid.dcam.app;
 
+import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCase;
+import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCaseImpl;
+import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
+import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCaseImpl;
+import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCase;
+import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCaseImpl;
 import android.content.Context;
 import android.view.View;
 import androidx.activity.ComponentActivity;
@@ -43,14 +49,12 @@ import com.dvid.dcam.feature.media.application.usecase.BrowseMediaUseCase;
 import com.dvid.dcam.feature.media.application.usecase.BrowseMediaUseCaseImpl;
 import com.dvid.dcam.feature.media.application.usecase.OpenMediaUseCase;
 import com.dvid.dcam.feature.media.application.usecase.OpenMediaUseCaseImpl;
-import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCaseImpl;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCaseImpl;
-import com.dvid.dcam.feature.settings.application.usecase.StorageSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.StorageSettingsUseCaseImpl;
-import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.VideoMd5SettingsUseCaseImpl;
+import com.dvid.dcam.feature.storage.application.usecase.StorageSettingsUseCase;
+import com.dvid.dcam.feature.storage.application.usecase.StorageSettingsUseCaseImpl;
+import com.dvid.dcam.feature.storage.application.port.MediaPartitionLocationPreferenceStore;
+import com.dvid.dcam.feature.storage.domain.StorageMode;
+import com.dvid.dcam.feature.storage.domain.StorageRecoveryResult;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import com.dvid.dcam.platform.audio.AndroidAudioRecorderImpl;
 import com.dvid.dcam.platform.auth.AndroidBootIdentitySourceImpl;
 import com.dvid.dcam.platform.auth.RoomOperatorAuthRepositoryImpl;
@@ -59,7 +63,8 @@ import com.dvid.dcam.platform.camera.CameraXPreviewView;
 import com.dvid.dcam.platform.config.AndroidLanguagePreferenceStoreImpl;
 import com.dvid.dcam.platform.config.AndroidMediaEncryptionPreferenceStoreImpl;
 import com.dvid.dcam.platform.config.AndroidVideoMd5PreferenceStoreImpl;
-import com.dvid.dcam.platform.config.AndroidStorageModePreferenceStoreImpl;
+import com.dvid.dcam.platform.config.AndroidMediaPartitionLocationPreferenceStoreImpl;
+import com.dvid.dcam.platform.config.AndroidStorageWarningPreferenceStoreImpl;
 import com.dvid.dcam.platform.config.CsonConfigurationSourceImpl;
 import com.dvid.dcam.platform.database.AppDatabase;
 import com.dvid.dcam.platform.device.AndroidDeviceRepositoryImpl;
@@ -75,6 +80,7 @@ import com.dvid.dcam.platform.logging.DcamLogger;
 import com.dvid.dcam.platform.storage.AndroidMediaOpenerImpl;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
 import com.dvid.dcam.platform.storage.DcamMediaOutputImpl;
+import com.dvid.dcam.platform.storage.AndroidStorageCapacitySourceImpl;
 import com.dvid.dcam.platform.storage.DcamStorage;
 import com.dvid.dcam.platform.storage.LocalMediaRepositoryImpl;
 import java.util.function.BiConsumer;
@@ -107,9 +113,15 @@ public final class AppComposition {
 
     private AppComposition(Context context) {
         deviceSettings = new AndroidDeviceSettings(context);
+        MediaPartitionLocationPreferenceStore partitionPreferences =
+                new AndroidMediaPartitionLocationPreferenceStoreImpl(context, "AUTO");
+        MediaPartitionLocation initialPartition = partitionPreferences.currentMediaPartitionLocation();
+        storage = DcamStorage.from(context, StorageMode.from(BuildConfig.DEFAULT_STORAGE_MODE),
+                initialPartition);
         storageSettings = new StorageSettingsUseCaseImpl(
-                new AndroidStorageModePreferenceStoreImpl(context, BuildConfig.STORAGE_MODE));
-        storage = DcamStorage.from(context, storageSettings.currentMode());
+                partitionPreferences,
+                new AndroidStorageCapacitySourceImpl(context),
+                new AndroidStorageWarningPreferenceStoreImpl(context), storage, storage);
 
         DeviceRepository deviceRepository = new AndroidDeviceRepositoryImpl(context, storage::captureRoot);
         DeviceInfo deviceInfo = deviceRepository.readInfo();
@@ -193,6 +205,11 @@ public final class AppComposition {
     public VideoMd5SettingsUseCase videoMd5SettingsUseCase() { return videoMd5Settings; }
     public StorageSettingsUseCase storageSettingsUseCase() { return storageSettings; }
     public AndroidDeviceSettings deviceSettings() { return deviceSettings; }
+    public void reloadRecordingQuality() { recordingCamera.reloadVideoQuality(); }
+    public void recoverMountedStorage(java.util.function.Consumer<StorageRecoveryResult> callback) {
+        mediaOutput.recoverStaged(report -> callback.accept(new StorageRecoveryResult(
+                report.getRecovered(), report.getPreserved(), report.getDuplicates())));
+    }
     public AuthenticateOperatorUseCase authenticateOperatorUseCase() { return authenticateOperator; }
     public OperatorSessionUseCase operatorSessionUseCase() { return operatorSession; }
     public ManageOperatorUsersUseCase manageOperatorUsersUseCase() { return manageUsers; }
@@ -252,6 +269,8 @@ public final class AppComposition {
         }
 
         public View cameraPreview() { return cameraPreview; }
+        public void showStorageWarning(String message) { cameraPreview.showStorageWarning(message); }
+        public void clearStorageWarning() { cameraPreview.clearStorageWarning(); }
         public PhotoCaptureUseCase photoCapture() { return photos; }
         public VideoRecordingUseCase videoRecording() { return videos; }
         public AudioRecordingUseCase audioRecording() { return audio; }
@@ -274,3 +293,16 @@ public final class AppComposition {
         @Override public Lifecycle getLifecycle() { return lifecycle; }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

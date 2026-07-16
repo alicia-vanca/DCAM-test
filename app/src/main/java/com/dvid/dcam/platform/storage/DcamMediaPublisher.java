@@ -11,7 +11,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
 
-/** Copies, flushes and verifies staging before exposing a final media path. */
+/** Copies staging by default and uses same-filesystem move when low space makes copying unsafe. */
 final class DcamMediaPublisher {
     private static final int COPY_BUFFER_BYTES = 64 * 1024;
 
@@ -26,6 +26,10 @@ final class DcamMediaPublisher {
             throw new IOException("Cannot create final media directory: " + parent);
         }
         if (target.exists()) throw new IOException("Final media already exists: " + target);
+
+        if (parent.getUsableSpace() < staging.length() && sameFileStore(staging, parent)) {
+            return atomicMove(staging, target, calculateMd5);
+        }
 
         File partial = new File(parent, "." + target.getName() + ".publishing-" + UUID.randomUUID());
         boolean targetCreated = false;
@@ -60,6 +64,36 @@ final class DcamMediaPublisher {
         if (!file.isFile() || !file.canRead() || file.length() <= 0L) {
             throw new IOException("Invalid " + label + ": " + file);
         }
+    }
+
+    private static boolean sameFileStore(File source, File targetDirectory) {
+        try {
+            return Files.getFileStore(source.toPath()).equals(
+                    Files.getFileStore(targetDirectory.toPath()));
+        } catch (IOException failure) {
+            return false;
+        }
+    }
+
+    private static Publication atomicMove(File staging, File target, boolean calculateMd5)
+            throws IOException {
+        String md5 = null;
+        if (calculateMd5) {
+            MessageDigest digest = md5();
+            try (var input = Files.newInputStream(staging.toPath())) {
+                byte[] buffer = new byte[COPY_BUFFER_BYTES];
+                int read;
+                while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
+            }
+            md5 = hex(digest.digest());
+        }
+        try {
+            Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(staging.toPath(), target.toPath());
+        }
+        validate(target, "final media");
+        return new Publication(target, md5);
     }
 
     private static String copyAndSync(File source, File target, boolean calculateMd5)

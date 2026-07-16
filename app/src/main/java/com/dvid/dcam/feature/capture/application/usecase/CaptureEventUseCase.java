@@ -11,6 +11,7 @@ public interface CaptureEventUseCase {
     RecordingMode currentMode();
     void recordingStarted(RecordingMode mode, String fileName);
     void recordingCompleted(String fileName);
+    void recordingStoppedForStorage(String fileName);
     void photoSaved(String fileName);
     void captureFailed(String operation, String message);
 }

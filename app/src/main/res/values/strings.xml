@@ -71,4 +71,15 @@
     <string name="wifi">Wi-Fi</string>
     <string name="wifi_requires_device_owner">Wi-Fi control requires Device Owner</string>
     <string name="connect_wifi">Connect Wi-Fi</string>
+    <string name="default_storage">Default storage</string>
+    <string name="low_storage_warning">Low-storage warning</string>
+    <string name="storage_internal">Internal</string>
+    <string name="storage_external">External</string>
+    <string name="storage_auto">Auto</string>
+    <string name="storage_auto_description">Prioritize External; use Internal when External is unavailable or lacks capacity</string>
+    <string name="storage_unavailable">Unavailable</string>
+    <string name="storage_usage">%1$s / %2$s</string>
+    <string name="low_storage_preview_warning">Low storage: %1$s free</string>
+    <string name="low_storage_recording_blocked">Low storage. Video and important recording are unavailable.</string>
+    <string name="storage_capture_stopped">Storage almost full. Recording stopped and saved safely.</string>
 </resources>

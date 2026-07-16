@@ -1,8 +1,8 @@
 package com.dvid.dcam.platform.config;
 
+import com.dvid.dcam.feature.settings.application.port.VideoMd5PreferenceStore;
 import android.content.Context;
 import android.content.SharedPreferences;
-import com.dvid.dcam.feature.settings.application.port.VideoMd5PreferenceStore;
 
 public final class AndroidVideoMd5PreferenceStoreImpl implements VideoMd5PreferenceStore {
     private static final String PREFS_NAME = "dcam_video_md5";

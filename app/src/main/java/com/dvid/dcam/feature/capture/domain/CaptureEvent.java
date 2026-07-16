@@ -7,6 +7,7 @@ public final class CaptureEvent {
         RECORDING_STARTED,
         RECORDING_STOPPING,
         RECORDING_COMPLETED,
+        RECORDING_STOPPED_FOR_STORAGE,
         PHOTO_SAVED,
         ERROR
     }
@@ -40,6 +41,9 @@ public final class CaptureEvent {
 
     public static CaptureEvent recordingCompleted(String fileName) {
         return new CaptureEvent(Type.RECORDING_COMPLETED, RecordingMode.IDLE, fileName, null, null);
+    }
+    public static CaptureEvent recordingStoppedForStorage(String fileName) {
+        return new CaptureEvent(Type.RECORDING_STOPPED_FOR_STORAGE, RecordingMode.IDLE, fileName, null, null);
     }
 
     public static CaptureEvent photoSaved(String fileName) {

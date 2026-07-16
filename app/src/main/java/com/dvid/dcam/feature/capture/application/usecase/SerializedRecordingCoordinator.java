@@ -119,6 +119,14 @@ public final class SerializedRecordingCoordinator
             listener.accept(CaptureEvent.recordingCompleted(fileName));
         });
     }
+    @Override public void recordingStoppedForStorage(String fileName) {
+        queue.execute(() -> {
+            currentMode = RecordingMode.IDLE;
+            requestedMode = RecordingMode.IDLE;
+            phase = Phase.IDLE;
+            listener.accept(CaptureEvent.recordingStoppedForStorage(fileName));
+        });
+    }
 
     @Override public void photoSaved(String fileName) {
         queue.execute(() -> listener.accept(CaptureEvent.photoSaved(fileName)));

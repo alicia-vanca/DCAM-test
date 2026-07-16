@@ -17,7 +17,8 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
-    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <application
         android:name=".app.DcamApplication"
@@ -74,7 +75,7 @@
         </receiver>
 
         <receiver
-            android:name=".platform.storage.DcamStorageMountedReceiver"
+            android:name=".app.DcamStorageMountedReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
@@ -110,3 +111,4 @@
     </application>
 
 </manifest>
+

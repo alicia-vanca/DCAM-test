@@ -253,6 +253,10 @@ public final class MainViewModel extends ViewModel {
             case RECORDING_COMPLETED:
                 state.setValue(current().withCapture(new CaptureState(), "Saved " + event.getFileName()));
                 break;
+            case RECORDING_STOPPED_FOR_STORAGE:
+                state.setValue(current().withCapture(new CaptureState(),
+                        "Storage stopped " + event.getFileName()));
+                break;
             case PHOTO_SAVED:
                 state.setValue(current().withMessage("Saved " + event.getFileName()));
                 break;

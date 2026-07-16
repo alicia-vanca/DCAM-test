@@ -1,13 +1,13 @@
 package com.dvid.dcam.platform.config;
 
+import com.dvid.dcam.feature.settings.application.port.LanguagePreferenceStore;
+import com.dvid.dcam.feature.settings.domain.AppLanguage;
 import android.app.LocaleManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.LocaleList;
-import com.dvid.dcam.feature.settings.application.port.LanguagePreferenceStore;
-import com.dvid.dcam.feature.settings.domain.AppLanguage;
 import java.util.Locale;
 
 /** Android SharedPreferences/Locale implementation of language preference. */

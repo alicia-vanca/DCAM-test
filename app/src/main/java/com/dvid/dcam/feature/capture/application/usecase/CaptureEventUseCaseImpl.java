@@ -31,6 +31,10 @@ public final class CaptureEventUseCaseImpl implements CaptureEventUseCase {
         currentMode = RecordingMode.IDLE;
         listener.accept(CaptureEvent.recordingCompleted(fileName));
     }
+    @Override public void recordingStoppedForStorage(String fileName) {
+        currentMode = RecordingMode.IDLE;
+        listener.accept(CaptureEvent.recordingStoppedForStorage(fileName));
+    }
 
     @Override public void photoSaved(String fileName) {
         listener.accept(CaptureEvent.photoSaved(fileName));
