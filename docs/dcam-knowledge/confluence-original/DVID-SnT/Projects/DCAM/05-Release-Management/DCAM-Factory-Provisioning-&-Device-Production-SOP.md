@@ -256,7 +256,7 @@ Không thuộc DSetup Tool Design.
 
 Exact serial injection command/action/component
 
-Thu��c DCAM DSetup Factory Tool Design + Android/Security approval.
+Thuộc DCAM DSetup Factory Tool Design + Android/Security approval.
 
 Exact Device Owner component/command wrapper
 

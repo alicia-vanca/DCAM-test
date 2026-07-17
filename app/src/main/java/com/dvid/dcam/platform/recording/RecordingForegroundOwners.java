@@ -1,8 +1,12 @@
 package com.dvid.dcam.platform.recording;
 
 final class RecordingForegroundOwners {
+    private static final RecordingForegroundOwners PROCESS = new RecordingForegroundOwners();
+
     private boolean video;
     private boolean audio;
+
+    static RecordingForegroundOwners processOwners() { return PROCESS; }
 
     void startVideo() { video = true; }
     void startAudio() { audio = true; }

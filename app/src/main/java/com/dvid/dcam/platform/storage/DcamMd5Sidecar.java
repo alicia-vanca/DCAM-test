@@ -13,6 +13,10 @@ final class DcamMd5Sidecar {
 
     static File write(File media, String digest) throws IOException {
         File sidecar = new File(media.getParentFile(), baseName(media.getName()) + ".md5");
+        if (sidecar.isFile()
+                && digest.equals(new String(Files.readAllBytes(sidecar.toPath()), StandardCharsets.US_ASCII).trim())) {
+            return sidecar;
+        }
         File partial = new File(media.getParentFile(), "." + sidecar.getName()
                 + ".publishing-" + UUID.randomUUID());
         byte[] content = (digest + System.lineSeparator()).getBytes(StandardCharsets.US_ASCII);
@@ -22,10 +26,13 @@ final class DcamMd5Sidecar {
                 output.flush();
                 output.getFD().sync();
             }
-            Files.move(partial.toPath(), sidecar.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            Files.move(partial.toPath(), sidecar.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+            forceDirectory(sidecar);
             return sidecar;
         } catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
-            Files.move(partial.toPath(), sidecar.toPath());
+            Files.move(partial.toPath(), sidecar.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            forceDirectory(sidecar);
             return sidecar;
         } finally {
             Files.deleteIfExists(partial.toPath());
@@ -35,5 +42,11 @@ final class DcamMd5Sidecar {
     private static String baseName(String name) {
         int dot = name.lastIndexOf('.');
         return dot < 0 ? name : name.substring(0, dot);
+    }
+
+    private static void forceDirectory(File file) {
+        try (var directory = java.nio.channels.FileChannel.open(file.getParentFile().toPath())) {
+            directory.force(true);
+        } catch (IOException ignored) { }
     }
 }

@@ -23,7 +23,7 @@ public final class AndroidMediaPartitionLocationPreferenceStoreImpl implements M
     }
 
     @Override public void selectMediaPartitionLocation(MediaPartitionLocation mode) {
-        prefs().edit().putString(KEY_MODE, mode.name()).apply();
+        prefs().edit().putString(KEY_MODE, mode.name()).commit();
     }
 
     private SharedPreferences prefs() {

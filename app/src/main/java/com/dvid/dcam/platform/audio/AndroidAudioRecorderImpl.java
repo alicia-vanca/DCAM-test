@@ -116,14 +116,16 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
             next.setOutputFile(outputStream.getFD());
             recorder = next;
             next.prepare();
-            next.start();
-            startDurabilitySync();
-            if (!RecordingForegroundService.startAudio(context, outputMediaFile.getFileName())) {
-                log.warn("Could not start audio foreground service", null);
+            if (!startProtectedRecording(
+                    () -> RecordingForegroundService.startAudio(context, outputMediaFile.getFileName()),
+                    next::start)) {
+                throw new IllegalStateException("Could not start audio foreground protection");
             }
+            startDurabilitySync();
             log.info("Audio started: " + outputFile.getAbsolutePath());
             return outputMediaFile.getFileName();
         } catch (Exception error) {
+            RecordingForegroundService.stopAudio(context);
             stopDurabilitySync();
             if (recorder != null) recorder.release();
             closeOutput();
@@ -140,8 +142,18 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
             syncOutput();
             recorder.release(); recorder = null;
             closeOutput();
+            outputMediaFile = null;
+            outputFile = null;
+            outputEncrypted = false;
         }
         RecordingForegroundService.stopAudio(context);
+    }
+
+    static boolean startProtectedRecording(
+            java.util.function.BooleanSupplier foregroundStarter, Runnable recorderStarter) {
+        if (!foregroundStarter.getAsBoolean()) return false;
+        recorderStarter.run();
+        return true;
     }
 
     @Override public boolean isRecording() { return recorder != null; }

@@ -1,7 +1,9 @@
 package com.dvid.dcam.feature.settings.presentation;
 
 import android.content.Context;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.StatFs;
@@ -28,6 +30,8 @@ import android.widget.TextView;
 import java.io.File;
 import com.dvid.dcam.R;
 import java.util.List;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
@@ -35,6 +39,7 @@ import java.util.function.IntConsumer;
 /** Renders consistent settings controls for the settings presentation surface. */
 public final class SettingsControlRenderer {
     private final Context context;
+    private final Map<SettingId, View> renderedRows = new EnumMap<>(SettingId.class);
 
     public SettingsControlRenderer(Context context) {
         this.context = context;
@@ -47,6 +52,7 @@ public final class SettingsControlRenderer {
             BiConsumer<SettingId, Integer> onNumber,
             BiConsumer<SettingId, Boolean> onBoolean,
             Consumer<SettingId> onAction) {
+        renderedRows.clear();
         for (SettingsSection section : model.getSections()) {
             section(parent, section.getTitle());
             for (SettingItem item : section.getItems()) {
@@ -91,26 +97,49 @@ public final class SettingsControlRenderer {
                 }
                 if (!item.isEnabled() && parent.getChildCount() > childCount) {
                     View row = parent.getChildAt(parent.getChildCount() - 1);
+                    if (item.getId() != null) renderedRows.put(item.getId(), row);
                     row.setEnabled(false);
                     row.setAlpha(0.45f);
                     disableChildren(row);
                 }
                 if (item.getIndentLevel() > 0 && parent.getChildCount() > childCount) {
                     View row = parent.getChildAt(parent.getChildCount() - 1);
+                    if (item.getId() != null) renderedRows.put(item.getId(), row);
                     row.setPadding(row.getPaddingLeft() + dp(24 * item.getIndentLevel()),
                             row.getPaddingTop(), row.getPaddingRight(), row.getPaddingBottom());
                     row.setBackgroundColor(Color.rgb(22, 29, 37));
+                }
+                if (parent.getChildCount() > childCount) {
+                    if (item.getId() != null) {
+                        renderedRows.put(item.getId(), parent.getChildAt(parent.getChildCount() - 1));
+                    }
                 }
             }
         }
     }
 
+    public void refreshEnabledStates(SettingsScreenModel model) {
+        for (SettingsSection section : model.getSections()) {
+            for (SettingItem item : section.getItems()) {
+                View row = renderedRows.get(item.getId());
+                if (row == null) continue;
+                row.setEnabled(item.isEnabled());
+                row.setAlpha(item.isEnabled() ? 1f : 0.45f);
+                setChildrenEnabled(row, item.isEnabled());
+            }
+        }
+    }
+
     private static void disableChildren(View view) {
-        view.setEnabled(false);
+        setChildrenEnabled(view, false);
+    }
+
+    private static void setChildrenEnabled(View view, boolean enabled) {
+        view.setEnabled(enabled);
         if (!(view instanceof ViewGroup)) return;
         ViewGroup group = (ViewGroup) view;
         for (int index = 0; index < group.getChildCount(); index++) {
-            disableChildren(group.getChildAt(index));
+            setChildrenEnabled(group.getChildAt(index), enabled);
         }
     }
 
@@ -143,9 +172,33 @@ public final class SettingsControlRenderer {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView labelView = label(label);
-        Switch switchView = new Switch(context);
+        Switch switchView = new Switch(context) {
+            private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+            @Override protected void onDraw(Canvas canvas) {
+                int trackColor = isEnabled()
+                        ? (isChecked() ? Color.rgb(0, 150, 136) : Color.rgb(176, 176, 176))
+                        : Color.rgb(158, 158, 158);
+                trackPaint.setColor(trackColor);
+                float trackWidth = dp(36);
+                float trackHeight = dp(14);
+                float left = (getWidth() - trackWidth) / 2f;
+                float top = (getHeight() - trackHeight) / 2f;
+                canvas.drawRoundRect(left, top, left + trackWidth, top + trackHeight,
+                        trackHeight / 2f, trackHeight / 2f, trackPaint);
+                super.onDraw(canvas);
+            }
+        };
+        switchView.setShowText(false);
+        switchView.setSwitchMinWidth(dp(48));
         switchView.setThumbTintList(context.getColorStateList(R.color.settings_switch_thumb_tint));
-        switchView.setTrackTintList(context.getColorStateList(R.color.settings_switch_track_tint));
+        android.graphics.drawable.GradientDrawable transparentTrack =
+                new android.graphics.drawable.GradientDrawable();
+        transparentTrack.setColor(Color.TRANSPARENT);
+        transparentTrack.setSize(dp(36), dp(14));
+        transparentTrack.setCornerRadius(dp(7));
+        switchView.setTrackDrawable(transparentTrack);
+        switchView.setTrackTintList(null);
         switchView.setChecked(checked);
         switchView.setOnCheckedChangeListener((button, isChecked) -> {
             if (onChanged != null) onChanged.accept(isChecked);
@@ -313,10 +366,7 @@ public final class SettingsControlRenderer {
         for (int i = 0; i < options.size(); i++) {
             RadioButton button = new RadioButton(context);
             button.setText(options.get(i));
-            button.setTextColor(Color.WHITE);
-            button.setTextSize(14);
-            button.setMinHeight(dp(34));
-            button.setMinimumHeight(dp(34));
+            styleRadioButton(button);
             button.setId(View.generateViewId());
             button.setTag(i);
             group.addView(button, new RadioGroup.LayoutParams(
@@ -347,17 +397,8 @@ public final class SettingsControlRenderer {
             RadioButton button = new RadioButton(context);
             button.setId(View.generateViewId());
             button.setTag(index);
-            String text = state.getLabel() + "\n" + state.getDescription();
-            SpannableString styledText = new SpannableString(text);
-            int descriptionStart = state.getLabel().length() + 1;
-            styledText.setSpan(new RelativeSizeSpan(0.82f), descriptionStart, text.length(),
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            styledText.setSpan(new ForegroundColorSpan(Color.LTGRAY),
-                    descriptionStart, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            button.setText(styledText);
-            button.setTextColor(Color.WHITE);
-            button.setTextSize(14);
-            button.setPadding(0, dp(6), dp(8), dp(10));
+            button.setText(describedRadioText(state));
+            styleRadioButton(button);
             group.addView(button, new RadioGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             if (index == checkedIndex) group.check(button.getId());
@@ -371,6 +412,29 @@ public final class SettingsControlRenderer {
         row.addView(group);
         parent.addView(row);
     }
+
+    private CharSequence describedRadioText(DescribedRadioOptionUiState state) {
+        if (TextUtils.isEmpty(state.getDescription())) return state.getLabel();
+        String text = state.getLabel() + "\n" + state.getDescription();
+        SpannableString styledText = new SpannableString(text);
+        int descriptionStart = state.getLabel().length() + 1;
+        styledText.setSpan(new RelativeSizeSpan(0.82f), descriptionStart, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        styledText.setSpan(new ForegroundColorSpan(Color.LTGRAY),
+                descriptionStart, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return styledText;
+    }
+
+    private void styleRadioButton(RadioButton button) {
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(14);
+        button.setGravity(Gravity.CENTER_VERTICAL);
+        button.setIncludeFontPadding(false);
+        button.setMinHeight(dp(48));
+        button.setMinimumHeight(dp(48));
+        button.setPadding(0, 0, dp(8), 0);
+    }
+
     private void storageRadio(
             LinearLayout parent, String label, List<StorageOptionUiState> options, int selectedIndex,
             IntConsumer onSelected) {

@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.device;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.location.LocationManager;
 import android.os.BatteryManager;
@@ -78,6 +79,7 @@ public final class AndroidDeviceRepositoryImpl implements DeviceRepository {
         return null;
     }
 
+    @SuppressLint("MissingPermission")
     private static String buildSerial() {
         try {
             return cleanSerial(Build.getSerial());

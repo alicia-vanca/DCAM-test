@@ -7,7 +7,7 @@
 - Last Confluence scope review: 2026-07-15
 - Active build profile: DCAM MVP Internal Build 0.1
 - Active delivery gate: Working Recording Slice
-- Contract baseline: DCAMâ€“BDMA Data Contract, Confluence version 9
+- Contract baseline: DCAM–BDMA Data Contract, Confluence version 9
 - Delivery baseline: DCAM Architecture Delivery Profile, Confluence version 4
 
 Current checkpoint: the repository uses the approved smaller `:app`/`:core` Gradle shape;
@@ -62,9 +62,9 @@ platform concerns remain valid target work, but they are not Build 0.1 release b
 |---|---:|---|
 | [Release & Build Applicability Matrix](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/02-Sprint-Operations/DCAM-Release-&-Build-Applicability-Matrix.md) | 2 | Owns Build 0.1 applicability and release blockers |
 | [DCAM MVP Scope](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/01-Product-Management/DCAM-MVP-Scope.md) | 9 | Defines the Working Recording Slice and acceptance criteria |
-| [DCAM 9-Month Development Plan](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/02-Sprint-Operations/DCAM-9-Month-Development-Plan.md) | 8 | Maps Build 0.1 to Phase 1, Sprints 1â€“6 |
+| [DCAM 9-Month Development Plan](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/02-Sprint-Operations/DCAM-9-Month-Development-Plan.md) | 8 | Maps Build 0.1 to Phase 1, Sprints 1–6 |
 | [Architecture Delivery Profile](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.1-Software-Architecture/DCAM-Architecture-Home/DCAM-Architecture-Delivery-Profile.md) | 4 | Limits Phase 1 architecture and runtime state |
-| [DCAMâ€“BDMA Data Contract](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/03-Requirements/DCAM-BDMA-Data-Contract.md) | 9 | Defines media/config/database/log paths and BDMA behavior |
+| [DCAM–BDMA Data Contract](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/03-Requirements/DCAM-BDMA-Data-Contract.md) | 9 | Defines media/config/database/log paths and BDMA behavior |
 | [Concurrency & Threading Model](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Concurrency-&-Threading-Model-Design.md) | 3 | Requires serialized critical-path execution lanes |
 | [Performance Budget](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Performance-Budget-&-Resource-Constraints.md) | 2 | Supplies measurable Build 0.1 targets |
 | [Logging & Diagnostics Design](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Logging-&-Diagnostics-Design.md) | 4 | Defines local-first logging and the sanitized `logs.txt` artifact |
@@ -364,7 +364,7 @@ If any step after recording fails, preserve staging and persist `RECOVERY_REQUIR
 This sequence follows the Confluence 9-Month Development Plan for Phase 1. Existing Build 0.2 auth
 work is preserved but does not replace or reorder these gates.
 
-### Sprint 1 â€” onboarding and build baseline
+### Sprint 1 — onboarding and build baseline
 
 **Goal:** every developer can build, run, debug and explain the MVP/target-architecture split.
 
@@ -378,7 +378,7 @@ Work:
 Exit gate: repeatable build/run/debug steps and no unexplained Build 0.2 dependency in the critical
 startup path.
 
-### Sprint 2 â€” camera and storage POC
+### Sprint 2 — camera and storage POC
 
 **Goal:** prove the selected camera, recording-host and physical storage choices on a BodyCamera.
 
@@ -393,7 +393,7 @@ Work:
 
 Exit gate: one selected device/camera/storage path is reproducible and unknowns are documented.
 
-### Sprint 3 â€” Working Recording Slice
+### Sprint 3 — Working Recording Slice
 
 **Goal:** pass WRS-001 through WRS-005 and WRS-008/009 before platform expansion.
 
@@ -408,7 +408,7 @@ Work:
 Exit gate: runnable APK, 30-second video, image capture, correct supported naming/path, finalized
 media and no critical happy-path crash.
 
-### Sprint 4 â€” minimal contract output and BDMA import
+### Sprint 4 — minimal contract output and BDMA import
 
 **Goal:** pass WRS-006/007 and the complete active Build 0.1 release gate.
 
@@ -424,7 +424,7 @@ Work:
 Exit gate: BDMA detects/imports video and image samples; minimal DB/CSON/log outputs are compatible;
 provider availability is not required.
 
-### Sprints 5â€“6 â€” Build 0.1 hardening
+### Sprints 5–6 — Build 0.1 hardening
 
 **Goal:** make the Working Recording Slice a repeatable DCAM MVP Internal Build 0.1.
 
@@ -494,14 +494,14 @@ hardware:
 
 | Area | Mandatory target |
 |---|---|
-| Recording | Warm start â‰¤ 2.0s; stop â‰¤ 1.5s; critical finalization to `BDMA_READY` â‰¤ 5.0s; image capture â‰¤ 1.5s; precheck â‰¤ 500ms |
+| Recording | Warm start ≤ 2.0s; stop ≤ 1.5s; critical finalization to `BDMA_READY` ≤ 5.0s; image capture ≤ 1.5s; precheck ≤ 500ms |
 | Critical path | MP4 finalization precedes asynchronous MD5; checksum blocks only that item's `BDMA_READY`, never a new recording or unrelated capture |
-| Memory | Idle â‰¤ 80 MB; recording â‰¤ 200 MB; growth â‰¤ 5 MB/hour |
-| Storage/I/O | Sustained recording write â‰¥ 15 MB/s; same-filesystem move â‰¤ 500ms; media DB transaction â‰¤ 100ms |
+| Memory | Idle ≤ 80 MB; recording ≤ 200 MB; growth ≤ 5 MB/hour |
+| Storage/I/O | Sustained recording write ≥ 15 MB/s; same-filesystem move ≤ 500ms; media DB transaction ≤ 100ms |
 | Free space | Start threshold = estimated 30-minute recording size + 500 MB; storage-full handling causes no file corruption |
-| Startup | Cold boot to `READY` â‰¤ 8s; process restart to `READY` â‰¤ 4s; conditional login UI renders â‰¤ 1s after `READY` |
-| Concurrency | MainThread operation < 500ms; coordinator queue â‰¤ 50ms; camera callback â‰¤ 100ms; camera timeout â‰¤ 5s; DB busy retry â‰¤ 3 attempts and â‰¤ 1s total |
-| Stability | â‰¥ 4 hours continuous recording; â‰¥ 50 sessions without degradation; zero leaked file descriptors; â‰¤ 15 app-owned steady-state threads |
+| Startup | Cold boot to `READY` ≤ 8s; process restart to `READY` ≤ 4s; conditional login UI renders ≤ 1s after `READY` |
+| Concurrency | MainThread operation < 500ms; coordinator queue ≤ 50ms; camera callback ≤ 100ms; camera timeout ≤ 5s; DB busy retry ≤ 3 attempts and ≤ 1s total |
+| Stability | ≥ 4 hours continuous recording; ≥ 50 sessions without degradation; zero leaked file descriptors; ≤ 15 app-owned steady-state threads |
 
 Targets are measured on the selected BodyCamera. A device-specific adjustment requires recorded POC
 evidence and approval; it is not silently relaxed in code or tests.

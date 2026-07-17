@@ -5,6 +5,8 @@ public final class CaptureEvent {
     public enum Type {
         RECORDING_STARTING,
         RECORDING_STARTED,
+        RECORDING_INTERRUPTED,
+        RECORDING_RESUMED,
         RECORDING_STOPPING,
         RECORDING_COMPLETED,
         RECORDING_STOPPED_FOR_STORAGE,
@@ -31,6 +33,13 @@ public final class CaptureEvent {
         return new CaptureEvent(Type.RECORDING_STARTED, mode, fileName, null, null);
     }
 
+    public static CaptureEvent recordingInterrupted(RecordingMode mode, String message) {
+        return new CaptureEvent(Type.RECORDING_INTERRUPTED, mode, null, null, message);
+    }
+
+    public static CaptureEvent recordingResumed(RecordingMode mode) {
+        return new CaptureEvent(Type.RECORDING_RESUMED, mode, null, null, null);
+    }
     public static CaptureEvent recordingStarting(RecordingMode mode) {
         return new CaptureEvent(Type.RECORDING_STARTING, mode, null, null, null);
     }

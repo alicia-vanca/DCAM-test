@@ -1,5 +1,6 @@
 package com.dvid.dcam.app.presentation;
 
+import androidx.arch.core.executor.ArchTaskExecutor;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
@@ -20,11 +21,17 @@ import com.dvid.dcam.feature.capture.domain.CaptureState;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.device.application.usecase.RefreshDeviceStatusUseCase;
 import com.dvid.dcam.feature.device.domain.DeviceStatus;
-import com.dvid.dcam.feature.media.presentation.MediaBrowserState;
 import com.dvid.dcam.feature.media.application.usecase.BrowseMediaUseCase;
+import com.dvid.dcam.feature.media.domain.MediaEntry;
+import com.dvid.dcam.feature.media.presentation.MediaBrowserState;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 public final class MainViewModel extends ViewModel {
     private final DcamConfig config;
@@ -35,11 +42,14 @@ public final class MainViewModel extends ViewModel {
     private final AuthenticateOperatorUseCase authenticateOperator;
     private final OperatorSessionUseCase operatorSession;
     private final ManageOperatorUsersUseCase manageUsers;
+    private final BooleanSupplier authenticationEnabled;
+    private final AtomicLong authenticationTransition = new AtomicLong();
     private final ExecutorService mediaIo = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "media-browser");
         thread.setDaemon(true);
         return thread;
     });
+    private final AtomicInteger mediaRequestVersion = new AtomicInteger();
     private final ExecutorService authIo = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "operator-auth");
         thread.setDaemon(true);
@@ -57,6 +67,7 @@ public final class MainViewModel extends ViewModel {
         this.authenticateOperator = null;
         this.operatorSession = null;
         this.manageUsers = null;
+        this.authenticationEnabled = () -> true;
         state = new MutableLiveData<>(new MainUiState(
                 MainScreen.CAMERA, new CaptureState(), deviceStatus, MediaBrowserState.root(), null));
     }
@@ -68,13 +79,15 @@ public final class MainViewModel extends ViewModel {
             BrowseMediaUseCase browseMedia,
             AuthenticateOperatorUseCase authenticateOperator,
             OperatorSessionUseCase operatorSession,
-            ManageOperatorUsersUseCase manageUsers) {
+            ManageOperatorUsersUseCase manageUsers,
+            BooleanSupplier authenticationEnabled) {
         this.config = config;
         this.refreshDeviceStatus = refreshDeviceStatus;
         this.browseMedia = browseMedia;
         this.authenticateOperator = authenticateOperator;
         this.operatorSession = operatorSession;
         this.manageUsers = manageUsers;
+        this.authenticationEnabled = authenticationEnabled;
         state = new MutableLiveData<>(new MainUiState(
                 MainScreen.LOGIN,
                 new CaptureState(),
@@ -113,6 +126,10 @@ public final class MainViewModel extends ViewModel {
         if (operatorSession != null
                 && screen != MainScreen.LOGIN
                 && !operatorSession.hasActiveSession()) {
+            if (!authenticationEnabled.getAsBoolean()) {
+                autoLoginDefaultUser(authenticationTransition.incrementAndGet(), false);
+                return;
+            }
             state.setValue(current.withAuthentication(null, false, MainScreen.LOGIN, null));
             return;
         }
@@ -127,55 +144,130 @@ public final class MainViewModel extends ViewModel {
 
     public void login(LoginCredentials credentials) {
         if (authenticateOperator == null || current().isAuthenticationBusy()) return;
+        long transition = authenticationTransition.get();
         state.setValue(current().withAuthenticationBusy(true, null));
         authIo.execute(() -> {
             LoginResult result = authenticateOperator.execute(credentials);
-            if (result.isSuccess()) {
-                state.postValue(current().withAuthentication(
-                        result.getSession(), false, MainScreen.CAMERA, null));
-            } else {
-                state.postValue(current().withAuthentication(
-                        null, false, MainScreen.LOGIN, loginMessage(result)));
-            }
+            postAuthentication(transition, () -> result.isSuccess()
+                    ? current().withAuthentication(
+                            result.getSession(), false, MainScreen.CAMERA, null)
+                    : current().withAuthentication(
+                            null, false, MainScreen.LOGIN, loginMessage(result)));
         });
     }
 
     public void provisionUser(UserProvisioningRequest request) {
         if (manageUsers == null || current().isAuthenticationBusy()) return;
+        long transition = authenticationTransition.get();
         state.setValue(current().withAuthenticationBusy(true, null));
         authIo.execute(() -> {
             UserProvisioningResult result = manageUsers.upsert(request);
             String message = result.isSuccessful()
                     ? "User saved"
                     : provisioningMessage(result.getErrorCode());
-            state.postValue(current().withAuthenticationBusy(false, message));
+            postAuthentication(transition,
+                    () -> current().withAuthenticationBusy(false, message));
         });
     }
 
     public void logout() {
         if (operatorSession == null || current().isAuthenticationBusy()) return;
+        long transition = authenticationTransition.incrementAndGet();
         state.setValue(current().withAuthenticationBusy(true, null));
         authIo.execute(() -> {
             operatorSession.logout();
-            state.postValue(current().withAuthentication(
+            if (!authenticationEnabled.getAsBoolean()) {
+                authenticateDefaultUser(transition);
+                return;
+            }
+            postAuthentication(transition, () -> current().withAuthentication(
+                    null, false, MainScreen.LOGIN, "Logged out"));
+        });
+    }
+
+    public void onAuthenticationSettingChanged() {
+        long transition = authenticationTransition.incrementAndGet();
+        if (!authenticationEnabled.getAsBoolean()) {
+            autoLoginDefaultUser(transition, true);
+            return;
+        }
+        if (operatorSession == null || !operatorSession.hasActiveSession()) {
+            state.setValue(current().withAuthentication(null, false, MainScreen.LOGIN, null));
+            return;
+        }
+        state.setValue(current().withAuthenticationBusy(true, null));
+        authIo.execute(() -> {
+            operatorSession.logout();
+            postAuthentication(transition, () -> current().withAuthentication(
                     null, false, MainScreen.LOGIN, "Logged out"));
         });
     }
 
     private void initializeAuthentication() {
+        long transition = authenticationTransition.get();
         authIo.execute(() -> {
             try {
                 manageUsers.ensureDefaultUser();
+                if (authenticationTransition.get() != transition) return;
+                if (!authenticationEnabled.getAsBoolean()) {
+                    authenticateDefaultUser(authenticationTransition.get());
+                    return;
+                }
                 OperatorSession restored = operatorSession.restore();
-                state.postValue(current().withAuthentication(
+                postAuthentication(transition, () -> current().withAuthentication(
                         restored,
                         false,
                         restored == null ? MainScreen.LOGIN : MainScreen.CAMERA,
                         null));
             } catch (RuntimeException error) {
-                state.postValue(current().withAuthentication(
+                postAuthentication(transition, () -> current().withAuthentication(
                         null, false, MainScreen.LOGIN, "Authentication storage unavailable"));
             }
+        });
+    }
+
+    private void autoLoginDefaultUser(long transition, boolean preserveScreen) {
+        if (current().isAuthenticationBusy() && !preserveScreen) return;
+        MainScreen targetScreen = preserveScreen ? current().getScreen() : MainScreen.CAMERA;
+        state.setValue(current().withAuthenticationBusy(true, null));
+        authIo.execute(() -> {
+            operatorSession.logout();
+            authenticateDefaultUser(transition, targetScreen);
+        });
+    }
+
+    private void authenticateDefaultUser(long transition) {
+        authenticateDefaultUser(transition, MainScreen.CAMERA);
+    }
+
+    private void authenticateDefaultUser(long transition, MainScreen targetScreen) {
+        try {
+            LoginResult result = authenticateOperator.execute(LoginCredentials.usernameAndPassword(
+                    ManageOperatorUsersUseCaseImpl.DEFAULT_USER_ID,
+                    ManageOperatorUsersUseCaseImpl.DEFAULT_PASSWORD));
+            postDefaultAuthentication(transition, () -> result.isSuccess()
+                    ? current().withAuthentication(result.getSession(), false, targetScreen, null)
+                    : current().withAuthentication(null, false, MainScreen.LOGIN, loginMessage(result)));
+        } catch (RuntimeException error) {
+            postDefaultAuthentication(transition, () -> current().withAuthentication(
+                    null, false, MainScreen.LOGIN, "Authentication storage unavailable"));
+        }
+    }
+
+    @android.annotation.SuppressLint("RestrictedApi")
+    private void postAuthentication(long transition, Supplier<MainUiState> nextState) {
+        ArchTaskExecutor.getInstance().postToMainThread(() -> {
+            if (authenticationTransition.get() != transition) return;
+            state.setValue(nextState.get());
+        });
+    }
+
+    @android.annotation.SuppressLint("RestrictedApi")
+    private void postDefaultAuthentication(long transition, Supplier<MainUiState> nextState) {
+        ArchTaskExecutor.getInstance().postToMainThread(() -> {
+            if (authenticationTransition.get() != transition
+                    || authenticationEnabled.getAsBoolean()) return;
+            state.setValue(nextState.get());
         });
     }
 
@@ -204,13 +296,17 @@ public final class MainViewModel extends ViewModel {
 
     public void openMediaFolder(String relativePath) {
         String path = relativePath == null ? "" : relativePath;
+        int requestVersion = mediaRequestVersion.incrementAndGet();
         state.setValue(current().withMediaBrowser(new MediaBrowserState(
                 path, Collections.emptyList(), true, null)));
         mediaIo.execute(() -> {
             try {
+                List<MediaEntry> entries = browseMedia.execute(path);
+                if (requestVersion != mediaRequestVersion.get()) return;
                 state.postValue(current().withMediaBrowser(
-                        new MediaBrowserState(path, browseMedia.execute(path), false, null)));
+                        new MediaBrowserState(path, entries, false, null)));
             } catch (Exception error) {
+                if (requestVersion != mediaRequestVersion.get()) return;
                 state.postValue(current().withMediaBrowser(
                         new MediaBrowserState(path, Collections.emptyList(), false, error.getMessage())));
             }
@@ -244,7 +340,24 @@ public final class MainViewModel extends ViewModel {
                                         ? System.currentTimeMillis() : starting.getStartedAtMillis()),
                         "Recording"));
                 break;
-            case RECORDING_STOPPING:
+            case RECORDING_INTERRUPTED:
+                CaptureState interrupted = current().getCapture();
+                state.setValue(current().withCapture(new CaptureState(
+                        interrupted.getMode(), interrupted.getCurrentFileName(),
+                        interrupted.getStartedAtMillis(), false, System.currentTimeMillis()),
+                        event.getMessage()));
+                break;
+            case RECORDING_RESUMED:
+                CaptureState paused = current().getCapture();
+                long resumedAt = System.currentTimeMillis();
+                Long adjustedStart = paused.getStartedAtMillis();
+                if (adjustedStart != null && paused.getInterruptedAtMillis() != null) {
+                    adjustedStart += resumedAt - paused.getInterruptedAtMillis();
+                }
+                state.setValue(current().withCapture(new CaptureState(
+                        paused.getMode(), paused.getCurrentFileName(), adjustedStart, false),
+                        "Recording"));
+                break;            case RECORDING_STOPPING:
                 CaptureState recording = current().getCapture();
                 state.setValue(current().withCapture(new CaptureState(
                         event.getMode(), recording.getCurrentFileName(),

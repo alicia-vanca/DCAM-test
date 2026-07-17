@@ -18,9 +18,12 @@ final class LocationTrackingCoordinatorTest {
     @Test void precisePermissionIsRequiredForGpsProviderModes() {
         Fixture fixture = new Fixture();
         fixture.coarsePermission = true;
+        LocationTrackingCoordinator coordinator = fixture.coordinator();
 
-        assertEquals(LocationTrackingState.PERMISSION_REQUIRED,
-                fixture.coordinator().refresh());
+        assertEquals(LocationTrackingState.PERMISSION_REQUIRED, coordinator.refresh());
+        assertEquals(1, fixture.tracking.stopCount);
+        assertEquals(true, coordinator.shouldShowOnCamera());
+        coordinator.refresh();
         assertEquals(1, fixture.tracking.stopCount);
     }
 
@@ -39,11 +42,22 @@ final class LocationTrackingCoordinatorTest {
         LocationTrackingCoordinator coordinator = fixture.coordinator();
 
         assertEquals(LocationTrackingState.WAITING_FOR_FIX, coordinator.refresh());
+        assertEquals(true, coordinator.shouldShowOnCamera());
         fixture.tracking.emit(new GpsCoordinate(10, 106));
 
         assertEquals(LocationTrackingState.AVAILABLE, coordinator.currentState());
         assertEquals("10\u00B000'00.00\"N 106\u00B000'00.00\"E",
                 coordinator.currentCoordinate().toString());
+    }
+
+    @Test void currentLocationRequestDelegatesToActiveTracking() {
+        Fixture fixture = new Fixture();
+        fixture.finePermission = true;
+        fixture.coordinator().refresh();
+
+        fixture.coordinator().requestCurrentLocation();
+
+        assertEquals(1, fixture.tracking.currentLocationRequestCount);
     }
 
     private static final class Fixture {
@@ -91,6 +105,7 @@ final class LocationTrackingCoordinatorTest {
     private static final class FakeTracking implements LocationTrackingUseCase {
         private Consumer<GpsCoordinate> callback;
         private int stopCount;
+        private int currentLocationRequestCount;
 
         @Override public LocationTrackingState start(Consumer<GpsCoordinate> onCoordinate) {
             callback = onCoordinate;
@@ -100,6 +115,7 @@ final class LocationTrackingCoordinatorTest {
             return LocationTrackingState.WAITING_FOR_FIX;
         }
         @Override public void stop() { stopCount++; }
+        @Override public void requestCurrentLocation() { currentLocationRequestCount++; }
         @Override public GpsCoordinate latestCoordinate() { return null; }
         @Override public LocationTrackingState currentState() {
             return LocationTrackingState.WAITING_FOR_FIX;

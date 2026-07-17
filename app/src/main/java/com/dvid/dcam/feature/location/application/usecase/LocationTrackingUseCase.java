@@ -15,6 +15,7 @@ public interface LocationTrackingUseCase {
     }
     LocationTrackingState restart();
     void stop();
+    void requestCurrentLocation();
     GpsCoordinate latestCoordinate();
     LocationTrackingState currentState();
 }

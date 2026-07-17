@@ -21,12 +21,6 @@
             android:includeFontPadding="false"
             android:paddingTop="0dp" />
 
-        <TextView
-            style="@style/DcamSettingsHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_detail_hint" />
-
         <LinearLayout
             android:id="@+id/settings_list"
             android:layout_width="match_parent"

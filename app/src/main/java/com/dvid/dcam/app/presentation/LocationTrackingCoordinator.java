@@ -70,10 +70,21 @@ public final class LocationTrackingCoordinator {
 
     public void stop() { stopAs(LocationTrackingState.STOPPED); }
 
+    public void requestCurrentLocation() { tracking.requestCurrentLocation(); }
+
     public synchronized LocationTrackingState currentState() { return state; }
     public synchronized GpsCoordinate currentCoordinate() { return coordinate; }
 
+    public synchronized boolean shouldShowOnCamera() {
+        return coordinate != null || state == LocationTrackingState.PERMISSION_REQUIRED
+                || state == LocationTrackingState.WAITING_FOR_FIX
+                || state == LocationTrackingState.AVAILABLE;
+    }
+
     private LocationTrackingState stopAs(LocationTrackingState stoppedState) {
+        synchronized (this) {
+            if (state == stoppedState && coordinate == null) return stoppedState;
+        }
         tracking.stop();
         synchronized (this) {
             coordinate = null;

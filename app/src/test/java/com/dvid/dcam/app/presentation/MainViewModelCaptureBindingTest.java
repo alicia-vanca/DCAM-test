@@ -64,6 +64,22 @@ final class MainViewModelCaptureBindingTest {
         viewModel.onCleared();
     }
 
+    @Test void completionDuringActivityRecreationIsReplayedOnRebind() {
+        MainViewModel viewModel = viewModel();
+        CaptureEventUseCaseImpl events = new CaptureEventUseCaseImpl();
+        viewModel.bindCaptureEvents(events);
+        events.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+
+        viewModel.unbindCaptureEvents(events);
+        events.recordingCompleted("video.mp4");
+        assertEquals(RecordingMode.VIDEO, viewModel.state().getValue().getCapture().getMode());
+
+        viewModel.bindCaptureEvents(events);
+        assertEquals(RecordingMode.IDLE, viewModel.state().getValue().getCapture().getMode());
+        assertEquals("Saved video.mp4", viewModel.state().getValue().getMessage());
+        viewModel.onCleared();
+    }
+
     private static MainViewModel viewModel() {
         return new MainViewModel(
                 new DcamConfig(),

@@ -4,6 +4,16 @@ Authenticated Confluence API snapshot initially read on **2026-07-03**, broadly 
 
 Confluence remains the source of truth. This file records what was checked locally and how to interpret the local digest.
 
+## July 17 targeted refresh
+
+Fetched and read:
+
+- [DCAM Engineering Evidence & NAS Artifact SOP](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/53608471), approved 1.0, page version 3, updated 2026-07-16 03:07 UTC.
+- [DCAM Document Status Registry](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51085647), page version 19, updated 2026-07-17 00:57 UTC.
+- [DCAM Project Home](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/41648280), page version 68, updated 2026-07-17 00:57 UTC.
+
+The engineering-evidence summary is in `docs/dcam-knowledge/confluence-summary/03-development/engineering-evidence.md`.
+
 ## July 9 targeted refresh
 
 Fully fetched/read for this refresh:

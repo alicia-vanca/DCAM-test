@@ -19,11 +19,11 @@ public class DcamStorageTest {
         DcamStorage storage = new DcamStorage(MediaPartitionLocation.INTERNAL, new File("AppData"));
         LocalDateTime at = LocalDateTime.of(2026, 6, 19, 10, 3, 24);
 
-        assertEquals("AppData/Temp/DCAM_CAM001_000000_20260619_100324.mp4",
+        assertEquals("AppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.mp4",
                 path(storage.outputFile(DcamFileType.VIDEO, "CAM001", "000000", at, false)));
-        assertEquals("AppData/Temp/DCAM_CAM001_000000_20260619_100324.jpg",
+        assertEquals("AppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.jpg",
                 path(storage.outputFile(DcamFileType.IMAGE, "CAM001", "000000", at, false)));
-        assertEquals("AppData/Temp/DCAM_CAM001_000000_20260619_100324_IMP_enc.mp4",
+        assertEquals("AppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324_IMP_enc.mp4",
                 path(storage.outputFile(DcamFileType.SOS, "CAM001", "000000", at, true)));
     }
 
@@ -32,7 +32,7 @@ public class DcamStorageTest {
                 DcamFileType.AUDIO, "CAM001", "000000",
                 LocalDateTime.of(2026, 6, 19, 10, 3, 24), false);
 
-        assertEquals("AppData/Temp/DCAM_CAM001_000000_20260619_100324.aac", path(file));
+        assertEquals("AppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.aac", path(file));
     }
 
     @Test public void buildsDeviceOnlyConfigPath() {
@@ -56,11 +56,11 @@ public class DcamStorageTest {
                 new CaptureStorageCapacityPolicy());
         LocalDateTime at = LocalDateTime.of(2026, 6, 19, 10, 3, 24);
 
-        assertEquals("ExternalAppData/Temp/DCAM_CAM001_000000_20260619_100324.mp4",
+        assertEquals("ExternalAppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.mp4",
                 path(storage.outputFile(DcamFileType.VIDEO, "CAM001", "000000", at, false)));
-        assertEquals("ExternalAppData/Temp/DCAM_CAM001_000000_20260619_100324.jpg",
+        assertEquals("ExternalAppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.jpg",
                 path(storage.outputFile(DcamFileType.IMAGE, "CAM001", "000000", at, false)));
-        assertEquals("ExternalAppData/Temp/DCAM_CAM001_000000_20260619_100324.aac",
+        assertEquals("ExternalAppData/Temp/2026-06-19/DCAM_CAM001_000000_20260619_100324.aac",
                 path(storage.outputFile(DcamFileType.AUDIO, "CAM001", "000000", at, false)));
         assertEquals("InternalAppData/Config/dcam_config.cson", path(storage.configsFile()));
     }
@@ -79,7 +79,9 @@ public class DcamStorageTest {
         File published = new DcamMediaFinalizer(storage).finalizeMedia(media);
 
         assertTrue(path(media.getFile()).contains("external/Temp/"));
-        assertTrue(path(published).contains("external/Media/Audio/"));
+        assertTrue(path(published).contains("external/Media/Audio/2026-07-14/"));
+        assertFalse(new File(media.getFile().getParent()).exists());
+        assertTrue(new File(media.getFile().getParentFile().getParent()).isDirectory());
         assertEquals(3L, published.length());
         assertFalse(new File(media.getFile().getParentFile(),
                 media.getFileName() + ".target").exists());

@@ -12,6 +12,7 @@ import com.dvid.dcam.feature.location.domain.LocationTrackingState;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.CurrentLocationRequest;
 import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
@@ -63,9 +64,6 @@ public final class AndroidFusedLocationSourceImpl implements LocationSource {
                 .setWaitForAccurateLocation(false)
                 .build();
         try {
-            client.getLastLocation().addOnSuccessListener(location -> {
-                if (location != null) accept(location);
-            });
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
                     .addOnFailureListener(error -> onStateChanged.accept(LocationTrackingState.ERROR));
             return LocationTrackingState.WAITING_FOR_FIX;
@@ -73,6 +71,18 @@ public final class AndroidFusedLocationSourceImpl implements LocationSource {
             return LocationTrackingState.PERMISSION_REQUIRED;
         } catch (IllegalArgumentException error) {
             return LocationTrackingState.ERROR;
+        }
+    }
+
+    @Override public void requestCurrentLocation(GpsSettings ignored) {
+        if (!hasPermission() || !isGooglePlayServicesAvailable()) return;
+        CurrentLocationRequest request = new CurrentLocationRequest.Builder()
+                .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                .setMaxUpdateAgeMillis(0)
+                .build();
+        try {
+            client.getCurrentLocation(request, null).addOnSuccessListener(this::accept);
+        } catch (SecurityException revokedPermission) {
         }
     }
 

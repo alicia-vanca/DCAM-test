@@ -4,7 +4,10 @@ import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSetting
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import androidx.camera.core.Camera;
+import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
+import androidx.camera.core.CameraState;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
 import androidx.camera.core.Preview;
@@ -19,6 +22,7 @@ import androidx.camera.video.VideoCapture;
 import androidx.camera.video.VideoRecordEvent;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
+import androidx.lifecycle.Observer;
 import com.dvid.dcam.core.config.domain.DcamConfig;
 import com.dvid.dcam.R;
 import com.dvid.dcam.core.logging.application.port.LogSink;
@@ -37,9 +41,11 @@ import com.dvid.dcam.platform.device.AndroidDeviceCapabilities;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /** CameraX camera adapter. CameraX types do not escape through CameraGateway. */
+@androidx.annotation.OptIn(markerClass = androidx.camera.video.ExperimentalPersistentRecording.class)
 public final class CameraXCameraGatewayImpl implements CameraGateway {
     private final Context context;
     private final DcamConfig config;
@@ -50,25 +56,36 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     private final CaptureEventUseCase captureEvents;
     private final MediaEncryptionSettingsUseCase mediaEncryptionSettings;
     private final OperatorSessionUseCase operatorSession;
+    private final BooleanSupplier storageWarningActive;
     private final ImageCapture imageCapture = new ImageCapture.Builder().build();
     private VideoCapture<Recorder> videoCapture;
     private boolean videoAvailable;
     private Preview cameraPreview;
+    private CameraSelector cameraSelector;
     private ListenableFuture<ProcessCameraProvider> providerFuture;
     private Recording activeRecording;
     private DcamFileType pendingRecordingType;
+    private CameraInfo observedCameraInfo;
+    private boolean recordingInterrupted;
+    private boolean pauseRequested;
+    private boolean cameraRecoveredWhilePausing;
+    private boolean stopRequested;
+    private boolean recoveryRebindInFlight;
+    private final Observer<CameraState> cameraStateObserver = this::onCameraStateChanged;
 
     public CameraXCameraGatewayImpl(Context context, LifecycleOwner lifecycleOwner, DcamConfig config,
                                     DcamMediaOutput mediaOutput, LogSink log,
                                     CaptureEventUseCase captureEvents,
                                     MediaEncryptionSettingsUseCase mediaEncryptionSettings,
                                     OperatorSessionUseCase operatorSession,
+                                    BooleanSupplier storageWarningActive,
                                     CameraXPreviewView previewView) {
         this.context = context;
         this.lifecycleOwner = lifecycleOwner; this.config = config; this.mediaOutput = mediaOutput; this.log = log;
         this.captureEvents = captureEvents;
         this.mediaEncryptionSettings = mediaEncryptionSettings;
         this.operatorSession = operatorSession;
+        this.storageWarningActive = storageWarningActive;
         this.previewView = previewView;
         videoCapture = createVideoCapture();
         bindIfPermitted();
@@ -103,16 +120,39 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         }
     }
 
+    public void refreshCameraState() {
+        CameraInfo cameraInfo = observedCameraInfo;
+        CameraState state = cameraInfo == null ? null : cameraInfo.getCameraState().getValue();
+        if (activeRecording != null && state != null && state.getType() != CameraState.Type.OPEN) {
+            rebindForRecovery();
+            return;
+        }
+        if (state != null) onCameraStateChanged(state);
+    }
+
+    private void rebindForRecovery() {
+        if (providerFuture == null || !providerFuture.isDone()
+                || cameraSelector == null || cameraPreview == null) return;
+        try {
+            ProcessCameraProvider provider = providerFuture.get();
+            provider.unbind(cameraPreview, imageCapture, videoCapture);
+            Camera camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector,
+                    cameraPreview, imageCapture, videoCapture);
+            observeCameraState(camera.getCameraInfo());
+        } catch (Exception error) {
+            log.warn("Camera recovery rebind failed", error);
+        }
+    }
+
     public void bindIfPermitted() {
         CameraXPreviewView preview = previewView;
         if (preview == null) return;
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             preview.showPermissionRequired(); return;
         }
-        preview.showStarting();
+        preview.showStarting(lifecycleOwner);
         if (cameraPreview != null) {
             cameraPreview.setSurfaceProvider(preview.surfaceProvider());
-            preview.clearMessage();
             return;
         }
         providerFuture = ProcessCameraProvider.getInstance(context);
@@ -129,25 +169,65 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                 } else {
                     throw new IllegalStateException("No usable camera found");
                 }
+                this.cameraSelector = cameraSelector;
                 cameraPreview = new Preview.Builder().build();
                 cameraPreview.setSurfaceProvider(
                         attachedPreview == null ? null : attachedPreview.surfaceProvider());
                 provider.unbindAll();
                 try {
-                    provider.bindToLifecycle(lifecycleOwner, cameraSelector,
+                    Camera camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector,
                             cameraPreview, imageCapture, videoCapture);
+                    observeCameraState(camera.getCameraInfo());
                     videoAvailable = true;
                 } catch (IllegalArgumentException videoError) {
                     videoAvailable = false;
                     log.warn("Video capture unavailable; keeping photo camera active", videoError);
-                    provider.bindToLifecycle(lifecycleOwner, cameraSelector,
+                    Camera camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector,
                             cameraPreview, imageCapture);
+                    observeCameraState(camera.getCameraInfo());
                 }
-                if (attachedPreview != null) attachedPreview.clearMessage();
             } catch (Exception error) { showError(error.getMessage()); }
         }, ContextCompat.getMainExecutor(context));
     }
 
+    private void observeCameraState(CameraInfo cameraInfo) {
+        if (observedCameraInfo != null) {
+            observedCameraInfo.getCameraState().removeObserver(cameraStateObserver);
+        }
+        observedCameraInfo = cameraInfo;
+        cameraInfo.getCameraState().observe(lifecycleOwner, cameraStateObserver);
+    }
+
+    private void onCameraStateChanged(CameraState state) {
+        if (activeRecording == null || stopRequested) return;
+        if (state.getType() == CameraState.Type.OPEN) {
+            if (pauseRequested) {
+                cameraRecoveredWhilePausing = true;
+            } else if (recordingInterrupted) {
+                resumeInterruptedRecording();
+            }
+            return;
+        }
+        CameraState.StateError error = state.getError();
+        if (error == null || error.getType() != CameraState.ErrorType.RECOVERABLE
+                || pauseRequested || recordingInterrupted) return;
+        try {
+            pauseRequested = true;
+            activeRecording.pause();
+        } catch (RuntimeException failure) {
+            pauseRequested = false;
+            log.warn("Camera interruption could not pause recording", failure);
+        }
+    }
+
+    private void resumeInterruptedRecording() {
+        if (activeRecording == null || stopRequested || !recordingInterrupted) return;
+        try {
+            activeRecording.resume();
+        } catch (RuntimeException error) {
+            log.warn("Camera recovery could not resume recording", error);
+        }
+    }
     @Override public void takePhoto() {
         String fileUserId = activeFileUserId();
         if (fileUserId == null) return;
@@ -208,6 +288,12 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
 
     @Override public void stopRecording() {
         pendingRecordingType = null;
+        stopRequested = true;
+        pauseRequested = false;
+        cameraRecoveredWhilePausing = false;
+        recoveryRebindInFlight = false;
+        recordingInterrupted = false;
+        onPreview(CameraXPreviewView::clearCameraInterrupted);
         if (activeRecording != null) activeRecording.stop();
     }
 
@@ -242,23 +328,64 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                 type, config.getAccountUserId(), fileUserId, at, encrypt);
         PendingRecording pending = mediaOutput.prepareVideoRecording(
                 context, videoCapture, mediaFile, mediaOutput.recordingFileSizeLimit());
+        pending = pending.asPersistentRecording();
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
             pending = pending.withAudioEnabled();
+        if (!RecordingForegroundService.startVideo(context, mediaFile.getFileName())) {
+            String message = "Could not start recording foreground protection";
+            log.error(message, null);
+            captureEvents.captureFailed("Recording", message);
+            onPreview(view -> view.showError(message));
+            return;
+        }
         activeRecording = pending.start(ContextCompat.getMainExecutor(context), event -> {
             if (event instanceof VideoRecordEvent.Start) {
+                stopRequested = false;
+                pauseRequested = false;
+                cameraRecoveredWhilePausing = false;
+                recordingInterrupted = false;
+                pauseRequested = false;
+                cameraRecoveredWhilePausing = false;
+                stopRequested = false;
                 onPreview(view -> view.showRecording(mediaFile.getFileName()));
                 log.info("Recording started: " + mediaFile.getFileName());
-                if (!RecordingForegroundService.startVideo(context, mediaFile.getFileName())) {
-                    log.warn("Could not start recording foreground service", null);
-                }
                 RecordingMode mode = type == DcamFileType.SOS ? RecordingMode.SOS : RecordingMode.VIDEO;
                 captureEvents.recordingStarted(mode, mediaFile.getFileName());
             }
+            else if (event instanceof VideoRecordEvent.Pause) {
+                pauseRequested = false;
+                if (stopRequested) return;
+                recordingInterrupted = true;
+                captureEvents.recordingInterrupted("Camera interrupted by another application");
+                onPreview(view -> view.showCameraInterrupted(
+                        "Camera interrupted by another application"));
+                if (cameraRecoveredWhilePausing) {
+                    cameraRecoveredWhilePausing = false;
+                    resumeInterruptedRecording();
+                }
+            }
+            else if (event instanceof VideoRecordEvent.Resume) {
+                if (stopRequested) return;
+                recordingInterrupted = false;
+                captureEvents.recordingResumed();
+                onPreview(CameraXPreviewView::clearCameraInterrupted);
+            }
             else if (event instanceof VideoRecordEvent.Finalize) {
                 VideoRecordEvent.Finalize done = (VideoRecordEvent.Finalize) event;
+                log.info("Recording finalize event: file=" + mediaFile.getFileName()
+                        + " error=" + done.getError()
+                        + " hasError=" + done.hasError()
+                        + " cause=" + (done.getCause() == null
+                                ? "none" : done.getCause().getClass().getSimpleName()
+                                + ":" + done.getCause().getMessage()));
                 // CameraX has closed this Recording. Keep the foreground indicator until
                 // publication completes, but never call stop() on the finalized handle again.
                 activeRecording = null;
+                recordingInterrupted = false;
+                pauseRequested = false;
+                cameraRecoveredWhilePausing = false;
+                stopRequested = false;
+                onPreview(CameraXPreviewView::clearCameraInterrupted);
                 if (done.hasError()) {
                     boolean storageFailure =
                             CaptureStorageFailureClassifier.isVideoStorageFailure(done.getError())
@@ -344,6 +471,11 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
 
     public void attachPreview(CameraXPreviewView previewView) {
         this.previewView = previewView;
+        if (cameraPreview != null) {
+            cameraPreview.setSurfaceProvider(previewView.surfaceProvider());
+            log.info("Camera preview reattached without rebinding use cases");
+            return;
+        }
         bindIfPermitted();
     }
 
@@ -393,17 +525,33 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     }
 
     private boolean lowStorageThresholdReached() {
-        int warningGb = context.getSharedPreferences("dcam_storage", Context.MODE_PRIVATE).getInt("warning_gb", 2);
-        long threshold = warningGb * 1024L * 1024L * 1024L;
-        long available = mediaOutput.availableBytesForNextCapture();
-        return available > 0L && available <= threshold;
+        return storageWarningActive != null && storageWarningActive.getAsBoolean();
     }
 
     private String activeFileUserId() {
-        OperatorSession session = operatorSession.current();
+        OperatorSession tracedSession = operatorSession.current();
+        log.info("AUTH_TRACE camera-session gateway=" + identity(this)
+                + " sessionUseCase=" + identity(operatorSession)
+                + " session=" + sessionSummary(tracedSession));
+        OperatorSession session = tracedSession;
         if (session != null) return session.getFileUserId();
         showError("Operator login required");
         return null;
+    }
+
+    private static String identity(Object value) {
+        return value == null ? "null" : value.getClass().getSimpleName() + "@"
+                + Integer.toHexString(System.identityHashCode(value));
+    }
+
+    private static String shortId(String value) {
+        if (value == null) return "null";
+        return Integer.toHexString(value.hashCode());
+    }
+
+    private static String sessionSummary(OperatorSession session) {
+        return session == null ? "null" : shortId(session.getSessionId())
+                + "/bootHash=" + shortId(session.getBootId());
     }
 
     private static String message(Exception error) {

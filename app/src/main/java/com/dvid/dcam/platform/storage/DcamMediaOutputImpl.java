@@ -11,13 +11,14 @@ import androidx.camera.video.MediaStoreOutputOptions;
 import androidx.camera.video.PendingRecording;
 import androidx.camera.video.Recorder;
 import androidx.camera.video.VideoCapture;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 import com.dvid.dcam.platform.logging.DcamLogger;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -26,8 +27,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 public final class DcamMediaOutputImpl implements DcamMediaOutput {
-    private static final int MD5_MAX_ATTEMPTS = 3;
-    private static final long MD5_RETRY_DELAY_SECONDS = 2L;
+    private static final String MD5_RETRY_NOW = "dcam-md5-retry-now";
+    private static final String MD5_RETRY_PERIODIC = "dcam-md5-retry-periodic";
     private static final ExecutorService FINALIZATION_EXECUTOR =
             Executors.newSingleThreadExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "dcam-media-finalization");
@@ -44,16 +45,27 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
     private final DcamMediaFinalizer finalizer;
     private final ExecutorService finalizationExecutor;
     private final BooleanSupplier createVideoMd5;
+    private final DcamMd5RetryQueue md5RetryQueue;
+    private final Context context;
 
     public DcamMediaOutputImpl(DcamStorage storage) {
         this(storage, null);
     }
 
     public DcamMediaOutputImpl(DcamStorage storage, BooleanSupplier createVideoMd5) {
+        this(null, storage, createVideoMd5);
+    }
+
+    public DcamMediaOutputImpl(
+            Context context, DcamStorage storage, BooleanSupplier createVideoMd5) {
+        this.context = context == null ? null : context.getApplicationContext();
         this.storage = storage;
         this.finalizer = new DcamMediaFinalizer(storage);
         this.finalizationExecutor = FINALIZATION_EXECUTOR;
         this.createVideoMd5 = createVideoMd5;
+        this.md5RetryQueue = new DcamMd5RetryQueue(
+                storage.configsFile().getParentFile().getParentFile());
+        if (this.context != null) scheduleMd5Retries(this.context);
     }
 
     @Override public DcamMediaFile mediaFile(
@@ -138,7 +150,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
                 callback.onSuccess(finalFile);
                 if (createVideoMd5 != null && createVideoMd5.getAsBoolean()
                         && "mp4".equals(mediaFile.getType().getExtension())) {
-                    createMd5WithRetry(finalFile, 1);
+                    createMd5WithRetry(finalFile);
                 }
             } catch (Exception failure) {
                 callback.onFailure(failure);
@@ -157,36 +169,44 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         return finalFile;
     }
 
-    private static String digest(File file) throws IOException {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            try (InputStream input = Files.newInputStream(file.toPath())) {
-                byte[] buffer = new byte[64 * 1024];
-                int read;
-                while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
-            }
-            StringBuilder result = new StringBuilder(32);
-            for (byte value : digest.digest()) result.append(String.format("%02x", value & 0xff));
-            return result.toString();
-        } catch (NoSuchAlgorithmException impossible) {
-            throw new IOException("MD5 unavailable", impossible);
-        }
-    }
-
-    private static void createMd5WithRetry(File file, int attempt) {
+    private void createMd5WithRetry(File file) {
         MD5_EXECUTOR.execute(() -> {
             try {
-                DcamMd5Sidecar.write(file, digest(file));
+                DcamMd5Sidecar.write(file, DcamMd5RetryProcessor.digest(file));
+                md5RetryQueue.remove(file);
             } catch (Exception failure) {
-                if (attempt < MD5_MAX_ATTEMPTS) {
-                    MD5_EXECUTOR.schedule(() -> createMd5WithRetry(file, attempt + 1),
-                            MD5_RETRY_DELAY_SECONDS, TimeUnit.SECONDS);
+                try { md5RetryQueue.add(file); }
+                catch (IOException queueFailure) {
+                    failure.addSuppressed(queueFailure);
+                    DcamLogger.e("Video MD5 failed; retry queue unavailable: "
+                            + file.getAbsolutePath(), failure);
                     return;
                 }
-                DcamLogger.e("Video MD5 failed after " + MD5_MAX_ATTEMPTS
-                        + " attempts: " + file.getAbsolutePath(), failure);
+                DcamLogger.e("Video MD5 failed; queued for retry: " + file.getAbsolutePath(), failure);
+                if (context != null) {
+                    try {
+                        scheduleMd5RetryNow(context);
+                    } catch (RuntimeException schedulingFailure) {
+                        DcamLogger.e("Video MD5 retry scheduling failed: "
+                                + file.getAbsolutePath(), schedulingFailure);
+                    }
+                }
             }
         });
+    }
+
+    private static void scheduleMd5Retries(Context context) {
+        WorkManager workManager = WorkManager.getInstance(context.getApplicationContext());
+        workManager.enqueueUniqueWork(MD5_RETRY_NOW, ExistingWorkPolicy.KEEP,
+                new OneTimeWorkRequest.Builder(DcamMd5RetryWorker.class).build());
+        workManager.enqueueUniquePeriodicWork(MD5_RETRY_PERIODIC,
+                ExistingPeriodicWorkPolicy.KEEP,
+                new PeriodicWorkRequest.Builder(DcamMd5RetryWorker.class, 15, TimeUnit.MINUTES).build());
+    }
+
+    private static void scheduleMd5RetryNow(Context context) {
+        WorkManager.getInstance(context).enqueueUniqueWork(MD5_RETRY_NOW, ExistingWorkPolicy.KEEP,
+                new OneTimeWorkRequest.Builder(DcamMd5RetryWorker.class).build());
     }
 
     @Override public void recoverStaged(RecoveryCallback callback) {

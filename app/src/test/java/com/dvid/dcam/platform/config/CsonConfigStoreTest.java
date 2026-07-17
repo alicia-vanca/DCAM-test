@@ -12,7 +12,7 @@ public class CsonConfigStoreTest {
     @Test public void loadsIdsAndEncryption() throws Exception {
         File file = File.createTempFile("configs", ".cson");
         Files.writeString(file.toPath(), "[video]\nfile.encryption=\"1\"\nfile.encrypt_password=\"custom-password\"\n"
-                + "[device]\naccount.user_id=\"CAM001\"\npolice.user_id=\"000000\"");
+                + "[device]\nserial_number=\"CAM001\"\npolice.user_id=\"000000\"");
         DcamConfig config = new CsonConfigStore(file).load();
         assertEquals("CAM001", config.getAccountUserId());
         assertEquals("000000", config.getPoliceUserId());
@@ -42,13 +42,13 @@ public class CsonConfigStoreTest {
         assertFalse(generated.contains("file.encryption"));
     }
 
-    @Test public void repairsUnknownAccountWhenDeviceIdentityBecomesAvailable() throws Exception {
+    @Test public void usesSerialFallbackWhenUnset() throws Exception {
         File file = File.createTempFile("configs", ".cson");
-        Files.writeString(file.toPath(), "[device]\naccount.user_id=\"unknown\"\nserial_number=\"\"");
+        Files.writeString(file.toPath(), "[device]\nserial_number=\"\"");
 
         DcamConfig config = new CsonConfigStore(file, "KF5OF2126040802193").load();
 
         assertEquals("KF5OF2126040802193", config.getAccountUserId());
-        assertTrue(Files.readString(file.toPath()).contains("account.user_id=\"KF5OF2126040802193\""));
+        assertFalse(Files.readString(file.toPath()).contains("account.user_id"));
     }
 }

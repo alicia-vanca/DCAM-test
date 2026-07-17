@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -167,7 +168,7 @@ public final class DcamStorage implements
     public DcamMediaFile mediaFile(DcamFileType type, String accountUserId, String policeUserId,
                                    LocalDateTime at, boolean encrypted) {
         File dir = stagesBeforePublication(type)
-                ? tempDirectory()
+                ? new File(tempDirectory(), DcamFileName.dateFolder(at))
                 : new File(rootDirectory(), type.getFolder());
         String fileName = DcamFileName.build(type, accountUserId, policeUserId, at, encrypted);
         return new DcamMediaFile(type, fileName, new File(dir, fileName), at);
@@ -195,11 +196,25 @@ public final class DcamStorage implements
         File marker = targetMarker(mediaFile.getFile());
         if (marker.isFile()) return validatedMarkedTarget(mediaFile, marker);
         File stagingParent = mediaFile.getFile().getParentFile();
-        File mediaRoot = stagingParent != null && "Temp".equals(stagingParent.getName())
+        File mediaRoot = stagingParent != null && isDateStagingDirectory(stagingParent)
+                ? new File(stagingParent.getParentFile().getParentFile(), "Media")
+                : stagingParent != null && "Temp".equals(stagingParent.getName())
                 ? new File(stagingParent.getParentFile(), "Media")
                 : rootDirectory();
-        return new File(new File(mediaRoot, mediaFile.getType().getFolder()),
+        return finalFile(mediaRoot, mediaFile);
+    }
+
+    private static File finalFile(File mediaRoot, DcamMediaFile mediaFile) {
+        File typeDirectory = new File(mediaRoot, mediaFile.getType().getFolder());
+        return new File(new File(typeDirectory, finalDateFolder(mediaFile)),
                 mediaFile.getFileName());
+    }
+
+    private static String finalDateFolder(DcamMediaFile mediaFile) {
+        File stagingDirectory = mediaFile.getFile().getParentFile();
+        return isDateStagingDirectory(stagingDirectory)
+                ? stagingDirectory.getName()
+                : DcamFileName.dateFolder(mediaFile.getCreatedAt());
     }
 
     public List<File> recoveryTempDirectories() {
@@ -214,6 +229,25 @@ public final class DcamStorage implements
         return List.copyOf(directories);
     }
 
+    void deleteEmptyStagingDateDirectory(DcamMediaFile mediaFile) {
+        File dateDirectory = mediaFile.getFile().getParentFile();
+        if (!isDateStagingDirectory(dateDirectory)) return;
+        try { Files.deleteIfExists(dateDirectory.toPath()); } catch (IOException ignored) { }
+    }
+
+    private static boolean isDateStagingDirectory(File directory) {
+        if (directory == null || !directory.isDirectory()) return false;
+        File parent = directory.getParentFile();
+        if (parent == null || !("Temp".equals(parent.getName())
+                || "DurableAudioTemp".equals(parent.getName()))) return false;
+        try {
+            LocalDate.parse(directory.getName(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
     void deleteTargetMarker(DcamMediaFile mediaFile) {
         try { Files.deleteIfExists(targetMarker(mediaFile.getFile()).toPath()); } catch (IOException ignored) { }
     }
@@ -223,8 +257,7 @@ public final class DcamStorage implements
             File marked = new File(new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8));
             String markedPath = marked.getCanonicalPath();
             for (File mediaRoot : mediaRootDirectories()) {
-                File allowed = new File(new File(mediaRoot, mediaFile.getType().getFolder()),
-                        mediaFile.getFileName());
+                File allowed = finalFile(mediaRoot, mediaFile);
                 if (markedPath.equals(allowed.getCanonicalPath())) return marked;
             }
             throw new SecurityException("Unsupported durable audio target");
@@ -258,7 +291,6 @@ public final class DcamStorage implements
 
     public File configsFile() { return new File(new File(internalRoot, "Config"), "dcam_config.cson"); }
 
-    public File legacyConfigsFile() { return new File(internalRoot, "configs.cson"); }
 
     private boolean stagesBeforePublication(DcamFileType type) {
         return type == DcamFileType.VIDEO || type == DcamFileType.SOS

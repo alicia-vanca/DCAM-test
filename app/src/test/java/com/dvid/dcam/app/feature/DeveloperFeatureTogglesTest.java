@@ -8,6 +8,7 @@ import com.dvid.dcam.core.feature.application.usecase.FeatureGateSettingsUseCase
 import com.dvid.dcam.core.feature.domain.FeatureGate;
 import com.dvid.dcam.feature.settings.presentation.SettingId;
 import com.dvid.dcam.feature.settings.presentation.SettingItem;
+import com.dvid.dcam.feature.settings.presentation.SettingsSection;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Map;
@@ -27,7 +28,9 @@ final class DeveloperFeatureTogglesTest {
                         FeatureGate.AUDIO_CAPTURE,
                         FeatureGate.VIDEO_MD5,
                         FeatureGate.MEDIA_BROWSER,
-                        FeatureGate.STORAGE_SETTINGS),
+                        FeatureGate.STORAGE_SETTINGS,
+                        FeatureGate.DEVICE_SETTINGS,
+                        FeatureGate.GPS),
                 enabled);
     }
 
@@ -53,7 +56,7 @@ final class DeveloperFeatureTogglesTest {
         DeveloperFeatureToggles toggles =
                 DeveloperFeatureToggles.createDefault(new FakeFeatureGateSettingsUseCaseImpl());
 
-        assertFalse(toggles.setEnabled(SettingId.LOOP_RECORDING, true));
+        assertFalse(toggles.setEnabled(SettingId.LANGUAGE, true));
     }
 
     @Test void disabledMediaParentGreysAndDisablesChildBehavior() {
@@ -84,6 +87,29 @@ final class DeveloperFeatureTogglesTest {
                 .count();
 
         assertEquals(FeatureGate.values().length, toggleCount);
+    }
+
+    @Test void childSettingStaysBesideItsFeatureToggle() {
+        DeveloperFeatureToggles toggles =
+                DeveloperFeatureToggles.createDefault(new FakeFeatureGateSettingsUseCaseImpl());
+        SettingItem provider = SettingItem.radio(
+                SettingId.GPS_POSITIONING_MODE, "Location source", java.util.List.of("Automatic"), 0)
+                .withIndentLevel(1);
+
+        SettingsSection section = toggles.developerSettings(SettingId.FEATURE_GPS, provider)
+                .getSections().stream()
+                .filter(candidate -> candidate.getItems().stream()
+                        .anyMatch(item -> item.getId() == SettingId.FEATURE_GPS))
+                .findFirst()
+                .orElseThrow();
+        int locationIndex = java.util.stream.IntStream.range(0, section.getItems().size())
+                .filter(index -> section.getItems().get(index).getId() == SettingId.FEATURE_GPS)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(SettingId.GPS_POSITIONING_MODE,
+                section.getItems().get(locationIndex + 1).getId());
+        assertEquals(1, section.getItems().get(locationIndex + 1).getIndentLevel());
     }
 
     private static FakeFeatureGateSettingsUseCaseImpl disabledGates() {

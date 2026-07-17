@@ -25,7 +25,7 @@ public final class RecordingForegroundService extends Service {
     private static final String ACTION_START_AUDIO = "dcam.recording.START_AUDIO";
     private static final String ACTION_STOP_VIDEO = "dcam.recording.STOP_VIDEO";
     private static final String ACTION_STOP_AUDIO = "dcam.recording.STOP_AUDIO";
-    private final RecordingForegroundOwners owners = new RecordingForegroundOwners();
+    private final RecordingForegroundOwners owners = RecordingForegroundOwners.processOwners();
 
     public static boolean startVideo(Context context, String fileName) {
         return start(context, ACTION_START_VIDEO);

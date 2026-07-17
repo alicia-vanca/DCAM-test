@@ -1,6 +1,6 @@
 # Current repository state
 
-This page describes the refactored code visible on 2026-07-15. It records implementation reality against current Confluence. Build 0.1-specific rules come from the Decision Brief and Release & Build Applicability Matrix; this page is not a substitute for formal requirements.
+This page describes the refactored code visible on 2026-07-17. It records implementation reality against current Confluence. Build 0.1-specific rules come from the Decision Brief and Release & Build Applicability Matrix; this page is not a substitute for formal requirements.
 
 ## Build and platform
 
@@ -79,7 +79,6 @@ default. All roots are Android app-specific directories—no public `DCIM` root 
   and refresh removable-volume discovery when storage becomes available after startup.
 - A system `MEDIA_MOUNTED` receiver reruns staged-media recovery immediately after Android regains
   removable-storage access; application startup remains the fallback recovery trigger.
-  for capture, otherwise they resolve to Internal before the new capture starts.
 - An explicit Internal selection never selects External.
 - Root selection never changes during an active file.
 
@@ -108,10 +107,10 @@ re-run when Android receives the volume again. Repeated trials and a true power-
 
 | Type | Folder | Extension |
 |---|---|---|
-| Video | `Media/Video` | `.mp4` |
-| SOS/important | `Media/IMP` | `.mp4` |
-| Image | `Media/Image` | `.jpg` |
-| Audio | `Media/Audio` | `.aac` using AAC/ADTS |
+| Video | `Media/Video/yyyy-MM-dd` | `.mp4` |
+| SOS/important | `Media/IMP/yyyy-MM-dd` | `.mp4` |
+| Image | `Media/Image/yyyy-MM-dd` | `.jpg` |
+| Audio | `Media/Audio/yyyy-MM-dd` | `.aac` using AAC/ADTS |
 
 Current filename shape:
 
@@ -135,7 +134,7 @@ MP4 MD5 generation is not implemented. The contract fixes its scope and sidecar 
 
 ## Future capabilities
 
-Location, Metadata, durable media lifecycle, MP4 checksum, contract configuration/database migration, Update, Streaming, and PTT remain roadmap/documentation capabilities only. Operator authentication/session and initial cloud/remote-config boundaries have code, but neither constitutes complete runtime/media delivery. Contract media folder/naming rules and local AES-256-CTR media transforms have concrete platform implementation; broader capabilities enter source only when approved behavior defines their domain values and application boundaries.
+Metadata, a fully durable media lifecycle, contract configuration/database migration, Update, Streaming, and PTT remain roadmap/documentation capabilities only. GPS tracking has Android location adapters, runtime permission retry handling, settings integration, and current-location requests, but capture metadata integration remains incomplete. Optional MP4 MD5 sidecars use a durable retry queue plus WorkManager startup, immediate, and periodic recovery. Operator authentication/session and initial cloud/remote-config boundaries have code, but neither constitutes complete runtime/media delivery. Contract media folder/naming rules and local AES-256-CTR media transforms have concrete platform implementation; broader capabilities enter source only when approved behavior defines their domain values and application boundaries.
 
 ## Local property behavior
 
@@ -150,20 +149,22 @@ Private workflow instructions for local-property handling belong in `application
   now backed by its own settings use case and persistence adapter.
 - CameraX is lifecycle-owned by the Activity adapter; the foreground service does not yet own/recover recording after process death.
 - HandlerThread/vendor-SDK serialization is scaffolded by architecture, but CameraX currently uses its lifecycle/main-executor contract.
-- No GPS/location implementation or metadata integration yet.
+- GPS tracking and current-location requests are implemented; embedding coordinates into media metadata and full lifecycle/device validation remain open.
 - Device status currently covers battery, available selected-root storage, and GPS capability/enabled state; richer network/firmware/USB status remains future work.
 - No persistent media status/recovery state machine.
 - Authentication has no failed-attempt throttling/lockout policy yet, and bcrypt cost-10 latency still requires measurement on target hardware. No PBKDF2 compatibility verifier is retained; development installs containing plaintext or PBKDF2 credentials must clear app data, reinstall, or reprovision users.
-- Data Contract media folders/naming, important-media mapping, AAC output, active log filename, local AES-256-CTR transforms, logical storage-mode resolution, and capacity safety are implemented locally. Production physical-root proof, device-information-only CSON, app/contract metadata, fully DB-owned settings, MP4 MD5, embedded metadata, final key handling, BDMA permissions, import results, cleanup, and E2E proof remain open.
+- Data Contract media folders/naming, important-media mapping, AAC output, active log filename, local AES-256-CTR transforms, logical storage-mode resolution, capacity safety, and optional MP4 MD5 sidecars are implemented locally. Production physical-root proof, device-information-only CSON, app/contract metadata, fully DB-owned settings, embedded metadata, final key handling, BDMA permissions, import results, cleanup, and E2E proof remain open.
 - Android Device Operation: existing permission/foreground-notification behavior is present, and system bars are intentionally visible. Boot receiver, Home/Launcher role, managed kiosk/exit control, exact dedicated-screen behavior, screen/power policy, durable service ownership, and crash/reboot recovery remain pending Technical Design/device policy.
 - No streaming, PTT, or update implementation. Cloud/remote config remains an early no-op/local-state boundary, while Device/User auth is an incomplete MVP foundation rather than a finished feature.
 - Real BodyCamera POC and hardware matrix validation remain mandatory.
 
 ## Verification
 
+Engineering evidence follows the approved [DCAM Engineering Evidence & NAS Artifact SOP](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/53608471): raw APK, media, logs, ADB output, screenshots, and reports belong in the internal NAS evidence store; Jira records Evidence ID and result; Confluence stores governance, metadata, conclusions, and links. The SOP does not itself prove NAS readiness, Device POC pass, or Build 0.1 readiness.
+
 After refactoring:
 
-- `test`: passed on 2026-07-11 across `:app` and `:core`; the current source contains 76 local `@Test` methods, including focused storage resolution/capacity/failure, core-module, password-hashing, and no-plaintext-schema regression tests.
-- `assembleDebug`: passed on 2026-07-11 with `:app` consuming the compiled `:core` JAR.
+- `testDebugUnitTest`: passed on 2026-07-17, including architecture, location, authentication, storage recovery, device-serial persistence, and MD5 retry regressions.
+- `assembleDebug`: passed on 2026-07-17 with `:app` consuming the compiled `:core` JAR.
 - `lintDebug`: last verified as succeeding on 2026-07-06; the final 2026-07-07 re-run was blocked when the sandboxed Gradle wrapper attempted a network download.
 - Generated `BuildConfig`: intentionally contains all application and local-property fields.

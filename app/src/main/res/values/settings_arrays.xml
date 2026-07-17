@@ -6,7 +6,6 @@
         <item>Pre-record time</item>
         <item>Recording delay</item>
         <item>Start recording at boot</item>
-        <item>Loop recording</item>
         <item>Low-battery warning</item>
     </string-array>
 

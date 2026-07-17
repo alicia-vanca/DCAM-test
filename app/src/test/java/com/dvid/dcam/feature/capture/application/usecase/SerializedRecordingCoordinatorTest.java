@@ -40,6 +40,18 @@ final class SerializedRecordingCoordinatorTest {
         assertEquals(List.of("start-video", "stop"), camera.calls);
     }
 
+    @Test void twoVideoTogglePulsesBeforeQueueDrainsStartThenStop() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+
+        coordinator.toggleVideo();
+        coordinator.toggleVideo();
+        executor.runAll();
+
+        assertEquals(List.of("start-video", "stop"), camera.calls);
+    }
+
     @Test void cameraEventsShareTheQueueAndCompletionAllowsTheNextStart() {
         ManualExecutor executor = new ManualExecutor();
         FakeCamera camera = new FakeCamera();
@@ -106,6 +118,81 @@ final class SerializedRecordingCoordinatorTest {
         executor.runAll();
 
         assertEquals(List.of("start-sos", "stop"), camera.calls);
+    }
+
+    @Test void clearingActivityListenerDoesNotStopActiveRecording() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+
+        coordinator.startVideo();
+        coordinator.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+        executor.runAll();
+
+        coordinator.clearListener();
+        executor.runAll();
+
+        assertEquals(RecordingMode.VIDEO, coordinator.currentMode());
+        assertEquals(List.of("start-video"), camera.calls);
+    }
+
+    @Test void interruptedRecordingResumesAndStopWhilePausedStopsCurrentFile() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+
+        coordinator.startVideo();
+        coordinator.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+        coordinator.recordingInterrupted("Camera interrupted by another application");
+        executor.runAll();
+        assertEquals(RecordingMode.VIDEO, coordinator.currentMode());
+
+        coordinator.recordingResumed();
+        executor.runAll();
+        assertEquals(RecordingMode.VIDEO, coordinator.currentMode());
+
+        coordinator.recordingInterrupted("Camera interrupted by another application");
+        coordinator.stopRecording();
+        executor.runAll();
+        assertEquals(List.of("start-video", "stop"), camera.calls);
+    }
+    @Test void listenerRebindReplaysCompletionMissedDuringActivityRecreation() {
+        ManualExecutor executor = new ManualExecutor();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, new FakeCamera());
+        List<CaptureEvent.Type> replayed = new ArrayList<>();
+
+        coordinator.startVideo();
+        coordinator.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+        executor.runAll();
+        coordinator.clearListener();
+        coordinator.recordingCompleted("video.mp4");
+        executor.runAll();
+
+        coordinator.setListener(event -> replayed.add(event.getType()));
+        executor.runAll();
+
+        assertEquals(List.of(CaptureEvent.Type.RECORDING_COMPLETED), replayed);
+        assertEquals(RecordingMode.IDLE, coordinator.currentMode());
+    }
+
+    @Test void listenerRebindReconstructsInterruptedRecordingSnapshot() {
+        ManualExecutor executor = new ManualExecutor();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, new FakeCamera());
+        List<CaptureEvent.Type> replayed = new ArrayList<>();
+
+        coordinator.startVideo();
+        coordinator.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+        coordinator.recordingInterrupted("camera busy");
+        executor.runAll();
+        coordinator.clearListener();
+        executor.runAll();
+
+        coordinator.setListener(event -> replayed.add(event.getType()));
+        executor.runAll();
+
+        assertEquals(List.of(
+                CaptureEvent.Type.RECORDING_STARTED,
+                CaptureEvent.Type.RECORDING_INTERRUPTED), replayed);
     }
 
     @Test void cameraCanOnlyBeBoundOnce() {

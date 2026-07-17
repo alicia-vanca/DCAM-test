@@ -12,8 +12,6 @@ public final class SettingsUiState {
 
     private String recordResolution = "FHD";
     private int segmentLengthMinutes = 5;
-    private boolean loopRecordingEnabled = true;
-    private boolean videoMd5Enabled;
     private boolean videoEncryptionEnabled;
     private int defaultStorageIndex;
     private int lowStorageWarningGb = 2;
@@ -24,10 +22,9 @@ public final class SettingsUiState {
     private boolean autoRotateEnabled;
     private boolean wifiEnabled;
 
-    public SettingsUiState(boolean videoEncryptionEnabled, boolean videoMd5Enabled, int defaultStorageIndex,
+    public SettingsUiState(boolean videoEncryptionEnabled, int defaultStorageIndex,
             boolean autoRotateEnabled, boolean wifiEnabled) {
         this.videoEncryptionEnabled = videoEncryptionEnabled;
-        this.videoMd5Enabled = videoMd5Enabled;
         this.defaultStorageIndex = clamp(defaultStorageIndex, STORAGE_OPTIONS.size());
         this.autoRotateEnabled = autoRotateEnabled;
         this.wifiEnabled = wifiEnabled;
@@ -64,12 +61,6 @@ public final class SettingsUiState {
 
     public void updateBoolean(SettingId id, boolean checked) {
         switch (id) {
-            case LOOP_RECORDING:
-                loopRecordingEnabled = checked;
-                break;
-            case CREATE_VIDEO_MD5:
-                videoMd5Enabled = checked;
-                break;
             case ENCRYPT_VIDEO_FILES:
                 videoEncryptionEnabled = checked;
                 break;
@@ -113,14 +104,12 @@ public final class SettingsUiState {
         lowStorageWarningGb = clamp(value, 1, 20);
     }
 
-    public SettingsScreenModel recording() {
-        return new SettingsScreenModel(List.of(new SettingsSection("Recording", List.of(
-                SettingItem.choice(SettingId.RECORD_RESOLUTION, "Record resolution",
+    public SettingsScreenModel recording(String sectionTitle, String resolutionLabel, String segmentLengthLabel, String minuteUnit) {
+        return new SettingsScreenModel(List.of(new SettingsSection(sectionTitle, List.of(
+                SettingItem.choice(SettingId.RECORD_RESOLUTION, resolutionLabel,
                         recordResolutions, recordResolutions.indexOf(recordResolution)),
-                SettingItem.slider(SettingId.VIDEO_SEGMENT_LENGTH_MINUTES, "Video segment length",
-                        1, 30, segmentLengthMinutes, "min"),
-                SettingItem.checkbox(SettingId.LOOP_RECORDING, "Loop recording", loopRecordingEnabled),
-                SettingItem.checkbox(SettingId.CREATE_VIDEO_MD5, "Create MD5 for video", videoMd5Enabled)))));
+                SettingItem.slider(SettingId.VIDEO_SEGMENT_LENGTH_MINUTES, segmentLengthLabel,
+                        1, 30, segmentLengthMinutes, minuteUnit)))));
     }
 
     public SettingsScreenModel storage() {

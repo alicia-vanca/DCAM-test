@@ -16,5 +16,6 @@ public interface LocationSource {
         return state;
     }
     void stop();
+    void requestCurrentLocation(GpsSettings settings);
     GpsCoordinate latestCoordinate();
 }

@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.storage;
 import com.dvid.dcam.feature.media.application.port.MediaRepository;
 import com.dvid.dcam.feature.media.domain.MediaEntry;
 import java.io.File;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -61,7 +62,7 @@ public final class LocalMediaRepositoryImpl implements MediaRepository {
             File file = resolveInsideRoot(resolution.root, folder);
             entries.add(new MediaEntry(folder, resolution.location + "/" + folder, true,
                     0L, file.exists() ? file.lastModified() : 0L, null,
-                    childFileCount(file)));
+                    descendantFileCount(file)));
         }
         entries.sort(Comparator.comparing(MediaEntry::getName, String.CASE_INSENSITIVE_ORDER));
         return entries;
@@ -71,15 +72,17 @@ public final class LocalMediaRepositoryImpl implements MediaRepository {
         return new MediaEntry(file.getName(), relativePath.replace('\\', '/'),
                 file.isDirectory(), file.isFile() ? file.length() : 0L,
                 file.lastModified(), file.isDirectory() ? null : mimeType(file.getName()),
-                0);
+                file.isDirectory() ? descendantFileCount(file) : 0);
     }
 
-    private static int childFileCount(File directory) {
+    private static int descendantFileCount(File directory) {
         File[] children = directory.listFiles();
         if (children == null) return 0;
         int files = 0;
         for (File child : children) {
-            if (child.isFile() && !isMd5Sidecar(child)) files++;
+            if (Files.isSymbolicLink(child.toPath())) continue;
+            if (child.isDirectory()) files += descendantFileCount(child);
+            else if (!isMd5Sidecar(child)) files++;
         }
         return files;
     }

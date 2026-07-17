@@ -23,6 +23,7 @@ public final class SerializedRecordingCoordinator
         IDLE,
         STARTING,
         RECORDING,
+        INTERRUPTED,
         STOPPING,
         SWITCHING_TO_SOS
     }
@@ -35,6 +36,9 @@ public final class SerializedRecordingCoordinator
     private CameraGateway camera;
     private Phase phase = Phase.IDLE;
     private volatile RecordingMode requestedMode = RecordingMode.IDLE;
+    private String currentFileName;
+    private String interruptionMessage;
+    private CaptureEvent lastTerminalEvent;
 
     public SerializedRecordingCoordinator(Executor executor) {
         queue = new SerialExecutor(Objects.requireNonNull(executor, "executor"));
@@ -87,11 +91,15 @@ public final class SerializedRecordingCoordinator
     }
 
     @Override public void setListener(Consumer<CaptureEvent> listener) {
-        this.listener = listener == null ? NO_LISTENER : listener;
+        Consumer<CaptureEvent> next = listener == null ? NO_LISTENER : listener;
+        queue.execute(() -> {
+            this.listener = next;
+            replayCurrentState();
+        });
     }
 
     @Override public void clearListener() {
-        listener = NO_LISTENER;
+        queue.execute(() -> listener = NO_LISTENER);
     }
 
     @Override public RecordingMode currentMode() {
@@ -102,11 +110,31 @@ public final class SerializedRecordingCoordinator
         queue.execute(() -> {
             currentMode = Objects.requireNonNull(mode, "mode");
             requestedMode = RecordingMode.IDLE;
+            currentFileName = fileName;
+            interruptionMessage = null;
+            lastTerminalEvent = null;
             phase = Phase.RECORDING;
-            listener.accept(CaptureEvent.recordingStarted(mode, fileName));
+            emit(CaptureEvent.recordingStarted(mode, fileName));
         });
     }
 
+    @Override public void recordingInterrupted(String message) {
+        queue.execute(() -> {
+            if (phase != Phase.RECORDING || currentMode == RecordingMode.IDLE) return;
+            phase = Phase.INTERRUPTED;
+            interruptionMessage = message;
+            emit(CaptureEvent.recordingInterrupted(currentMode, message));
+        });
+    }
+
+    @Override public void recordingResumed() {
+        queue.execute(() -> {
+            if (phase != Phase.INTERRUPTED || currentMode == RecordingMode.IDLE) return;
+            phase = Phase.RECORDING;
+            interruptionMessage = null;
+            emit(CaptureEvent.recordingResumed(currentMode));
+        });
+    }
     @Override public void recordingCompleted(String fileName) {
         queue.execute(() -> {
             currentMode = RecordingMode.IDLE;
@@ -116,7 +144,10 @@ public final class SerializedRecordingCoordinator
                 requestedMode = RecordingMode.IDLE;
                 phase = Phase.IDLE;
             }
-            listener.accept(CaptureEvent.recordingCompleted(fileName));
+            currentFileName = null;
+            interruptionMessage = null;
+            lastTerminalEvent = CaptureEvent.recordingCompleted(fileName);
+            emit(lastTerminalEvent);
         });
     }
     @Override public void recordingStoppedForStorage(String fileName) {
@@ -124,12 +155,18 @@ public final class SerializedRecordingCoordinator
             currentMode = RecordingMode.IDLE;
             requestedMode = RecordingMode.IDLE;
             phase = Phase.IDLE;
-            listener.accept(CaptureEvent.recordingStoppedForStorage(fileName));
+            currentFileName = null;
+            interruptionMessage = null;
+            lastTerminalEvent = CaptureEvent.recordingStoppedForStorage(fileName);
+            emit(lastTerminalEvent);
         });
     }
 
     @Override public void photoSaved(String fileName) {
-        queue.execute(() -> listener.accept(CaptureEvent.photoSaved(fileName)));
+        queue.execute(() -> {
+            lastTerminalEvent = CaptureEvent.photoSaved(fileName);
+            emit(lastTerminalEvent);
+        });
     }
 
     @Override public void captureFailed(String operation, String message) {
@@ -137,14 +174,20 @@ public final class SerializedRecordingCoordinator
             currentMode = RecordingMode.IDLE;
             requestedMode = RecordingMode.IDLE;
             phase = Phase.IDLE;
-            listener.accept(CaptureEvent.error(operation, message));
+            currentFileName = null;
+            interruptionMessage = null;
+            lastTerminalEvent = CaptureEvent.error(operation, message);
+            emit(lastTerminalEvent);
         });
     }
 
     private void start(RecordingMode mode) {
         requestedMode = mode;
+        currentFileName = null;
+        interruptionMessage = null;
+        lastTerminalEvent = null;
         phase = Phase.STARTING;
-        listener.accept(CaptureEvent.recordingStarting(mode));
+        emit(CaptureEvent.recordingStarting(mode));
         if (mode == RecordingMode.SOS) camera().startSos();
         else camera().startVideo();
     }
@@ -155,8 +198,45 @@ public final class SerializedRecordingCoordinator
                 ? requestedMode : currentMode;
         requestedMode = RecordingMode.IDLE;
         phase = Phase.STOPPING;
-        listener.accept(CaptureEvent.recordingStopping(stoppingMode));
+        emit(CaptureEvent.recordingStopping(stoppingMode));
         camera().stopRecording();
+    }
+
+    private void emit(CaptureEvent event) {
+        listener.accept(event);
+    }
+
+    private void replayCurrentState() {
+        switch (phase) {
+            case STARTING:
+                emit(CaptureEvent.recordingStarting(requestedMode));
+                break;
+            case RECORDING:
+                emit(CaptureEvent.recordingStarted(currentMode, currentFileName));
+                break;
+            case INTERRUPTED:
+                emit(CaptureEvent.recordingStarted(currentMode, currentFileName));
+                emit(CaptureEvent.recordingInterrupted(currentMode, interruptionMessage));
+                break;
+            case STOPPING:
+                RecordingMode stoppingMode = currentMode == RecordingMode.IDLE
+                        ? requestedMode : currentMode;
+                if (currentFileName != null) {
+                    emit(CaptureEvent.recordingStarted(stoppingMode, currentFileName));
+                } else {
+                    emit(CaptureEvent.recordingStarting(stoppingMode));
+                }
+                emit(CaptureEvent.recordingStopping(stoppingMode));
+                break;
+            case SWITCHING_TO_SOS:
+                emit(CaptureEvent.recordingStarted(currentMode, currentFileName));
+                break;
+            case IDLE:
+                if (lastTerminalEvent != null) emit(lastTerminalEvent);
+                break;
+            default:
+                throw new IllegalStateException("Unsupported recording phase " + phase);
+        }
     }
 
     private synchronized CameraGateway camera() {

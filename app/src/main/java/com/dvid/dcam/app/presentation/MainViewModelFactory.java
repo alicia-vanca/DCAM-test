@@ -10,6 +10,7 @@ import com.dvid.dcam.feature.auth.application.usecase.ManageOperatorUsersUseCase
 import com.dvid.dcam.feature.auth.application.usecase.OperatorSessionUseCase;
 import com.dvid.dcam.feature.device.domain.DeviceStatus;
 import com.dvid.dcam.feature.media.application.usecase.BrowseMediaUseCase;
+import java.util.function.BooleanSupplier;
 
 public final class MainViewModelFactory implements ViewModelProvider.Factory {
     private final DcamConfig config;
@@ -19,6 +20,7 @@ public final class MainViewModelFactory implements ViewModelProvider.Factory {
     private final AuthenticateOperatorUseCase authenticateOperator;
     private final OperatorSessionUseCase operatorSession;
     private final ManageOperatorUsersUseCase manageUsers;
+    private final BooleanSupplier authenticationEnabled;
 
     public MainViewModelFactory(
             DcamConfig config,
@@ -27,7 +29,8 @@ public final class MainViewModelFactory implements ViewModelProvider.Factory {
             BrowseMediaUseCase browseMedia,
             AuthenticateOperatorUseCase authenticateOperator,
             OperatorSessionUseCase operatorSession,
-            ManageOperatorUsersUseCase manageUsers) {
+            ManageOperatorUsersUseCase manageUsers,
+            BooleanSupplier authenticationEnabled) {
         this.config = config;
         this.deviceStatus = deviceStatus;
         this.refreshDeviceStatus = refreshDeviceStatus;
@@ -35,6 +38,7 @@ public final class MainViewModelFactory implements ViewModelProvider.Factory {
         this.authenticateOperator = authenticateOperator;
         this.operatorSession = operatorSession;
         this.manageUsers = manageUsers;
+        this.authenticationEnabled = authenticationEnabled;
     }
 
     @NonNull
@@ -44,6 +48,6 @@ public final class MainViewModelFactory implements ViewModelProvider.Factory {
         }
         return modelClass.cast(new MainViewModel(
                 config, deviceStatus, refreshDeviceStatus, browseMedia,
-                authenticateOperator, operatorSession, manageUsers));
+                authenticateOperator, operatorSession, manageUsers, authenticationEnabled));
     }
 }

@@ -41,6 +41,7 @@ public final class DcamMediaFinalizer {
             }
             // A leftover staging duplicate is safe; never roll back a valid final file for cleanup failure.
             try { java.nio.file.Files.deleteIfExists(staging.toPath()); } catch (IOException ignored) { }
+            storage.deleteEmptyStagingDateDirectory(mediaFile);
             storage.deleteTargetMarker(mediaFile);
             return published;
         } catch (IOException | RuntimeException failure) {

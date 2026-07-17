@@ -20,10 +20,24 @@ public final class HardwareButtonRouter {
     private final FeatureGateSettingsUseCase featureGates;
     private final OperatorSessionUseCase operatorSession;
     private final BiConsumer<Boolean, String> audioRecordingChanged;
+    private final Runnable currentLocationRequest;
     private volatile HardwareButtonLayout layout;
     private int heldButtonKeyCode = -1;
+    private int activeRecordSwitchKeyCode = -1;
     private long holdStartedAtMs;
     private boolean holdHandled;
+
+public HardwareButtonRouter(
+            PhotoCaptureUseCase photos,
+            VideoRecordingUseCase videos,
+            AudioRecordingUseCase audio,
+            FeatureGateSettingsUseCase featureGates,
+            OperatorSessionUseCase operatorSession,
+            HardwareButtonLayout layout,
+            BiConsumer<Boolean, String> audioRecordingChanged) {
+        this(photos, videos, audio, featureGates, operatorSession, layout,
+                audioRecordingChanged, () -> {});
+    }
 
     public HardwareButtonRouter(
             PhotoCaptureUseCase photos,
@@ -32,7 +46,8 @@ public final class HardwareButtonRouter {
             FeatureGateSettingsUseCase featureGates,
             OperatorSessionUseCase operatorSession,
             HardwareButtonLayout layout,
-            BiConsumer<Boolean, String> audioRecordingChanged) {
+            BiConsumer<Boolean, String> audioRecordingChanged,
+            Runnable currentLocationRequest) {
         this.photos = photos;
         this.videos = videos;
         this.audio = audio;
@@ -40,6 +55,7 @@ public final class HardwareButtonRouter {
         this.operatorSession = operatorSession;
         this.audioRecordingChanged = audioRecordingChanged == null
                 ? (recording, fileName) -> {} : audioRecordingChanged;
+        this.currentLocationRequest = currentLocationRequest == null ? () -> {} : currentLocationRequest;
         if (layout == null) throw new IllegalArgumentException("layout is required");
         this.layout = layout;
     }
@@ -48,6 +64,7 @@ public final class HardwareButtonRouter {
         if (layout == null) throw new IllegalArgumentException("layout is required");
         this.layout = layout;
         clearHoldState();
+        activeRecordSwitchKeyCode = -1;
     }
 
     public boolean onKeyDown(int buttonKeyCode, int repeatCount, long eventTimeMs) {
@@ -55,7 +72,7 @@ public final class HardwareButtonRouter {
         if (binding == null) return false;
         switch (binding.role()) {
             case RECORD:
-                return handleRecordDown(binding.type(), repeatCount);
+                return handleRecordDown(buttonKeyCode, binding.type(), repeatCount);
             case IMPORTANT_RECORDING:
                 if (repeatCount == 0) {
                     handleImportantRecording();
@@ -63,12 +80,16 @@ public final class HardwareButtonRouter {
                 return true;
             case PHOTO_CAPTURE:
                 if (repeatCount == 0) {
-                    runIfEnabled(FeatureGate.IMAGE_CAPTURE, photos::takePhoto);
+                    runIfEnabled(FeatureGate.IMAGE_CAPTURE, () -> {
+                        currentLocationRequest.run();
+                        photos.takePhoto();
+                    });
                 }
                 return true;
             case AUDIO_CAPTURE:
                 if (repeatCount == 0) {
                     runIfEnabled(FeatureGate.AUDIO_CAPTURE, () -> {
+                        if (!audio.isAudioRecording()) currentLocationRequest.run();
                         String fileName = audio.toggleAudio();
                         audioRecordingChanged.accept(audio.isAudioRecording(), fileName);
                     });
@@ -84,6 +105,10 @@ public final class HardwareButtonRouter {
     }
 
     public boolean onKeyUp(int buttonKeyCode) {
+        return onKeyUp(buttonKeyCode, false);
+    }
+
+    public boolean onKeyUp(int buttonKeyCode, boolean canceled) {
         HardwareButtonBinding binding = layout.findByButtonKeyCode(buttonKeyCode);
         if (binding == null) return false;
         if (binding.role() == ButtonRole.SOS) {
@@ -92,10 +117,23 @@ public final class HardwareButtonRouter {
         }
         if (binding.role() == ButtonRole.RECORD
                 && binding.type() == PhysicalButtonType.SWITCH) {
-            stopVideoRecording();
+            if (canceled) return true;
+            if (activeRecordSwitchKeyCode == buttonKeyCode) {
+                activeRecordSwitchKeyCode = -1;
+                stopVideoRecording();
+            }
             return true;
         }
         return binding.role() != ButtonRole.PTT;
+    }
+
+    public void clearTransientState() {
+        clearHoldState();
+        activeRecordSwitchKeyCode = -1;
+    }
+
+    public void clearFocusTransientState() {
+        clearHoldState();
     }
 
     public boolean isSosButton(int buttonKeyCode) {
@@ -111,20 +149,35 @@ public final class HardwareButtonRouter {
         return false;
     }
 
-    private boolean handleRecordDown(PhysicalButtonType type, int repeatCount) {
-        if (repeatCount != 0) return true;
+    private boolean handleRecordDown(
+            int buttonKeyCode, PhysicalButtonType type, int repeatCount) {
         if (type == PhysicalButtonType.SWITCH) {
-            runIfEnabled(FeatureGate.VIDEO_CAPTURE, videos::startVideo);
-        } else {
+            if (activeRecordSwitchKeyCode == buttonKeyCode) return true;
+            activeRecordSwitchKeyCode = buttonKeyCode;
+            runIfEnabled(FeatureGate.VIDEO_CAPTURE, () -> {
+                currentLocationRequest.run();
+                videos.startVideo();
+            });
+        } else if (repeatCount == 0) {
             runIfEnabled(FeatureGate.VIDEO_CAPTURE, videos.currentMode() == RecordingMode.IDLE
-                    ? videos::startVideo : this::stopVideoRecording);
+                    ? () -> {
+                        currentLocationRequest.run();
+                        videos.startVideo();
+                    } : this::stopVideoRecording);
         }
         return true;
     }
 
+    public int activeRecordSwitchKeyCodeForDebug() {
+        return activeRecordSwitchKeyCode;
+    }
+
     private void handleImportantRecording() {
         runIfEnabled(FeatureGate.VIDEO_CAPTURE, videos.currentMode() == RecordingMode.IDLE
-                ? videos::startSos : this::stopVideoRecording);
+                ? () -> {
+                    currentLocationRequest.run();
+                    videos.startSos();
+                } : this::stopVideoRecording);
     }
 
     private boolean handleSosDown(int buttonKeyCode, int repeatCount, long eventTimeMs) {
@@ -147,7 +200,10 @@ public final class HardwareButtonRouter {
     }
 
     private void toggleSosRecording() {
-        if (videos.currentMode() == RecordingMode.IDLE) videos.startSos();
+        if (videos.currentMode() == RecordingMode.IDLE) {
+            currentLocationRequest.run();
+            videos.startSos();
+        }
         else stopVideoRecording();
     }
 

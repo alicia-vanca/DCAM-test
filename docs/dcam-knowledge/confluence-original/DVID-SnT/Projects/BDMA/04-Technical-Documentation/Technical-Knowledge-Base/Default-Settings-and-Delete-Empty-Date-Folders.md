@@ -420,7 +420,7 @@ Không có migration hoặc bảng mới. Feature dùng schema key-value hiện 
 
 `false`
 
-Parent setting (key có sẵn): t��� động xóa file trên thiết bị sau sync.
+Parent setting (key có sẵn): tự động xóa file trên thiết bị sau sync.
 
 `dataSync.isDeleteEmptyDateFolderAfterSync`
 

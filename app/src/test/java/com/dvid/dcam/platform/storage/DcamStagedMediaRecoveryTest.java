@@ -27,6 +27,20 @@ final class DcamStagedMediaRecoveryTest {
     }
 
     @Test
+    void usesFilenameCaptureDateForFinalFolder() throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = staged(storage, false);
+        Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});
+        Files.setLastModifiedTime(media.getFile().toPath(),
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+
+        recovery(storage, (type, file) -> true).recover();
+
+        assertTrue(storage.finalFile(media).getPath().contains("Media" + File.separator + "Video"
+                + File.separator + "2026-07-11"));
+    }
+
+    @Test
     void preservesUnplayableCandidateForLaterRecoveryOrSupport() throws Exception {
         DcamStorage storage = new DcamStorage(root.toFile());
         DcamMediaFile media = staged(storage, false);

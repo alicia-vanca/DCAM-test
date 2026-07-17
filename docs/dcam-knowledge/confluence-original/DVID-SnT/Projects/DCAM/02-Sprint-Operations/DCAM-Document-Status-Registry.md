@@ -1,7 +1,7 @@
 # DCAM Document Status Registry
 
 **Page ID**: 51085647  
-**Version**: 15  
+**Version**: 19  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51085647
 
@@ -24,7 +24,7 @@ Document Status / Version Registry
 
 Version
 
-Approved 1.12
+Approved 1.15
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Cross-document version/status/approval-scope summary; coverage 62/62 named retrievable pages, dangling-entry exclusion và controlled metadata/editorial cleanup synchronization.
+Cross-document version/status/approval-scope summary; coverage 63/63 named retrievable pages và controlled hierarchy/metadata synchronization.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Document Owners, QA, Reviewers, Approvers
 
 Last Updated
 
-2026-07-14
+2026-07-17
 
 Related Jira
 
@@ -173,11 +173,11 @@ Khi registry và page metadata khác nhau, page metadata là nguồn tức thờ
 
 ## 4. Current Document Register
 
-**Data cut-off:** 2026-07-14
+**Data cut-off:** 2026-07-17
 
-**Current coverage:** `62/62` named, retrievable current Confluence pages có page metadata `Project` bắt đầu bằng `DCAM`.
+**Current coverage:** `63/63` named, retrievable current Confluence pages có page metadata `Project` bắt đầu bằng `DCAM`.
 
-**Hierarchy exclusion:** Live descendants có 73 entries gồm 10 folders và 63 page entries. Page ID `49774716` là documented `Dangling` entry theo Governance §5.3.2: không có title, direct fetch `404`, CQL trả 0 result; excluded from named-page coverage và cần Confluence admin cleanup.
+**Hierarchy validation:** Live descendants có 73 entries gồm 10 folders và 63 named page entries. Không có untitled hoặc `Dangling` entry. Page ID `49774716` không còn xuất hiện; documented exclusion đã đóng.
 
 **Scope authority:** [DCAM Documentation Governance](/wiki/spaces/DVID/pages/47120620/DCAM+Documentation+Governance) §5.3.1–§5.3.2. Registry chỉ tổng hợp page metadata, không nâng `Status` hoặc mở rộng `Approval Scope`.
 
@@ -195,15 +195,15 @@ Last Reviewed
 
 [DCAM Project Home](/wiki/spaces/DVID/pages/41648280/DCAM+Project+Home)
 
-3.35
+3.37
 
 Approved
 
-Project navigation, physical hierarchy và current-summary only; không sở hữu mutable version/status hoặc requirement/design baseline.
+Project navigation, physical hierarchy và current-summary only; §4 synchronized to the 2026-07-17 live hierarchy (73 entries / 10 folders / 63 named pages); không sở hữu mutable version/status hoặc requirement/design baseline.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-07-17
 
 [DCAM Project Charter](/wiki/spaces/DVID/pages/41156610/DCAM+Project+Charter)
 
@@ -267,15 +267,27 @@ Hoàng Ngọc Quyền
 
 [DCAM Documentation Governance](/wiki/spaces/DVID/pages/47120620/DCAM+Documentation+Governance)
 
-1.16
+1.18
 
 Approved
 
-Documentation ownership, status taxonomy, approval integrity, traceability và Registry inclusion/exclusion/coverage rules.
+Documentation ownership, status taxonomy, approval integrity, traceability, artifact evidence repository governance và Registry inclusion/exclusion/coverage rules.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-07-16
+
+[DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP)
+
+0.2
+
+Draft
+
+Controlled procedure for raw technical evidence repository DCAM-EVID-NAS-01; không xác nhận NAS readiness hoặc Build 0.1 readiness khi UNC path, Access Group, Backup/Retention và access confirmation còn TBD.
+
+TBD – PM/Tech Lead xác nhận
+
+2026-07-16
 
 [DCAM Release & Build Applicability Matrix](/wiki/spaces/DVID/pages/51020012/DCAM+Release+Build+Applicability+Matrix)
 
@@ -291,15 +303,15 @@ Hoàng Ngọc Quyền
 
 [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry)
 
-1.12
+1.15
 
 Approved
 
-Cross-document version/status/approval-scope summary; coverage 62/62 named retrievable pages, dangling-entry exclusion và controlled metadata/editorial cleanup synchronization.
+Cross-document version/status/approval-scope summary; coverage 63/63 named retrievable pages và controlled hierarchy/metadata synchronization.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-07-17
 
 [DCAM Requirements Home](/wiki/spaces/DVID/pages/47710513/DCAM+Requirements+Home)
 
@@ -315,7 +327,7 @@ Hoàng Ngọc Quyền
 
 [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix)
 
-1.5
+1.6
 
 Approved Provisional Baseline
 
@@ -323,7 +335,7 @@ DEC-01–DEC-07 Build 0.1 backlog-readiness traceability, gồm Important Media 
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-07-16
 
 [01 - Recording & Capture Requirements](/wiki/spaces/DVID/pages/47743356/01+-+Recording+Capture+Requirements)
 
@@ -339,7 +351,7 @@ Hoàng Ngọc Quyền
 
 [02 - Media Storage Requirements](/wiki/spaces/DVID/pages/47808901/02+-+Media+Storage+Requirements)
 
-1.3
+1.4
 
 Approved
 
@@ -347,11 +359,11 @@ Stable requirements và Build 0.1 Internal-only storage policy
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [06 - BDMA Integration Requirements](/wiki/spaces/DVID/pages/47743376/06+-+BDMA+Integration+Requirements)
 
-1.4
+1.5
 
 Approved
 
@@ -359,11 +371,11 @@ Stable requirements và Build 0.1 final-media/checksum import boundary
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [07 - Logging & Diagnostics Requirements](/wiki/spaces/DVID/pages/47776094/07+-+Logging+Diagnostics+Requirements)
 
-1.6
+1.7
 
 Approved
 
@@ -371,7 +383,7 @@ Stable Build 0.1 logging requirements cho storage, checksum, operator và Device
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [DCAM Storage Design](/wiki/spaces/DVID/pages/48496699/DCAM+Storage+Design)
 
@@ -387,7 +399,7 @@ Hoàng Ngọc Quyền
 
 [DCAM SQLite Database Design](/wiki/spaces/DVID/pages/48529463/DCAM+SQLite+Database+Design)
 
-1.7
+1.8
 
 Approved Provisional Baseline
 
@@ -395,7 +407,7 @@ Build 0.1 minimal data/state subset; exact schema/migration/transaction boundary
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [DCAM BDMA Integration Technical Design](/wiki/spaces/DVID/pages/48595030/DCAM+BDMA+Integration+Technical+Design)
 
@@ -411,7 +423,7 @@ Hoàng Ngọc Quyền
 
 [DCAM Concurrency & Threading Model Design](/wiki/spaces/DVID/pages/50725012/DCAM+Concurrency+Threading+Model+Design)
 
-0.4
+0.5
 
 Draft
 
@@ -419,11 +431,11 @@ Build 0.1 required subset; exact executor sizing/queue policy Pending Technical 
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [DCAM-BDMA Data Contract](/wiki/spaces/DVID/pages/47743153/DCAM-BDMA+Data+Contract)
 
-1.11
+1.12
 
 Approved
 
@@ -431,7 +443,7 @@ Global contract với authoritative media filename token mapping, Build 0.1 exch
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [DCAM Non-functional Requirements](/wiki/spaces/DVID/pages/48595009/DCAM+Non-functional+Requirements)
 
@@ -471,7 +483,7 @@ Hoàng Ngọc Quyền
 
 [DCAM Recording & Capture Design](/wiki/spaces/DVID/pages/48529484/DCAM+Recording+Capture+Design)
 
-1.3
+1.4
 
 Approved Provisional Baseline
 
@@ -479,7 +491,7 @@ Build 0.1 runtime direction; Camera capability và exact Camera1/Camera2 Pending
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-07-16
 
 [DCAM Security & Encryption Design](/wiki/spaces/DVID/pages/48496720/DCAM+Security+Encryption+Design)
 
@@ -567,7 +579,7 @@ Hoàng Ngọc Quyền
 
 [DCAM Logging & Diagnostics Design](/wiki/spaces/DVID/pages/51019937/DCAM+Logging+Diagnostics+Design)
 
-0.5
+0.6
 
 Approved
 
@@ -575,7 +587,7 @@ Build 0.1 operational logging cho approved decisions; không thay Security Profi
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [DCAM State Machine Design](/wiki/spaces/DVID/pages/48496753/DCAM+State+Machine+Design)
 
@@ -627,7 +639,7 @@ Hoàng Ngọc Quyền
 
 [08 - DCAM-BDMA Integration Boundary](/wiki/spaces/DVID/pages/47153235/08+-+DCAM-BDMA+Integration+Boundary)
 
-1.10
+1.11
 
 Approved
 
@@ -635,7 +647,7 @@ DCAM–BDMA boundary với approved Build 0.1 import eligibility overlay và leg
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-07-16
 
 [ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id](/wiki/spaces/DVID/pages/50692110/ADR+-+DCAM+Device+Identity+Baseline+serial_number+dcam_cloud_device_id)
 

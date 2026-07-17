@@ -41,6 +41,9 @@ public final class LocationTrackingUseCaseImpl implements LocationTrackingUseCas
         stateConsumer = null;
         state = LocationTrackingState.STOPPED;
     }
+    @Override public synchronized void requestCurrentLocation() {
+        source.requestCurrentLocation(settings.currentSettings());
+    }
     @Override public GpsCoordinate latestCoordinate() { return source.latestCoordinate(); }
     @Override public synchronized LocationTrackingState currentState() { return state; }
 

@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">DCAM</string>
     <string name="camera_permission_required">Camera permission required</string>
+    <string name="camera_starting">Starting camera...</string>
     <string name="media_saved">Saved %1$s</string>
     <string name="media_saving">Saving...</string>
     <string name="recording_file">Recording %1$s</string>
@@ -15,7 +16,6 @@
     <string name="loggly_notification_title">Log delivery active</string>
     <string name="loggly_notification_text">DCAM is delivering queued operational logs</string>
     <string name="capture">Capture</string>
-    <string name="settings_detail_hint">Controls update local UI state; operational persistence comes later</string>
     <string name="files">Files</string>
     <string name="media_root">DCAM media</string>
     <string name="folder_up">↑ Up</string>
@@ -24,6 +24,9 @@
     <string name="media_folder">Folder</string>
     <string name="media_open_failed">No app can open this media file</string>
     <string name="record_settings">Recording</string>
+    <string name="record_resolution">Record resolution</string>
+    <string name="video_segment_length">Video segment length</string>
+    <string name="minute_short">min</string>
     <string name="video_stream_settings">Video streams</string>
     <string name="gps_settings">GPS</string>
     <string name="transfer_settings">Transfer</string>
@@ -80,6 +83,7 @@
     <string name="storage_external">External</string>
     <string name="storage_auto">Auto</string>
     <string name="storage_auto_description">Prioritize External; use Internal when External is unavailable or lacks capacity</string>
+    <string name="external_storage_not_supported">Build 0.1 does not allow external storage yet</string>
     <string name="storage_unavailable">Unavailable</string>
     <string name="storage_usage">%1$s / %2$s</string>
     <string name="low_storage_preview_warning">Low storage: %1$s free</string>
@@ -102,4 +106,13 @@
     <string name="gps_location_disabled">Location is disabled</string>
     <string name="gps_unavailable">GPS is unavailable</string>
     <string name="gps_provider_error">GPS provider error</string>
-    <string name="gps_waiting_for_fix">Waiting for GPS fix</string></resources>
+    <string name="gps_waiting_for_fix">Waiting for GPS fix</string>
+    <string name="device_serial_title">Set up device identity</string>
+    <string name="device_serial_message">Enter a device serial number. Use 6–10 letters or digits.</string>
+    <string name="device_serial_message_with_default">Enter 6–10 letters or digits, or use the detected device serial: %1$s</string>
+    <string name="device_serial_hint">Serial number</string>
+    <string name="device_serial_save">Save serial</string>
+    <string name="device_serial_use_default">Use detected serial</string>
+    <string name="device_serial_invalid">Use 6–10 letters or digits.</string>
+    <string name="device_serial_default_unavailable">Detected device serial unavailable.</string>
+</resources>

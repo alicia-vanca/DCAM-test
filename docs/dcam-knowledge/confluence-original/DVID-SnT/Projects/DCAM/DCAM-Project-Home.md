@@ -1,7 +1,7 @@
 # DCAM Project Home
 
 **Page ID**: 41648280  
-**Version**: 66  
+**Version**: 68  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/41648280
 
@@ -24,7 +24,7 @@ Project Home / Chỉ mục tài liệu
 
 Version
 
-Approved 3.35
+Approved 3.37
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Developers, BDMA Team, Cloud/WebServer Team, QA, Factory, Supp
 
 Last Updated
 
-2026-07-14
+2026-07-17
 
 Related Jira
 
@@ -117,7 +117,7 @@ Current project decision remains hardcoded in approved APK
 Value must not appear in logs, QR, API, records or evidence
 ## 4. Documentation Structure
 
-**Hierarchy snapshot:** 2026-07-13.
+**Hierarchy snapshot:** 2026-07-17.
 
 DCAM
 ├── DCAM Project Home
@@ -131,7 +131,8 @@ DCAM
 │   ├── DCAM Documentation Governance
 │   ├── DCAM Release & Build Applicability Matrix
 │   ├── DCAM Document Status Registry
-│   └── Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+│   ├── Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+│   └── DCAM Engineering Evidence & NAS Artifact SOP
 ├── 03 - Requirements
 │   ├── DCAM-BDMA Data Contract
 │   ├── DCAM Requirements Home
@@ -194,7 +195,7 @@ DCAM
 └── 06 - Incident Log
 Project Home chỉ mô tả navigation hierarchy. Reading order chi tiết thuộc [DCAM Requirements Home](/wiki/spaces/DVID/pages/47710513/DCAM+Requirements+Home) và [DCAM Architecture Home](/wiki/spaces/DVID/pages/47185929/DCAM+Architecture+Home); version/status tập trung thuộc [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry).
 
-Page ID `49774716` vẫn xuất hiện dưới `4.4 - Architecture Decision Records (ADR)` trong live descendants nhưng direct fetch trả `404` và CQL không tìm thấy current content. Theo DCAM Documentation Governance §5.3.2, entry này được phân loại `Dangling`, loại khỏi navigation và Registry named-page coverage; physical cleanup cần Confluence admin xác nhận.
+Hierarchy validation ngày 2026-07-17 xác nhận live descendants có 73 entries gồm 10 folders và 63 named pages. Page ID `49774716` không còn xuất hiện; documented `Dangling` exception đã đóng. §4 đã bao gồm DCAM Engineering Evidence & NAS Artifact SOP dưới 02 - Sprint Operations; Registry coverage hiện là 63/63.
 
 ## 5. Status and TBD Governance
 

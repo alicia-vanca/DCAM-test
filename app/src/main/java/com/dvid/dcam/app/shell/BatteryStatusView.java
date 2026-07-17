@@ -1,4 +1,4 @@
-package com.dvid.dcam.app;
+package com.dvid.dcam.app.shell;
 
 import android.content.Context;
 import android.graphics.Canvas;

@@ -80,6 +80,7 @@ dependencies {
     implementation "androidx.camera:camera-video:${cameraXVersion}"
     implementation "androidx.camera:camera-view:${cameraXVersion}"
     implementation "androidx.room:room-runtime:${roomVersion}"
+    implementation 'androidx.work:work-runtime:2.11.2'
     annotationProcessor "androidx.room:room-compiler:${roomVersion}"
     implementation 'org.springframework.security:spring-security-crypto:6.3.1'
     implementation 'com.google.android.gms:play-services-location:21.3.0'

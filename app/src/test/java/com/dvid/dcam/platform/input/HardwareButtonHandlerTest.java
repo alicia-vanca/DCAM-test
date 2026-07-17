@@ -32,13 +32,92 @@ public class HardwareButtonHandlerTest {
         assertEquals(1, photos.photos);
     }
 
-    @Test public void f10StartsOnDownAndStopsOnUp() {
+    @Test public void f10SwitchStartsOnDownAndStopsOnUp() {
         FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
         HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
         assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 0L));
         assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
         assertEquals(1, videos.starts);
         assertEquals(1, videos.stops);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertEquals(2, videos.starts);
+        assertEquals(2, videos.stops);
+    }
+
+    @Test public void switchIgnoresDuplicateZeroRepeatDownUntilRelease() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1000L));
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1001L));
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1002L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 2000L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+
+        assertEquals(2, videos.starts);
+        assertEquals(2, videos.stops);
+    }
+
+    @Test public void switchStartsWhenFirstDownHasRepeatCount() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 1, 1000L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 2, 2000L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+
+        assertEquals(2, videos.starts);
+        assertEquals(2, videos.stops);
+    }
+
+    @Test public void focusLossKeepsSwitchLatchedUntilRelease() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1000L));
+        router.clearFocusTransientState();
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1001L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+
+        assertEquals(1, videos.starts);
+        assertEquals(1, videos.stops);
+    }
+
+    @Test public void realSwitchUpStopsAfterFocusLoss() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1000L));
+        router.clearFocusTransientState();
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertEquals(1, videos.stops);
+    }
+
+    @Test public void canceledSwitchUpDoesNotStopRecording() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1000L));
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10, true));
+        assertEquals(0, videos.stops);
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
+        assertEquals(1, videos.stops);
+    }
+
+    @Test public void clearingTransientStateRecoversFromMissingSwitchUp() {
+        FakeVideoRecordingUseCaseImpl videos = new FakeVideoRecordingUseCaseImpl();
+        HardwareButtonRouter router = router(new FakePhotoCaptureUseCaseImpl(), videos);
+
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1000L));
+        router.clearTransientState();
+        assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 2000L));
+
+        assertEquals(2, videos.starts);
     }
 
     @Test public void f7LongPressTogglesSosOnceAfterThreeSeconds() {

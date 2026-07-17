@@ -54,6 +54,8 @@ public final class DeveloperFeatureToggles {
                         SettingId.FEATURE_AUDIO_CAPTURE),
                 toggle(FeatureGate.MEDIA_BROWSER, LOCAL_SURFACES, "Files browser",
                         SettingId.FEATURE_MEDIA_BROWSER),
+                toggle(FeatureGate.AUTHENTICATION, LOCAL_SURFACES, "Login authentication",
+                        SettingId.FEATURE_AUTHENTICATION),
                 toggle(FeatureGate.STORAGE_SETTINGS, LOCAL_SURFACES, "Storage settings",
                         SettingId.FEATURE_STORAGE_SETTINGS),
                 toggle(FeatureGate.DEVICE_SETTINGS, LOCAL_SURFACES, "Device settings",
@@ -100,16 +102,22 @@ public final class DeveloperFeatureToggles {
     }
 
     public SettingsScreenModel developerSettings() {
+        return developerSettings(null, null);
+    }
+
+    public SettingsScreenModel developerSettings(SettingId parent, SettingItem child) {
         Map<String, List<SettingItem>> sections = new LinkedHashMap<>();
         for (DeveloperFeatureToggle toggle : toggles) {
-            sections.computeIfAbsent(toggle.getDeveloperSection(), ignored -> new ArrayList<>())
-                    .add(SettingItem.checkbox(
-                            toggle.getDeveloperSetting(),
-                            toggle.getDeveloperLabel(),
-                            isEnabled(toggle.getGate()))
-                            .withEnabled(toggle.getParentGate() == null
-                                    || isEffectivelyEnabled(toggle.getParentGate()))
-                            .withIndentLevel(toggle.getParentGate() == null ? 0 : 1));
+            List<SettingItem> items = sections.computeIfAbsent(
+                    toggle.getDeveloperSection(), ignored -> new ArrayList<>());
+            items.add(SettingItem.checkbox(
+                    toggle.getDeveloperSetting(),
+                    toggle.getDeveloperLabel(),
+                    isEnabled(toggle.getGate()))
+                    .withEnabled(toggle.getParentGate() == null
+                            || isEffectivelyEnabled(toggle.getParentGate()))
+                    .withIndentLevel(toggle.getParentGate() == null ? 0 : 1));
+            if (toggle.getDeveloperSetting() == parent && child != null) items.add(child);
         }
         List<SettingsSection> models = new ArrayList<>();
         for (Map.Entry<String, List<SettingItem>> section : sections.entrySet()) {

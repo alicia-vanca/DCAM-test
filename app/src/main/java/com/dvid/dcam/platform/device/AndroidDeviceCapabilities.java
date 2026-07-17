@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /** Cached device capability snapshot. Camera qualities refresh asynchronously. */
+@androidx.annotation.OptIn(markerClass = androidx.camera.camera2.interop.ExperimentalCamera2Interop.class)
 public final class AndroidDeviceCapabilities {
     private static final String PREFS = "dcam_capabilities";
     private static final String QUALITY = "record_quality";

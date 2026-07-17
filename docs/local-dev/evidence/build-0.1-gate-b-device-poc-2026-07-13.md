@@ -41,7 +41,7 @@ App external root: `/storage/emulated/0/Android/data/com.dvid.dcam/files`
 | 2.1 FGS notification/service | During recording, inspect `dumpsys activity services` | PASS | `RecordingForegroundService`, `isForeground=true`, `foregroundId=1001` |
 | 4.2 Screen-off recording | Start recording, power off, wait 20s, power on, stop | PASS | `DCAM_KF5OF2126040802193_000000_20260713_135433.mp4`, `22,650,173` bytes |
 | Screen-off MD5 | Read `.md5`, run `md5sum` | PASS | `e40649aa41ef0b9f43aa79177d356d2d` matched |
-| 1.4 Force-stop staged-media recovery | Start recording, wait 12s, `adb shell am force-stop com.dvid.dcam`, relaunch | PASS | Recovery moved staged MP4 from `Temp` to `Media/Video`; `Temp` empty |
+| 1.4 Force-stop staged-media recovery | Start recording, wait 12s, `adb shell am force-stop com.dvid.dcam`, relaunch | PASS | Recovery moved staged MP4 from `Temp` to `Media/Video/yyyy-MM-dd`; `Temp` empty |
 | AUTO removable root | Disable vendor USB mass-storage bridge, verify `6162-6433` mounted, record/finalize | PASS | AUTO selected `/storage/6162-6433/Android/data/com.dvid.dcam/files`; `DCAM_KF5KW2124062200167_000000_20260713_143756.mp4`, matching MD5 `ecd60244474bda16e02dfe64073bc19f`; SD `Temp` empty |
 | Activity recreate during recording | Rotate through `user_rotation` values while recording | PASS | `RecordingForegroundService` remained foreground; `DCAM_KF5KW2124062200167_000000_20260713_143859.mp4` finalized with matching MD5 `cf054308262b014743502a73961b5bd3`; SD `Temp` empty |
 | Reboot recovery | Start SD recording, confirm staged file, `adb reboot`, remount SD, relaunch | PASS | `DCAM_KF5KW2124062200167_000000_20260713_143952.mp4` recovered with matching MD5 `31bba8eebee7c754f75c28f1ac120c55`; `Temp` empty |
@@ -51,7 +51,7 @@ App external root: `/storage/emulated/0/Android/data/com.dvid.dcam/files`
 ## Observations
 
 - Recording requires an active operator session; pre-login hardware record key does nothing by design.
-- Basic recording writes to `Temp` while active and publishes to `Media/Video` after stop.
+- Basic recording writes to `Temp` while active and publishes to `Media/Video/yyyy-MM-dd` after stop.
 - MD5 sidecar naming is currently `<base>.md5`, not `<base>.mp4.md5`.
 - Recovery MD5 fix was re-verified on ADB target `BODYCAMERA4HHITK` after clean-installing APK SHA-256 `635FBA40973B14900C49EB94CF7A2B51C8F0CB323F132C29411223ADD7924A9A`. Force-stop recovery produced `DCAM_KF5KW2124062200167_000000_20260713_142121.mp4` (`30,836,218` bytes) and matching `.md5` digest `d87adec5376109b5a069c3dbd2947183`; `Temp` was empty and recovery reported `recovered=1`.
 - Removable UUID is device/card-specific. Earlier BWC evidence used `E3AE-18F6`; current `BODYCAMERA4HHITK` uses `6162-6433`. DCAM does not hardcode either value: `DcamStorage` discovers secondary app roots through `Context.getExternalFilesDirs(null)` and refreshes them before capture. AUTO capture to mounted `6162-6433` is verified.

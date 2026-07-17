@@ -9,7 +9,7 @@ public final class DcamMediaStore {
     private DcamMediaStore() {}
 
     public static String relativePath(DcamFileType type, LocalDateTime at) {
-        return "DCIM/Media/" + type.getFolder();
+        return "DCIM/Media/" + type.getFolder() + "/" + DcamFileName.dateFolder(at);
     }
     public static ContentValues values(DcamMediaFile mediaFile) {
         ContentValues values = new ContentValues();

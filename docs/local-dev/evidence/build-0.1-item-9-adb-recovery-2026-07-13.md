@@ -1,4 +1,4 @@
-﻿# Build 0.1 item 9 ADB recovery evidence — 2026-07-13
+# Build 0.1 item 9 ADB recovery evidence — 2026-07-13
 
 Device:
 
@@ -19,8 +19,8 @@ Results:
 
 | Scenario | Result | Artifact | Duration | Size |
 |---|---|---|---:|---:|
-| Force-stop during recording | Recovered from `Temp` into `Media/Video` on relaunch | `DCAM_KF5OF2126040802193_000000_20260713_111640.mp4` | 00:00:11 | 29,686,142 bytes |
-| Reboot during recording | Preserved/recovered into `Media/Video`; `Temp` empty after boot | `DCAM_KF5OF2126040802193_000000_20260713_111748.mp4` | 00:00:11 | 29,898,223 bytes |
+| Force-stop during recording | Recovered from `Temp` into `Media/Video/yyyy-MM-dd` on relaunch | `DCAM_KF5OF2126040802193_000000_20260713_111640.mp4` | 00:00:11 | 29,686,142 bytes |
+| Reboot during recording | Preserved/recovered into `Media/Video/yyyy-MM-dd`; `Temp` empty after boot | `DCAM_KF5OF2126040802193_000000_20260713_111748.mp4` | 00:00:11 | 29,898,223 bytes |
 
 Local pulled samples:
 

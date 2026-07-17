@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="record_settings_items">
-        <item>Ghi video</item>
         <item>Độ dài mỗi đoạn video</item>
         <item>Thời gian ghi trước</item>
         <item>Độ trễ khi bắt đầu ghi</item>
         <item>Tự ghi khi khởi động</item>
-        <item>Ghi vòng lặp</item>
         <item>Cảnh báo pin yếu</item>
     </string-array>
 

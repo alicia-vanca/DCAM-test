@@ -1,4 +1,4 @@
-package com.dvid.dcam.app;
+package com.dvid.dcam.app.shell;
 
 import android.app.Activity;
 import android.content.Context;
@@ -46,6 +46,11 @@ public final class FloatingNotice {
         }
         Activity activity = (Activity) context;
         persistentView = add(activity, activity.getString(message), 64);
+    }
+
+    public static void clear(Activity activity) {
+        if (persistentView != null && persistentView.getContext() == activity) hidePersistent();
+        if (transientView != null && transientView.getContext() == activity) hideTransient();
     }
 
     public static void hidePersistent() {

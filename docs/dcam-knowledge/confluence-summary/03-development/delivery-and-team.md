@@ -72,6 +72,8 @@ Source refresh: **2026-07-15**. Documentation workflow now includes registry syn
 - Update Project Home and cross-links when pages move or are added.
 - Update relevant documentation before release.
 - Synchronize changed page metadata with Document Status Registry in same change set.
+- Store raw Build 0.1 evidence in internal NAS `DCAM-EVID-NAS-01`; keep Confluence/Jira limited to SOP, metadata, conclusions, and evidence links.
+- Use Jira-linked Evidence IDs and immutable run folders; never overwrite reviewed evidence runs.
 - Trace each Build 0.1 decision through requirement/design, Jira issue, implementation/PR, QA Test ID, and evidence link.
 - Do not mark Pending Device POC rows Covered/Passed before identifiable physical-device evidence is attached.
 - Do not treat Approved Provisional Baseline or PM-approved reference configuration as production approval.

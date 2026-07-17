@@ -71,6 +71,11 @@ Không tạo package `interfaces`, `classes`, `implementations`, `services`,
 `adapter/in`, `adapter/out`, `port/in`, hoặc `port/out` trong source hiện tại.
 Nếu sau này cần tách thêm layer, phải có ADR hoặc yêu cầu review rõ ràng.
 
+## Android app shell boundary
+
+app/shell contains Android-specific View, Activity controller, and floating-notice classes.
+app/presentation remains framework-free presentation logic and must not import android.* or platform.*.
+
 ## 3. Quy tắc interface
 
 Có hai nhóm public interface trong `feature`/`core`.

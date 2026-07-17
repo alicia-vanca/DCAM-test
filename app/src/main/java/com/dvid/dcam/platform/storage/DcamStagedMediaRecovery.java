@@ -41,7 +41,7 @@ final class DcamStagedMediaRecovery {
         int preserved = 0;
         int duplicates = 0;
         for (File temp : storage.recoveryTempDirectories()) {
-            File[] candidates = temp.isDirectory() ? temp.listFiles(File::isFile) : null;
+            File[] candidates = temp.isDirectory() ? stagedFiles(temp) : null;
             if (candidates == null) continue;
             for (File candidate : candidates) {
                 Matcher matcher = CONTRACT_NAME.matcher(candidate.getName());
@@ -70,6 +70,24 @@ final class DcamStagedMediaRecovery {
             }
         }
         return new StagedMediaRecoveryReport(recovered, preserved, duplicates);
+    }
+
+    private static File[] stagedFiles(File temp) {
+        java.util.List<File> files = new java.util.ArrayList<>();
+        File[] children = temp.listFiles();
+        if (children == null) return new File[0];
+        for (File child : children) {
+            if (child.isFile() && !java.nio.file.Files.isSymbolicLink(child.toPath())) {
+                files.add(child);
+            } else if (child.isDirectory()
+                    && !java.nio.file.Files.isSymbolicLink(child.toPath())
+                    && child.getName().matches("\\d{4}-\\d{2}-\\d{2}")) {
+                File[] datedFiles = child.listFiles(file -> file.isFile()
+                        && !java.nio.file.Files.isSymbolicLink(file.toPath()));
+                if (datedFiles != null) java.util.Collections.addAll(files, datedFiles);
+            }
+        }
+        return files.toArray(new File[0]);
     }
 
     private static void removeIncompletePublicationCopies(File staging, File target) {

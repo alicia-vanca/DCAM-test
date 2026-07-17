@@ -118,3 +118,17 @@ no measurable trailing loss at the one-second observation precision.
 Result: the reboot sample contains a valid MP4 movie header and near-crash duration, but Android
 decoder validation after a real remount and repeated/power-cut trials are still required before the
 full item 9 gate can be called complete.
+### Notification shade and power-button observations — 2026-07-17
+
+- Audio recording survived opening the notification shade and pressing the power button; recording
+  continued without restarting.
+- Video recording did not survive either interruption:
+  - Opening the notification shade stopped video recording, finalized and saved the current clip,
+    then required a new recording from 0 seconds.
+  - Pressing the power button also stopped video recording and saved the current clip; recording did
+    not resume automatically.
+
+Result: audio interruption recovery is observed, but video recording currently stops and starts a new
+clip after notification-shade or power-button interruption. This does not prove uninterrupted video
+continuity or automatic resume; keep video recovery as a failing or partial result until fixed and
+retested.

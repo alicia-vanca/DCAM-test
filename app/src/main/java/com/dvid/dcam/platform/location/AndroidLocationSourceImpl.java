@@ -87,23 +87,30 @@ public final class AndroidLocationSourceImpl implements LocationSource {
 
     private LocationTrackingState startLocationManager(
             GpsSettings settings, List<String> selectedProviders) {
-        Location newest = null;
         boolean registered = false;
         for (String provider : selectedProviders) {
             try {
-                Location cached = locationManager.getLastKnownLocation(provider);
-                if (cached != null && (newest == null || cached.getTime() > newest.getTime())) newest = cached;
                 locationManager.requestLocationUpdates(provider,
                         settings.getReportIntervalSeconds() * 1000L,
                         settings.getUpdateDistanceMeters(), listener, Looper.getMainLooper());
                 registered = true;
             } catch (SecurityException | IllegalArgumentException ignored) { }
         }
-        if (newest != null) {
-            accept(newest);
-            return LocationTrackingState.AVAILABLE;
-        }
         return registered ? LocationTrackingState.WAITING_FOR_FIX : LocationTrackingState.ERROR;
+    }
+
+    @Override public synchronized void requestCurrentLocation(GpsSettings settings) {
+        if (settings == null) return;
+        if (settings.getMode() != GpsMode.SATELLITE && fusedSource.isGooglePlayServicesAvailable()) {
+            fusedSource.requestCurrentLocation(settings);
+            return;
+        }
+        if (locationManager == null || !hasCoarsePermission()) return;
+        for (String provider : systemFusedProviders()) {
+            try {
+                locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper());
+            } catch (SecurityException | IllegalArgumentException ignored) { }
+        }
     }
 
     @Override public synchronized void stop() {

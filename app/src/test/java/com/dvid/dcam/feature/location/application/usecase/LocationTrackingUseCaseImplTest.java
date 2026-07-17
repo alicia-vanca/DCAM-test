@@ -92,6 +92,7 @@ final class LocationTrackingUseCaseImplTest {
             return nextState;
         }
         @Override public void stop() { stopCount++; }
+        @Override public void requestCurrentLocation(GpsSettings settings) { }
         @Override public GpsCoordinate latestCoordinate() { return null; }
         private void emitState(LocationTrackingState state) { stateCallback.accept(state); }
     }

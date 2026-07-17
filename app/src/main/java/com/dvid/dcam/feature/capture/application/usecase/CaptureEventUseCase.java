@@ -10,6 +10,8 @@ public interface CaptureEventUseCase {
     void clearListener();
     RecordingMode currentMode();
     void recordingStarted(RecordingMode mode, String fileName);
+    void recordingInterrupted(String message);
+    void recordingResumed();
     void recordingCompleted(String fileName);
     void recordingStoppedForStorage(String fileName);
     void photoSaved(String fileName);
