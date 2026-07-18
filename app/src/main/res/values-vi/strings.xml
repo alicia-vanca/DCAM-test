@@ -62,8 +62,8 @@
     <string name="external_storage_not_supported">Bản build 0.1 chưa cho phép bộ nhớ ngoài</string>
     <string name="storage_unavailable">Không khả dụng</string>
     <string name="storage_usage">%1$s / %2$s</string>
-    <string name="low_storage_preview_warning">Dung lượng thấp: còn trống %1$s</string>
-    <string name="low_storage_recording_blocked">Dung lượng thấp. Không thể ghi video hoặc bản ghi quan trọng.</string>
+    <string name="low_storage_preview_warning">Dung lượng thấp: còn %1$s</string>
+    <string name="low_storage_recording_blocked">Dung lượng thấp. Không thể quay video.</string>
     <string name="storage_capture_stopped">Dung lượng gần đầy. Đã dừng ghi và lưu an toàn.</string>
     <string name="gps_use_location">Lưu vị trí</string>
     <string name="gps_sampling_section">Theo dõi vị trí</string>
@@ -82,7 +82,7 @@
     <string name="gps_location_disabled">Location đang tắt</string>
     <string name="gps_unavailable">GPS không khả dụng</string>
     <string name="gps_provider_error">Lỗi provider GPS</string>
-    <string name="gps_waiting_for_fix">Đang chờ tín hiệu GPS</string>
+    <string name="gps_waiting_for_location_info">Đang chờ thông tin vị trí…</string>
     <string name="device_serial_title">Thiết lập nhận diện thiết bị</string>
     <string name="device_serial_message">Nhập số seri thiết bị. Dùng 6–10 chữ cái hoặc chữ số.</string>
     <string name="device_serial_message_with_default">Nhập 6–10 chữ cái hoặc chữ số, hoặc dùng số seri thiết bị phát hiện: %1$s</string>

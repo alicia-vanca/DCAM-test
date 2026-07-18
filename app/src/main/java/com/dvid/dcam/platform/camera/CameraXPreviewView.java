@@ -15,9 +15,12 @@ import androidx.lifecycle.Observer;
 /** CameraX preview surface and camera-facing status text. */
 @SuppressLint("ViewConstructor")
 public final class CameraXPreviewView extends FrameLayout {
+    private static final long TRANSIENT_ERROR_MS = 2_000L;
     private final PreviewView previewView;
     private final TextView message;
     private final MessageState messageState = new MessageState();
+    private Runnable transientErrorClear;
+    private boolean transientErrorActive;
     private final Observer<PreviewView.StreamState> startingObserver =
             new Observer<PreviewView.StreamState>() {
                 @Override public void onChanged(PreviewView.StreamState state) {
@@ -57,6 +60,11 @@ public final class CameraXPreviewView extends FrameLayout {
     }
 
     @Override protected void onDetachedFromWindow() {
+        if (transientErrorClear != null) removeCallbacks(transientErrorClear);
+        if (transientErrorActive) {
+            transientErrorActive = false;
+            clearMessage(MessageOwner.ERROR);
+        }
         com.dvid.dcam.platform.logging.DcamLogger.i("Camera preview detached from window");
         super.onDetachedFromWindow();
     }
@@ -81,8 +89,9 @@ public final class CameraXPreviewView extends FrameLayout {
     }
 
     void showCameraInterrupted(String text) {
-        showMessage(MessageOwner.INTERRUPTED, text);
-        message.setTextColor(Color.YELLOW);
+        if (showMessage(MessageOwner.INTERRUPTED, text)) {
+            message.setTextColor(Color.YELLOW);
+        }
     }
 
     void clearCameraInterrupted() {
@@ -93,24 +102,45 @@ public final class CameraXPreviewView extends FrameLayout {
     }
 
     public void showStorageWarning(String text) {
-        showMessage(MessageOwner.STORAGE, text);
-        message.setTextColor(Color.rgb(255, 196, 0));
+        if (showMessage(MessageOwner.STORAGE, text)) {
+            message.setTextColor(Color.rgb(255, 196, 0));
+        }
     }
 
     public void clearStorageWarning() {
         clearMessage(MessageOwner.STORAGE);
     }
 
-    void showError(String text) {
-        showMessage(MessageOwner.ERROR, text == null ? "Camera failed" : text);
-        message.setTextColor(Color.RED);
+    public void showError(String text) {
+        cancelTransientError();
+        if (showMessage(MessageOwner.ERROR, text == null ? "Camera failed" : text)) {
+            message.setTextColor(Color.RED);
+        }
     }
 
-    private void showMessage(MessageOwner owner, String text) {
-        messageState.show(owner);
+    public void showTransientError(String text) {
+        cancelTransientError();
+        showError(text);
+        transientErrorActive = true;
+        transientErrorClear = () -> {
+            transientErrorActive = false;
+            clearMessage(MessageOwner.ERROR);
+        };
+        postDelayed(transientErrorClear, TRANSIENT_ERROR_MS);
+    }
+
+    private void cancelTransientError() {
+        if (transientErrorClear != null) removeCallbacks(transientErrorClear);
+        transientErrorClear = null;
+        transientErrorActive = false;
+    }
+
+    private boolean showMessage(MessageOwner owner, String text) {
+        if (!messageState.show(owner)) return false;
         message.setTextColor(Color.WHITE);
         message.setText(text);
         message.setVisibility(text == null || text.isEmpty() ? GONE : VISIBLE);
+        return true;
     }
 
     private void clearMessage(MessageOwner owner) {
@@ -126,7 +156,11 @@ public final class CameraXPreviewView extends FrameLayout {
     static final class MessageState {
         private MessageOwner owner = MessageOwner.NONE;
 
-        void show(MessageOwner owner) { this.owner = owner; }
+        boolean show(MessageOwner owner) {
+            if (this.owner == MessageOwner.ERROR && owner == MessageOwner.STORAGE) return false;
+            this.owner = owner;
+            return true;
+        }
 
         boolean clear(MessageOwner owner) {
             if (this.owner != owner) return false;

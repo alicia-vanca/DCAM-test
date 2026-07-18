@@ -66,7 +66,7 @@ public final class AndroidFusedLocationSourceImpl implements LocationSource {
         try {
             client.requestLocationUpdates(request, callback, Looper.getMainLooper())
                     .addOnFailureListener(error -> onStateChanged.accept(LocationTrackingState.ERROR));
-            return LocationTrackingState.WAITING_FOR_FIX;
+            return LocationTrackingState.WAITING_FOR_LOCATION_INFO;
         } catch (SecurityException error) {
             return LocationTrackingState.PERMISSION_REQUIRED;
         } catch (IllegalArgumentException error) {

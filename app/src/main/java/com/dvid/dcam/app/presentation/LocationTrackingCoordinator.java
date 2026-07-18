@@ -57,7 +57,6 @@ public final class LocationTrackingCoordinator {
             return stopAs(LocationTrackingState.LOCATION_UNAVAILABLE);
         }
 
-        synchronized (this) { coordinate = null; }
         LocationTrackingState started = tracking.start(this::acceptCoordinate, this::acceptState);
         LocationTrackingState result;
         synchronized (this) {
@@ -77,7 +76,7 @@ public final class LocationTrackingCoordinator {
 
     public synchronized boolean shouldShowOnCamera() {
         return coordinate != null || state == LocationTrackingState.PERMISSION_REQUIRED
-                || state == LocationTrackingState.WAITING_FOR_FIX
+                || state == LocationTrackingState.WAITING_FOR_LOCATION_INFO
                 || state == LocationTrackingState.AVAILABLE;
     }
 
@@ -87,7 +86,6 @@ public final class LocationTrackingCoordinator {
         }
         tracking.stop();
         synchronized (this) {
-            coordinate = null;
             state = stoppedState;
         }
         onStateChanged.run();
@@ -107,12 +105,6 @@ public final class LocationTrackingCoordinator {
         if (value == null) return;
         synchronized (this) {
             state = value;
-            if (value == LocationTrackingState.ERROR
-                    || value == LocationTrackingState.NO_PROVIDER
-                    || value == LocationTrackingState.LOCATION_UNAVAILABLE
-                    || value == LocationTrackingState.PERMISSION_REQUIRED) {
-                coordinate = null;
-            }
         }
         onStateChanged.run();
     }

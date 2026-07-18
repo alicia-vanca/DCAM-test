@@ -1,12 +1,12 @@
 package com.dvid.dcam.feature.location.domain;
 
-/** Result/state of the location provider registration and first-fix lifecycle. */
+/** Result/state of the location provider registration and first-location lifecycle. */
 public enum LocationTrackingState {
     STOPPED,
     PERMISSION_REQUIRED,
     LOCATION_DISABLED,
     LOCATION_UNAVAILABLE,
-    WAITING_FOR_FIX,
+    WAITING_FOR_LOCATION_INFO,
     AVAILABLE,
     NO_PROVIDER,
     ERROR

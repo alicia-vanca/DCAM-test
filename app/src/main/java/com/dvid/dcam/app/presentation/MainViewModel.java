@@ -328,9 +328,7 @@ public final class MainViewModel extends ViewModel {
     private void onCaptureEvent(CaptureEvent event) {
         switch (event.getType()) {
             case RECORDING_STARTING:
-                state.setValue(current().withCapture(
-                        new CaptureState(event.getMode(), null, System.currentTimeMillis()),
-                        "Recording"));
+                state.setValue(current().withMessage("Starting"));
                 break;
             case RECORDING_STARTED:
                 CaptureState starting = current().getCapture();

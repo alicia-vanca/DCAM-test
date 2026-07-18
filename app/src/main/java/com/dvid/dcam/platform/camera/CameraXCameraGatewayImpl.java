@@ -43,6 +43,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** CameraX camera adapter. CameraX types do not escape through CameraGateway. */
 @androidx.annotation.OptIn(markerClass = androidx.camera.video.ExperimentalPersistentRecording.class)
@@ -63,6 +64,7 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     private Preview cameraPreview;
     private CameraSelector cameraSelector;
     private ListenableFuture<ProcessCameraProvider> providerFuture;
+    private boolean cameraBindInFlight;
     private Recording activeRecording;
     private DcamFileType pendingRecordingType;
     private CameraInfo observedCameraInfo;
@@ -151,12 +153,23 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
             preview.showPermissionRequired(); return;
         }
         preview.showStarting(lifecycleOwner);
+        log.info("RECORD_TRACE camera-bind-request videoAvailable=" + videoAvailable
+                + " previewBound=" + (cameraPreview != null)
+                + " bindInFlight=" + cameraBindInFlight
+                + " pendingRecording=" + pendingRecordingType);
         if (cameraPreview != null) {
             cameraPreview.setSurfaceProvider(preview.surfaceProvider());
             return;
         }
+        if (cameraBindInFlight) {
+            log.info("RECORD_TRACE camera-bind-already-in-flight pendingRecording="
+                    + pendingRecordingType);
+            return;
+        }
+        cameraBindInFlight = true;
         providerFuture = ProcessCameraProvider.getInstance(context);
         providerFuture.addListener(() -> {
+            cameraBindInFlight = false;
             try {
                 ProcessCameraProvider provider = providerFuture.get();
                 CameraXPreviewView attachedPreview = previewView;
@@ -179,14 +192,25 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                             cameraPreview, imageCapture, videoCapture);
                     observeCameraState(camera.getCameraInfo());
                     videoAvailable = true;
+                    log.info("RECORD_TRACE camera-bind-complete videoAvailable=true pendingRecording="
+                            + pendingRecordingType);
+                    startPendingRecordingAfterCameraBind();
                 } catch (IllegalArgumentException videoError) {
                     videoAvailable = false;
-                    log.warn("Video capture unavailable; keeping photo camera active", videoError);
+                    log.warn("RECORD_TRACE video-bind-failed; keeping photo camera active", videoError);
                     Camera camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector,
                             cameraPreview, imageCapture);
                     observeCameraState(camera.getCameraInfo());
+                    log.info("RECORD_TRACE photo-only-bind-complete pendingRecording="
+                            + pendingRecordingType);
+                    startPendingRecordingAfterCameraBind();
                 }
-            } catch (Exception error) { showError(error.getMessage()); }
+            } catch (Exception error) {
+                providerFuture = null;
+                log.error("RECORD_TRACE camera-bind-failed pendingRecording="
+                        + pendingRecordingType, error);
+                showError(error.getMessage());
+            }
         }, ContextCompat.getMainExecutor(context));
     }
 
@@ -298,9 +322,28 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     }
 
     private void startRecording(DcamFileType type) {
+        log.info("RECORD_TRACE start-request type=" + type
+                + " videoAvailable=" + videoAvailable
+                + " previewBound=" + (cameraPreview != null)
+                + " providerPresent=" + (providerFuture != null)
+                + " activeRecording=" + (activeRecording != null)
+                + " stopRequested=" + stopRequested);
+        if (!videoAvailable && cameraPreview == null) {
+            pendingRecordingType = type;
+            stopRequested = false;
+            IllegalStateException startupTrace = new IllegalStateException(
+                    "Recording requested before CameraX video binding completed");
+            log.warn("RECORD_TRACE recording-deferred-until-camera-ready type=" + type,
+                    startupTrace);
+            bindIfPermitted();
+            return;
+        }
         if (!videoAvailable) {
-            log.warn("Video start ignored: camera does not support a usable video quality", null);
-            onPreview(view -> view.showError("Video recording unavailable on this camera"));
+            String message = "Video recording unavailable on this camera";
+            log.warn("RECORD_TRACE video-start-rejected-after-camera-bind type=" + type,
+                    new IllegalStateException(message));
+            captureEvents.captureFailed("Recording", message);
+            onPreview(view -> view.showError(message));
             return;
         }
         if (activeRecording != null) {
@@ -318,7 +361,7 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         if (lowStorageThresholdReached()) {
             String warning = context.getString(R.string.low_storage_recording_blocked);
             captureEvents.captureFailed("Storage", warning);
-            onPreview(view -> view.showError(warning));
+            onPreview(view -> view.showTransientError(warning));
             return;
         }
         if (!ensureStorageReady("Recording")) return;
@@ -326,6 +369,7 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         boolean encrypt = mediaEncryptionSettings.isMediaEncryptionEnabled();
         DcamMediaFile mediaFile = mediaOutput.mediaFile(
                 type, config.getAccountUserId(), fileUserId, at, encrypt);
+        AtomicBoolean startCanceled = new AtomicBoolean();
         PendingRecording pending = mediaOutput.prepareVideoRecording(
                 context, videoCapture, mediaFile, mediaOutput.recordingFileSizeLimit());
         pending = pending.asPersistentRecording();
@@ -340,13 +384,18 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
         }
         activeRecording = pending.start(ContextCompat.getMainExecutor(context), event -> {
             if (event instanceof VideoRecordEvent.Start) {
-                stopRequested = false;
+                if (stopRequested) {
+                    startCanceled.set(true);
+                    log.info("Stopping recording that started after cancellation: "
+                            + mediaFile.getFileName());
+                    if (activeRecording != null) activeRecording.stop();
+                    return;
+                }
                 pauseRequested = false;
                 cameraRecoveredWhilePausing = false;
                 recordingInterrupted = false;
                 pauseRequested = false;
                 cameraRecoveredWhilePausing = false;
-                stopRequested = false;
                 onPreview(view -> view.showRecording(mediaFile.getFileName()));
                 log.info("Recording started: " + mediaFile.getFileName());
                 RecordingMode mode = type == DcamFileType.SOS ? RecordingMode.SOS : RecordingMode.VIDEO;
@@ -416,6 +465,12 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
                                 new DcamMediaOutput.FinalizationCallback() {
                             @Override public void onSuccess(java.io.File finalFile) {
                                 onMain(() -> {
+                                    if (startCanceled.get()) {
+                                        log.info("Canceled startup finalized without publication: "
+                                                + mediaFile.getFileName());
+                                        finishRecordingAttempt();
+                                        return;
+                                    }
                                     log.info((encrypt ? "Encrypted recording finalized: "
                                             : "Recording finalized: ") + mediaFile.getFileName());
                                     captureEvents.recordingCompleted(mediaFile.getFileName());
@@ -496,11 +551,20 @@ public final class CameraXCameraGatewayImpl implements CameraGateway {
     private void finishRecordingAttempt() {
         activeRecording = null;
         RecordingForegroundService.stopVideo(context);
-        if (pendingRecordingType != null) {
-            DcamFileType nextType = pendingRecordingType;
-            pendingRecordingType = null;
-            startRecording(nextType);
-        }
+        startPendingRecording("recording-finished");
+    }
+
+    private void startPendingRecordingAfterCameraBind() {
+        startPendingRecording("camera-bind-complete");
+    }
+
+    private void startPendingRecording(String reason) {
+        if (pendingRecordingType == null) return;
+        DcamFileType nextType = pendingRecordingType;
+        pendingRecordingType = null;
+        log.info("RECORD_TRACE pending-recording-resumed reason=" + reason + " type=" + nextType
+                + " videoAvailable=" + videoAvailable);
+        startRecording(nextType);
     }
 
     private void onMain(Runnable action) {

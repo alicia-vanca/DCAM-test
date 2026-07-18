@@ -74,6 +74,56 @@ final class SerializedRecordingCoordinatorTest {
                 CaptureEvent.Type.RECORDING_STARTING), events);
     }
 
+    @Test void rejectedStartThenSwitchReleaseDoesNotEnterStopping() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+        List<CaptureEvent.Type> events = new ArrayList<>();
+        coordinator.setListener(event -> events.add(event.getType()));
+
+        coordinator.startVideo();
+        executor.runAll();
+        coordinator.captureFailed("Recording", "Video recording unavailable on this camera");
+        coordinator.stopRecording();
+        executor.runAll();
+
+        assertEquals(RecordingMode.IDLE, coordinator.currentMode());
+        assertEquals(List.of("start-video"), camera.calls);
+        assertEquals(List.of(
+                CaptureEvent.Type.RECORDING_STARTING,
+                CaptureEvent.Type.ERROR), events);
+    }
+    @Test void stopDuringStartupDoesNotEmitSavingTransition() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+        List<CaptureEvent.Type> events = new ArrayList<>();
+        coordinator.setListener(event -> events.add(event.getType()));
+
+        coordinator.startVideo();
+        coordinator.stopRecording();
+        executor.runAll();
+
+        assertEquals(RecordingMode.IDLE, coordinator.currentMode());
+        assertEquals(List.of("start-video", "stop"), camera.calls);
+        assertEquals(List.of(CaptureEvent.Type.RECORDING_STARTING), events);
+    }
+    @Test void lateStartAfterStartupCancellationIsIgnored() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, camera);
+        List<CaptureEvent.Type> events = new ArrayList<>();
+        coordinator.setListener(event -> events.add(event.getType()));
+
+        coordinator.startVideo();
+        coordinator.stopRecording();
+        executor.runAll();
+        coordinator.recordingStarted(RecordingMode.VIDEO, "late.mp4");
+        executor.runAll();
+
+        assertEquals(RecordingMode.IDLE, coordinator.currentMode());
+        assertEquals(List.of(CaptureEvent.Type.RECORDING_STARTING), events);
+    }
     @Test void acceptedStopEmitsUiTransitionBeforeCameraStop() {
         ManualExecutor executor = new ManualExecutor();
         FakeCamera camera = new FakeCamera();
@@ -155,6 +205,23 @@ final class SerializedRecordingCoordinatorTest {
         coordinator.stopRecording();
         executor.runAll();
         assertEquals(List.of("start-video", "stop"), camera.calls);
+    }
+    @Test void listenerRebindDoesNotReplayTerminalError() {
+        ManualExecutor executor = new ManualExecutor();
+        SerializedRecordingCoordinator coordinator = coordinator(executor, new FakeCamera());
+        List<CaptureEvent.Type> replayed = new ArrayList<>();
+
+        coordinator.startVideo();
+        coordinator.captureFailed("Storage", "Low storage");
+        executor.runAll();
+        coordinator.clearListener();
+        executor.runAll();
+
+        coordinator.setListener(event -> replayed.add(event.getType()));
+        executor.runAll();
+
+        assertEquals(List.of(), replayed);
+        assertEquals(RecordingMode.IDLE, coordinator.currentMode());
     }
     @Test void listenerRebindReplaysCompletionMissedDuringActivityRecreation() {
         ManualExecutor executor = new ManualExecutor();

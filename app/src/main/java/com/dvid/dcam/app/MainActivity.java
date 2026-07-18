@@ -235,6 +235,7 @@ public final class MainActivity extends ComponentActivity {
                 storageSettings.supportedModes().indexOf(storageSettings.currentMode()),
                 deviceSettings.isAutoRotateEnabled(),
                 deviceSettings.isWifiEnabled());
+        settingsUiState.setLowStorageWarningGb(storageSettings.warningGb());
         settingsUiState.setSupportedRecordResolutions(deviceCapabilities.supportedRecordQualities());
         settingsUiState.setRecordResolution(deviceCapabilities.selectedRecordQuality());
         applyAutoRotate(deviceSettings.isAutoRotateEnabled());
@@ -532,7 +533,6 @@ public final class MainActivity extends ComponentActivity {
         refreshGpsPermissionRetry();
         updateSavingNotice(previousState, state);
         showSavedNotice(previousState, state);
-        showLowStorageRecordingNotice(previousState, state);
     }
 
     private void updateSavingNotice(MainUiState previousState, MainUiState state) {
@@ -554,13 +554,6 @@ public final class MainActivity extends ComponentActivity {
         FloatingNotice.show(this, getString(R.string.media_saved, message.substring(6)));
     }
 
-    private void showLowStorageRecordingNotice(MainUiState previousState, MainUiState state) {
-        String message = state.getMessage();
-        String expected = "Storage failed: " + getString(R.string.low_storage_recording_blocked);
-        if (!expected.equals(message)
-                || previousState != null && message.equals(previousState.getMessage())) return;
-        FloatingNotice.show(this, R.string.low_storage_recording_blocked);
-    }
 
     private void renderCamera() {
         ensureCaptureRuntime();
@@ -1350,6 +1343,7 @@ public final class MainActivity extends ComponentActivity {
         if (fileExplorerScreen != null) mediaBrowserRenderer.render(state.getMediaBrowser());
     }
 
+
     private String localizedMessage(String message) {
         if (message == null) return "";
         return message.startsWith("Saved ")
@@ -1378,8 +1372,8 @@ public final class MainActivity extends ComponentActivity {
             case LOCATION_UNAVAILABLE:
             case NO_PROVIDER: return getString(R.string.gps_unavailable);
             case ERROR: return getString(R.string.gps_provider_error);
-            case WAITING_FOR_FIX:
-            case AVAILABLE: return getString(R.string.gps_waiting_for_fix);
+            case WAITING_FOR_LOCATION_INFO:
+            case AVAILABLE: return getString(R.string.gps_waiting_for_location_info);
             case STOPPED:
             default: return getString(R.string.gps_unavailable);
         }
@@ -1661,8 +1655,6 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 }
-
-
 
 
 

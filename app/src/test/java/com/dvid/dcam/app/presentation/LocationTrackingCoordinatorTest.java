@@ -41,7 +41,7 @@ final class LocationTrackingCoordinatorTest {
         fixture.finePermission = true;
         LocationTrackingCoordinator coordinator = fixture.coordinator();
 
-        assertEquals(LocationTrackingState.WAITING_FOR_FIX, coordinator.refresh());
+        assertEquals(LocationTrackingState.WAITING_FOR_LOCATION_INFO, coordinator.refresh());
         assertEquals(true, coordinator.shouldShowOnCamera());
         fixture.tracking.emit(new GpsCoordinate(10, 106));
 
@@ -58,6 +58,25 @@ final class LocationTrackingCoordinatorTest {
         fixture.coordinator().requestCurrentLocation();
 
         assertEquals(1, fixture.tracking.currentLocationRequestCount);
+    }
+
+    @Test void lastCoordinateRemainsVisibleWhileTrackingRestarts() {
+        Fixture fixture = new Fixture();
+        fixture.finePermission = true;
+        LocationTrackingCoordinator coordinator = fixture.coordinator();
+        GpsCoordinate coordinate = new GpsCoordinate(10, 106);
+
+        coordinator.refresh();
+        fixture.tracking.emit(coordinate);
+        coordinator.stop();
+
+        assertEquals(coordinate, coordinator.currentCoordinate());
+        assertEquals(true, coordinator.shouldShowOnCamera());
+
+        coordinator.refresh();
+
+        assertEquals(coordinate, coordinator.currentCoordinate());
+        assertEquals(true, coordinator.shouldShowOnCamera());
     }
 
     private static final class Fixture {
@@ -109,16 +128,16 @@ final class LocationTrackingCoordinatorTest {
 
         @Override public LocationTrackingState start(Consumer<GpsCoordinate> onCoordinate) {
             callback = onCoordinate;
-            return LocationTrackingState.WAITING_FOR_FIX;
+            return LocationTrackingState.WAITING_FOR_LOCATION_INFO;
         }
         @Override public LocationTrackingState restart() {
-            return LocationTrackingState.WAITING_FOR_FIX;
+            return LocationTrackingState.WAITING_FOR_LOCATION_INFO;
         }
         @Override public void stop() { stopCount++; }
         @Override public void requestCurrentLocation() { currentLocationRequestCount++; }
         @Override public GpsCoordinate latestCoordinate() { return null; }
         @Override public LocationTrackingState currentState() {
-            return LocationTrackingState.WAITING_FOR_FIX;
+            return LocationTrackingState.WAITING_FOR_LOCATION_INFO;
         }
         private void emit(GpsCoordinate coordinate) { callback.accept(coordinate); }
     }

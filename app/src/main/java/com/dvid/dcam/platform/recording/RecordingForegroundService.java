@@ -10,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import com.dvid.dcam.R;
@@ -26,6 +27,7 @@ public final class RecordingForegroundService extends Service {
     private static final String ACTION_STOP_VIDEO = "dcam.recording.STOP_VIDEO";
     private static final String ACTION_STOP_AUDIO = "dcam.recording.STOP_AUDIO";
     private final RecordingForegroundOwners owners = RecordingForegroundOwners.processOwners();
+    private PowerManager.WakeLock videoWakeLock;
 
     public static boolean startVideo(Context context, String fileName) {
         return start(context, ACTION_START_VIDEO);
@@ -71,9 +73,15 @@ public final class RecordingForegroundService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
-        if (ACTION_START_VIDEO.equals(action)) owners.startVideo();
+        if (ACTION_START_VIDEO.equals(action)) {
+            owners.startVideo();
+            acquireVideoWakeLock();
+        }
         else if (ACTION_START_AUDIO.equals(action)) owners.startAudio();
-        else if (ACTION_STOP_VIDEO.equals(action)) owners.stopVideo();
+        else if (ACTION_STOP_VIDEO.equals(action)) {
+            owners.stopVideo();
+            releaseVideoWakeLock();
+        }
         else if (ACTION_STOP_AUDIO.equals(action)) owners.stopAudio();
         if (!owners.isActive()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -112,6 +120,25 @@ public final class RecordingForegroundService extends Service {
             startForeground(NOTIFICATION_ID, notification);
         }
         return START_NOT_STICKY;
+    }
+
+    @Override public void onDestroy() {
+        releaseVideoWakeLock();
+        super.onDestroy();
+    }
+
+    private void acquireVideoWakeLock() {
+        if (videoWakeLock != null && videoWakeLock.isHeld()) return;
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        videoWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                "DCAM:video-recording");
+        videoWakeLock.setReferenceCounted(false);
+        videoWakeLock.acquire();
+    }
+
+    private void releaseVideoWakeLock() {
+        if (videoWakeLock == null || !videoWakeLock.isHeld()) return;
+        videoWakeLock.release();
     }
 
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }

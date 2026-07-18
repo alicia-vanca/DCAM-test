@@ -96,7 +96,7 @@ public final class AndroidLocationSourceImpl implements LocationSource {
                 registered = true;
             } catch (SecurityException | IllegalArgumentException ignored) { }
         }
-        return registered ? LocationTrackingState.WAITING_FOR_FIX : LocationTrackingState.ERROR;
+        return registered ? LocationTrackingState.WAITING_FOR_LOCATION_INFO : LocationTrackingState.ERROR;
     }
 
     @Override public synchronized void requestCurrentLocation(GpsSettings settings) {

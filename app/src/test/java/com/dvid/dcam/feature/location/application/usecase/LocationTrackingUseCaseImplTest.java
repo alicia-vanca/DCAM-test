@@ -21,7 +21,7 @@ final class LocationTrackingUseCaseImplTest {
                 new FakeSettings(), source);
         Consumer<GpsCoordinate> callback = ignored -> { };
 
-        assertEquals(LocationTrackingState.WAITING_FOR_FIX, tracking.start(callback));
+        assertEquals(LocationTrackingState.WAITING_FOR_LOCATION_INFO, tracking.start(callback));
         assertSame(callback, source.callback);
         source.nextState = LocationTrackingState.NO_PROVIDER;
         assertEquals(LocationTrackingState.NO_PROVIDER, tracking.restart());
@@ -73,7 +73,7 @@ final class LocationTrackingUseCaseImplTest {
     }
 
     private static final class FakeSource implements LocationSource {
-        private LocationTrackingState nextState = LocationTrackingState.WAITING_FOR_FIX;
+        private LocationTrackingState nextState = LocationTrackingState.WAITING_FOR_LOCATION_INFO;
         private Consumer<GpsCoordinate> callback;
         private Consumer<LocationTrackingState> stateCallback;
         private int stopCount;

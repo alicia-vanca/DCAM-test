@@ -87,7 +87,7 @@
     <string name="storage_unavailable">Unavailable</string>
     <string name="storage_usage">%1$s / %2$s</string>
     <string name="low_storage_preview_warning">Low storage: %1$s free</string>
-    <string name="low_storage_recording_blocked">Low storage. Video and important recording are unavailable.</string>
+    <string name="low_storage_recording_blocked">Low storage. Cannot record video.</string>
     <string name="storage_capture_stopped">Storage almost full. Recording stopped and saved safely.</string>
     <string name="gps_use_location">Record location</string>
     <string name="gps_sampling_section">Location tracking</string>
@@ -106,7 +106,7 @@
     <string name="gps_location_disabled">Location is disabled</string>
     <string name="gps_unavailable">GPS is unavailable</string>
     <string name="gps_provider_error">GPS provider error</string>
-    <string name="gps_waiting_for_fix">Waiting for GPS fix</string>
+    <string name="gps_waiting_for_location_info">Waiting for location info…</string>
     <string name="device_serial_title">Set up device identity</string>
     <string name="device_serial_message">Enter a device serial number. Use 6–10 letters or digits.</string>
     <string name="device_serial_message_with_default">Enter 6–10 letters or digits, or use the detected device serial: %1$s</string>

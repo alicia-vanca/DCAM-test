@@ -13,7 +13,9 @@ public final class CaptureEventUseCaseImpl implements CaptureEventUseCase {
 
     @Override public void setListener(Consumer<CaptureEvent> listener) {
         this.listener = listener == null ? NONE : listener;
-        if (snapshot != null) this.listener.accept(snapshot);
+        if (snapshot != null && snapshot.getType() != CaptureEvent.Type.ERROR) {
+            this.listener.accept(snapshot);
+        }
     }
 
     @Override public void clearListener() {

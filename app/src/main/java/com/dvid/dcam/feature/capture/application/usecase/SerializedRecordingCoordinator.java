@@ -108,6 +108,7 @@ public final class SerializedRecordingCoordinator
 
     @Override public void recordingStarted(RecordingMode mode, String fileName) {
         queue.execute(() -> {
+            if (phase != Phase.STARTING && phase != Phase.SWITCHING_TO_SOS) return;
             currentMode = Objects.requireNonNull(mode, "mode");
             requestedMode = RecordingMode.IDLE;
             currentFileName = fileName;
@@ -194,6 +195,14 @@ public final class SerializedRecordingCoordinator
 
     private void stop() {
         if (phase == Phase.IDLE || phase == Phase.STOPPING) return;
+        if (phase == Phase.STARTING) {
+            requestedMode = RecordingMode.IDLE;
+            phase = Phase.IDLE;
+            currentFileName = null;
+            interruptionMessage = null;
+            camera().stopRecording();
+            return;
+        }
         RecordingMode stoppingMode = currentMode == RecordingMode.IDLE
                 ? requestedMode : currentMode;
         requestedMode = RecordingMode.IDLE;
@@ -232,7 +241,10 @@ public final class SerializedRecordingCoordinator
                 emit(CaptureEvent.recordingStarted(currentMode, currentFileName));
                 break;
             case IDLE:
-                if (lastTerminalEvent != null) emit(lastTerminalEvent);
+                if (lastTerminalEvent != null
+                        && lastTerminalEvent.getType() != CaptureEvent.Type.ERROR) {
+                    emit(lastTerminalEvent);
+                }
                 break;
             default:
                 throw new IllegalStateException("Unsupported recording phase " + phase);
