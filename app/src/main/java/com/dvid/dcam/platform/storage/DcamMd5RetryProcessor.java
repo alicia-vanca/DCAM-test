@@ -1,17 +1,19 @@
 package com.dvid.dcam.platform.storage;
 
-import com.dvid.dcam.platform.logging.DcamLogger;
+import com.dvid.dcam.core.logging.application.port.Logger;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Objects;
 
 final class DcamMd5RetryProcessor {
     private DcamMd5RetryProcessor() {}
 
-    static boolean process(DcamMd5RetryQueue queue) throws IOException {
+    static boolean process(DcamMd5RetryQueue queue, Logger logger) throws IOException {
+        Objects.requireNonNull(logger, "logger");
         boolean complete = true;
         for (File file : queue.pending()) {
             try {
@@ -27,7 +29,7 @@ final class DcamMd5RetryProcessor {
             } catch (Exception failure) {
                 complete = false;
                 try {
-                    DcamLogger.e("Video MD5 retry failed: " + file.getAbsolutePath(), failure);
+                    logger.error("Video MD5 retry failed: " + file.getAbsolutePath(), failure);
                 } catch (RuntimeException ignored) { }
             }
         }

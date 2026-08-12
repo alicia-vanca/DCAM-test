@@ -2,17 +2,14 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
-    android:paddingStart="0dp"
-    android:paddingTop="18dp"
-    android:paddingEnd="0dp"
-    android:paddingBottom="18dp">
+    android:background="#000000">
 
     <LinearLayout
         android:id="@+id/recording_status"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="18dp"
         android:elevation="8dp"
         android:gravity="center_horizontal"
         android:orientation="vertical">
@@ -87,7 +84,7 @@
     <FrameLayout
         android:id="@+id/preview_container"
         android:layout_width="match_parent"
-        android:layout_height="180dp"
+        android:layout_height="match_parent"
         android:layout_gravity="center" />
 
     <LinearLayout
@@ -97,6 +94,7 @@
         android:layout_gravity="bottom"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
+        android:layout_marginBottom="18dp"
         android:gravity="bottom"
         android:orientation="horizontal">
 
@@ -147,15 +145,15 @@
                 android:textSize="11sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/capture_action"
-            style="@style/DcamStatusText.Bold"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:layout_marginStart="12dp"
-            android:gravity="center"
-            android:minWidth="72dp"
-            android:text="@string/capture"
-            android:textSize="12sp" />
+        <ImageButton
+            android:id="@+id/camera_switch_action"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/camera_switch"
+            android:padding="10dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_switch_camera" />
     </LinearLayout>
 </FrameLayout>

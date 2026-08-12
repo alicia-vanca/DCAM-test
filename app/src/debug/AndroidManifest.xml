@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name="com.dvid.dcam.app.devmode.CameraDevModeActivity"
+            android:exported="true"
+            android:label="Camera DevMode A/B" />
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="com.dvid.dcam.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="com.dvid.dcam.app.devmode.CameraIdleReleaseLatencyInitializer"
+                android:value="androidx.startup" />
+        </provider>
+    </application>
+</manifest>

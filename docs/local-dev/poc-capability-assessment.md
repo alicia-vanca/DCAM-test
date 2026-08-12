@@ -1,4 +1,6 @@
-# Current App POC Capability Assessment
+# Historical App POC Capability Assessment
+
+> **Historical snapshot.** This report describes the repository on July 10, 2026. Use current source and `app/src/main/java/com/dvid/dcam/ARCHITECTURE.md` for present behavior.
 
 **Date:** 2026-07-10  
 **Purpose:** Can current DCAM code pass the Sprint 0 POC tests?
@@ -34,7 +36,7 @@
 // AppComposition.java line ~186
 public CaptureRuntime createCaptureRuntime(ComponentActivity owner) {
     CameraXCameraGatewayImpl camera = new CameraXCameraGatewayImpl(
-            owner, owner, config, mediaOutput, logSink, captureEvents,
+            owner, owner, config, mediaOutput, logger, captureEvents,
             mediaEncryptionSettings, operatorSession, cameraPreview);
     //     ^^^^^ LifecycleOwner = Activity
 ```

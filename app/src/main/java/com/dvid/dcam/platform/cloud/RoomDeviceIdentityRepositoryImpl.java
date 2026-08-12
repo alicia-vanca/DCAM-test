@@ -3,7 +3,7 @@ package com.dvid.dcam.platform.cloud;
 import com.dvid.dcam.feature.cloud.application.port.DeviceIdentityRepository;
 import com.dvid.dcam.feature.cloud.domain.DeviceCloudIdentity;
 import com.dvid.dcam.feature.cloud.domain.ProvisioningState;
-import com.dvid.dcam.feature.device.domain.DeviceInfo;
+import com.dvid.dcam.core.device.domain.DeviceInfo;
 import com.dvid.dcam.platform.database.dao.CloudStateDao;
 import com.dvid.dcam.platform.database.entities.DeviceIdentityEntity;
 
@@ -21,15 +21,13 @@ public final class RoomDeviceIdentityRepositoryImpl implements DeviceIdentityRep
         DeviceIdentityEntity existing = dao.deviceIdentity();
         if (existing == null) {
             DeviceIdentityEntity created = new DeviceIdentityEntity(
-                    SINGLETON_ID, null, deviceInfo.getHardwareId(), deviceInfo.getSerialNumber(),
+                    SINGLETON_ID, null, deviceInfo.getHardwareId(), null,
                     ProvisioningState.PROVISIONING_REQUIRED.name(), null, System.currentTimeMillis());
             dao.saveDeviceIdentity(created);
             return toDomain(created);
         }
-        if (!same(existing.hardwareId, deviceInfo.getHardwareId())
-                || !same(existing.serialNumber, deviceInfo.getSerialNumber())) {
+        if (!same(existing.hardwareId, deviceInfo.getHardwareId())) {
             existing.hardwareId = deviceInfo.getHardwareId();
-            existing.serialNumber = deviceInfo.getSerialNumber();
             existing.updatedAt = System.currentTimeMillis();
             if (existing.dcamCloudDeviceId == null || existing.dcamCloudDeviceId.isBlank()) {
                 existing.provisioningState = ProvisioningState.RECOVERY_REQUIRED.name();

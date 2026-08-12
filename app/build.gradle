@@ -2,7 +2,6 @@ plugins {
     id 'com.android.application'
 }
 
-def cameraXVersion = '1.6.1'
 def junitVersion = '6.1.0'
 def roomVersion = '2.8.4'
 def appProperties = new Properties()
@@ -14,6 +13,30 @@ if (appLocalPropertiesFile.exists()) appLocalPropertiesFile.withInputStream { ap
 def buildConfigValue = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
 def propertyValue = { key -> System.getenv(key) ?: appProperties.getProperty(key, '') }
 
+def releaseSigning = [
+        DCAM_RELEASE_KEYSTORE_FILE    : System.getenv('DCAM_RELEASE_KEYSTORE_FILE'),
+        DCAM_RELEASE_KEYSTORE_PASSWORD: System.getenv('DCAM_RELEASE_KEYSTORE_PASSWORD'),
+        DCAM_RELEASE_KEY_ALIAS         : System.getenv('DCAM_RELEASE_KEY_ALIAS'),
+        DCAM_RELEASE_KEY_PASSWORD      : System.getenv('DCAM_RELEASE_KEY_PASSWORD')
+]
+def releaseSigningConfigured = releaseSigning.values().every { value ->
+    value != null && !value.isBlank()
+}
+def missingReleaseSigningVariables = releaseSigning.findAll { name, value ->
+    value == null || value.isBlank()
+}.keySet().toList()
+def releaseKeystoreFile = releaseSigningConfigured
+        ? rootProject.file(releaseSigning['DCAM_RELEASE_KEYSTORE_FILE'])
+        : null
+def releaseBodycamCryptoPassword = System.getenv('GITHUB_ACTIONS') == 'true'
+        ? System.getenv('BODYCAM_CRYPTO_PASSWORD')
+        : propertyValue('BODYCAM_CRYPTO_PASSWORD')
+def missingRequiredReleaseBuildConfig = [
+        BODYCAM_CRYPTO_PASSWORD: releaseBodycamCryptoPassword
+].findAll { name, value ->
+    value == null || value.isBlank()
+}.keySet().toList()
+
 android {
     namespace = 'com.dvid.dcam'
     enableKotlin = false
@@ -23,12 +46,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile = releaseKeystoreFile
+                storePassword = releaseSigning['DCAM_RELEASE_KEYSTORE_PASSWORD']
+                keyAlias = releaseSigning['DCAM_RELEASE_KEY_ALIAS']
+                keyPassword = releaseSigning['DCAM_RELEASE_KEY_PASSWORD']
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = 'com.dvid.dcam'
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = '1.0'
+        versionName = System.getenv('APP_VERSION') ?: 'dev'
         appProperties.stringPropertyNames().each { key ->
             buildConfigField 'String', key, buildConfigValue(propertyValue(key))
         }
@@ -49,8 +83,12 @@ android {
 
     buildTypes {
         release {
-            optimization {
-                enable = false
+            debuggable = false
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.release
             }
         }
     }
@@ -61,6 +99,30 @@ android {
     }
 }
 
+def validateReleaseBuildInputs = tasks.register('validateReleaseBuildInputs') {
+    doLast {
+        if (!missingRequiredReleaseBuildConfig.isEmpty()) {
+            throw new GradleException("Missing required release BuildConfig values: ${missingRequiredReleaseBuildConfig.join(', ')}")
+        }
+
+        if (!missingReleaseSigningVariables.isEmpty()) {
+            throw new GradleException("Missing release signing environment variables: ${missingReleaseSigningVariables.join(', ')}")
+        }
+
+        if (!releaseKeystoreFile.isFile()) {
+            throw new GradleException("Release keystore file not found: ${releaseKeystoreFile}")
+        }
+    }
+}
+
+tasks.matching { task ->
+    task.name == 'packageRelease'
+            || task.name == 'packageReleaseBundle'
+            || task.name == 'packageReleaseUniversalApk'
+}.configureEach {
+    dependsOn validateReleaseBuildInputs
+}
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
@@ -69,16 +131,13 @@ java {
 
 dependencies {
     implementation project(':core')
+    implementation 'androidx.media3:media3-muxer:1.10.1'
+    implementation 'androidx.media3:media3-container:1.10.1'
 
     implementation 'androidx.activity:activity:1.13.0'
     implementation 'androidx.fragment:fragment:1.5.4'
     implementation 'androidx.lifecycle:lifecycle-livedata:2.11.0'
     implementation 'androidx.lifecycle:lifecycle-viewmodel:2.11.0'
-    implementation "androidx.camera:camera-camera2:${cameraXVersion}"
-    implementation "androidx.camera:camera-core:${cameraXVersion}"
-    implementation "androidx.camera:camera-lifecycle:${cameraXVersion}"
-    implementation "androidx.camera:camera-video:${cameraXVersion}"
-    implementation "androidx.camera:camera-view:${cameraXVersion}"
     implementation "androidx.room:room-runtime:${roomVersion}"
     implementation 'androidx.work:work-runtime:2.11.2'
     annotationProcessor "androidx.room:room-compiler:${roomVersion}"

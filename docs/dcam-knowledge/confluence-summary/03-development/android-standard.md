@@ -34,7 +34,7 @@ Dependency direction always points inward. UI, ViewModel, and use-case code must
 
 For the MVP paths currently in scope, the delivery profile makes the recording/capture controller, camera adapter, storage boundary, database/repository boundary, BDMA Data Contract, safe logging, and explicit disabling of unsupported optional features the P0 rules. Feature-specific managers and coordinators become mandatory when their feature enters implementation scope; they are not prerequisites for the first working recording slice.
 
-`Interface Adapters` is a Clean Architecture layer name; it does not mean a folder for Java `interface` declarations. Public feature/core interfaces live only in `application/usecase` or `application/port`, and must represent a real use-case or capability boundary. The package may be named `port`, but class/file names do not use the `Port` suffix. Use capability names such as `CameraGateway`, `AudioRecorder`, `MediaOpener`, `LanguagePreferenceStore`, `ConfigurationSource`, and `LogSink`; keep `Repository` for repository contracts. Concrete implementations must end with `Impl`.
+`Interface Adapters` is a Clean Architecture layer name; it does not mean a folder for Java `interface` declarations. Use cases are concrete classes in `application/usecase`, not interface-plus-implementation pairs. Public feature/core interfaces belong in `application/port` when they represent a real repository, gateway, store, or provider boundary. Explicit command/event seams may use `Commands` or `Events` names when another runtime component genuinely calls them. The package may be named `port`, but class/file names do not use the `Port` suffix. Use capability names such as `CameraGateway`, `AudioRecorder`, `MediaOpener`, `DeviceSerialNumberStore`, `LanguagePreferenceStore`, and `Logger`; keep `Repository` for repository contracts. Concrete implementation names describe their provider or role.
 
 Canonical feature package shape:
 
@@ -45,7 +45,9 @@ feature/<feature>/
         usecase/
         port/
         repository/
-    presentation/
+
+app/ui/
+    ViewModel, UI state, renderer, navigation, and Android input binding
 ```
 
 ## Threading rules

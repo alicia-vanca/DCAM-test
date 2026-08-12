@@ -21,19 +21,20 @@
         android:paddingEnd="28dp"
         android:visibility="gone">
 
-        <com.dvid.dcam.app.shell.WifiSignalView
+        <com.dvid.dcam.app.ui.WifiSignalView
             android:id="@+id/managed_wifi_status"
             android:layout_width="28dp"
             android:layout_height="18dp"
             android:translationY="-1dp" />
 
-        <com.dvid.dcam.app.shell.BatteryStatusView
+        <com.dvid.dcam.app.ui.BatteryStatusView
             android:id="@+id/managed_battery_status"
             android:layout_width="36dp"
             android:layout_height="18dp"
             android:layout_marginStart="8dp"
             android:translationY="1dp" />
     </LinearLayout>
+
 
     <LinearLayout
         android:id="@+id/custom_status_bar"

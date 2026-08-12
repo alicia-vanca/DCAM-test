@@ -16,6 +16,9 @@ public interface CloudStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     void saveDeviceIdentity(DeviceIdentityEntity identity);
 
+    @Query("DELETE FROM device_identity WHERE id = 1")
+    void deleteDeviceIdentity();
+
     @Query("SELECT * FROM remote_config_cache WHERE id = 1")
     RemoteConfigEntity remoteConfig();
 

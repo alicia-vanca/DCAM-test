@@ -4,12 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.application.port.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class DcamMd5RetryQueueTest {
+    private static final Logger LOGGER = new Logger() {
+        @Override public void debug(String message) {}
+        @Override public void info(String message) {}
+        @Override public void info(String message, Throwable error) {}
+        @Override public void warn(String message, Throwable error) {}
+        @Override public void error(String message, Throwable error) {}
+    };
+
     @TempDir Path root;
 
     @Test
@@ -35,7 +44,7 @@ final class DcamMd5RetryQueueTest {
         queue.add(media.toFile());
         queue.add(missing.toFile());
 
-        assertTrue(DcamMd5RetryProcessor.process(queue));
+        assertTrue(DcamMd5RetryProcessor.process(queue, LOGGER));
 
         assertEquals("900150983cd24fb0d6963f7d28e17f72",
                 Files.readString(root.resolve("Media/video.md5")).trim());
@@ -51,7 +60,7 @@ final class DcamMd5RetryQueueTest {
         Files.writeString(root.resolve("Media/video.md5"), "900150983cd24fb0d6963f7d28e17f72\n");
         queue.add(media.toFile());
 
-        assertTrue(DcamMd5RetryProcessor.process(queue));
+        assertTrue(DcamMd5RetryProcessor.process(queue, LOGGER));
 
         assertTrue(queue.pending().isEmpty());
     }
@@ -62,7 +71,7 @@ final class DcamMd5RetryQueueTest {
         Path media = root.resolve("unmounted/Media/video.mp4");
         queue.add(media.toFile());
 
-        assertFalse(DcamMd5RetryProcessor.process(queue));
+        assertFalse(DcamMd5RetryProcessor.process(queue, LOGGER));
 
         assertEquals(1, queue.pending().size());
     }
@@ -77,7 +86,7 @@ final class DcamMd5RetryQueueTest {
         Files.writeString(media, "abc");
         queue.add(media.toFile());
 
-        assertFalse(DcamMd5RetryProcessor.process(queue));
+        assertFalse(DcamMd5RetryProcessor.process(queue, LOGGER));
 
         assertEquals(1, queue.pending().size());
     }

@@ -4,6 +4,7 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import com.dvid.dcam.platform.logging.app.AppLogger;
 
 public final class DcamMd5RetryWorker extends Worker {
     public DcamMd5RetryWorker(@NonNull Context context, @NonNull WorkerParameters params) {
@@ -15,7 +16,7 @@ public final class DcamMd5RetryWorker extends Worker {
         DcamMd5RetryQueue queue = new DcamMd5RetryQueue(
                 storage.configsFile().getParentFile().getParentFile());
         try {
-            return DcamMd5RetryProcessor.process(queue) ? Result.success() : Result.retry();
+            return DcamMd5RetryProcessor.process(queue, AppLogger.get()) ? Result.success() : Result.retry();
         } catch (Exception failure) {
             return Result.retry();
         }

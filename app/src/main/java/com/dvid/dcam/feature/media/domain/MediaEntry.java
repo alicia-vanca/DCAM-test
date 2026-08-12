@@ -29,4 +29,5 @@ public final class MediaEntry {
     public long getModifiedAtMillis() { return modifiedAtMillis; }
     public String getMimeType() { return mimeType; }
     public int getChildFileCount() { return childFileCount; }
+    public boolean hasChildFileCount() { return childFileCount != -1; }
 }

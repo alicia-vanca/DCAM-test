@@ -2,5 +2,7 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="internal_media" path="." />
     <external-files-path name="app_media" path="." />
+    <!-- ponytail: FileProvider cannot name removable volumes; use a validating provider if URI creation expands beyond AndroidMediaOpener. -->
+    <root-path name="removable_app_media" path="storage/" />
     <external-path name="public_dcam" path="DCIM/" />
 </paths>

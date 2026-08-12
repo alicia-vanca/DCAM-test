@@ -6,19 +6,53 @@ import java.io.IOException;
 /** Filesystem readiness boundary: validate staging, publish safely, then remove staging. */
 public final class DcamMediaFinalizer {
     private final DcamStorage storage;
-    private final DcamMediaPublisher publisher;
+    private final MediaPublisher publisher;
+    private final DcamMediaPublisher cleanPublisher;
+    private final Md5SidecarWriter md5SidecarWriter;
 
     public DcamMediaFinalizer(DcamStorage storage) {
-        this(storage, new DcamMediaPublisher());
+        this(storage, new DcamMediaPublisher(), DcamMd5Sidecar::write);
     }
 
     DcamMediaFinalizer(DcamStorage storage, DcamMediaPublisher publisher) {
+        this(storage, publisher, DcamMd5Sidecar::write);
+    }
+
+    DcamMediaFinalizer(
+            DcamStorage storage, DcamMediaPublisher publisher, Md5SidecarWriter md5SidecarWriter) {
+        this(storage, publisher::publish, publisher, md5SidecarWriter);
+    }
+
+    DcamMediaFinalizer(
+            DcamStorage storage, MediaPublisher publisher, Md5SidecarWriter md5SidecarWriter) {
+        this(storage, publisher, new DcamMediaPublisher(), md5SidecarWriter);
+    }
+
+    private DcamMediaFinalizer(
+            DcamStorage storage,
+            MediaPublisher publisher,
+            DcamMediaPublisher cleanPublisher,
+            Md5SidecarWriter md5SidecarWriter) {
         this.storage = storage;
         this.publisher = publisher;
+        this.cleanPublisher = cleanPublisher;
+        this.md5SidecarWriter = md5SidecarWriter;
     }
 
     public File finalizeMedia(DcamMediaFile mediaFile) throws IOException {
         return finalizeMedia(mediaFile, false);
+    }
+
+    public File finalizeCleanMedia(DcamMediaFile mediaFile) throws IOException {
+        File staging = mediaFile.getFile();
+        DcamMediaPublisher.validate(staging, "staging");
+        File target = storage.finalFile(mediaFile);
+        return cleanPublisher.publishClean(staging, target);
+    }
+
+    void cleanupCleanMedia(DcamMediaFile mediaFile) {
+        storage.deleteEmptyStagingDateDirectory(mediaFile);
+        storage.deleteTargetMarker(mediaFile);
     }
 
     public File finalizeMedia(DcamMediaFile mediaFile, boolean createMd5) throws IOException {
@@ -30,14 +64,7 @@ public final class DcamMediaFinalizer {
             DcamMediaPublisher.Publication publication = publisher.publish(staging, target, writeMd5);
             File published = publication.file;
             if (writeMd5) {
-                try {
-                    DcamMd5Sidecar.write(published, publication.md5);
-                } catch (IOException | RuntimeException failure) {
-                    try { java.nio.file.Files.deleteIfExists(published.toPath()); } catch (IOException cleanup) {
-                        failure.addSuppressed(cleanup);
-                    }
-                    throw failure;
-                }
+                md5SidecarWriter.write(published, publication.md5);
             }
             // A leftover staging duplicate is safe; never roll back a valid final file for cleanup failure.
             try { java.nio.file.Files.deleteIfExists(staging.toPath()); } catch (IOException ignored) { }
@@ -47,6 +74,17 @@ public final class DcamMediaFinalizer {
         } catch (IOException | RuntimeException failure) {
             throw asIOException("Media publication failed", failure);
         }
+    }
+
+    @FunctionalInterface
+    interface MediaPublisher {
+        DcamMediaPublisher.Publication publish(File staging, File target, boolean createMd5)
+                throws IOException;
+    }
+
+    @FunctionalInterface
+    interface Md5SidecarWriter {
+        void write(File file, String md5) throws IOException;
     }
 
     private static IOException asIOException(String prefix, Throwable failure) {

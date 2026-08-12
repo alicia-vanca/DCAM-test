@@ -5,7 +5,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,8 +17,18 @@ import java.util.UUID;
 final class DcamMediaPublisher {
     private static final int COPY_BUFFER_BYTES = 64 * 1024;
 
-    File publish(File staging, File target) throws IOException {
-        return publish(staging, target, false).file;
+
+    File publishClean(File staging, File target) throws IOException {
+        validate(staging, "staging");
+        File parent = target.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+            throw new IOException("Cannot create final media directory: " + parent);
+        }
+        synchronized (DcamMediaReservation.FILESYSTEM_LOCK) {
+            if (target.exists()) throw new IOException("Final media already exists: " + target);
+            move(staging.toPath(), target.toPath());
+            return target;
+        }
     }
 
     Publication publish(File staging, File target, boolean calculateMd5) throws IOException {
@@ -32,29 +44,22 @@ final class DcamMediaPublisher {
         }
 
         File partial = new File(parent, "." + target.getName() + ".publishing-" + UUID.randomUUID());
-        boolean targetCreated = false;
         try {
             String md5 = copyAndSync(staging, partial, calculateMd5);
             validate(partial, "publication copy");
             if (partial.length() != staging.length()) {
                 throw new IOException("Publication copy size mismatch");
             }
-            try {
-                Files.move(partial.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException unsupported) {
-                Files.move(partial.toPath(), target.toPath());
+            synchronized (DcamMediaReservation.FILESYSTEM_LOCK) {
+                if (target.exists()) {
+                    throw new IOException("Final media already exists: " + target);
+                }
+                move(partial.toPath(), target.toPath());
             }
-            targetCreated = true;
-            validate(target, "final media");
             return new Publication(target, md5);
         } catch (IOException | RuntimeException failure) {
             try { Files.deleteIfExists(partial.toPath()); } catch (IOException cleanup) {
                 failure.addSuppressed(cleanup);
-            }
-            if (targetCreated) {
-                try { Files.deleteIfExists(target.toPath()); } catch (IOException cleanup) {
-                    failure.addSuppressed(cleanup);
-                }
             }
             throw failure;
         }
@@ -87,13 +92,28 @@ final class DcamMediaPublisher {
             }
             md5 = hex(digest.digest());
         }
-        try {
-            Files.move(staging.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException unsupported) {
-            Files.move(staging.toPath(), target.toPath());
+        synchronized (DcamMediaReservation.FILESYSTEM_LOCK) {
+            if (target.exists()) throw new IOException("Final media already exists: " + target);
+            move(staging.toPath(), target.toPath());
+            return new Publication(target, md5);
         }
-        validate(target, "final media");
-        return new Publication(target, md5);
+    }
+
+    static void move(Path source, Path target, CopyOption... fallbackOptions)
+            throws IOException {
+        move(Files::move, source, target, fallbackOptions);
+    }
+
+    static void move(MoveOperation operation, Path source, Path target,
+            CopyOption... fallbackOptions) throws IOException {
+        CopyOption[] atomicOptions = new CopyOption[fallbackOptions.length + 1];
+        atomicOptions[0] = StandardCopyOption.ATOMIC_MOVE;
+        System.arraycopy(fallbackOptions, 0, atomicOptions, 1, fallbackOptions.length);
+        try {
+            operation.move(source, target, atomicOptions);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            operation.move(source, target, fallbackOptions);
+        }
     }
 
     private static String copyAndSync(File source, File target, boolean calculateMd5)
@@ -127,11 +147,16 @@ final class DcamMediaPublisher {
         return hex.toString();
     }
 
+    @FunctionalInterface
+    interface MoveOperation {
+        Path move(Path source, Path target, CopyOption... options) throws IOException;
+    }
+
     static final class Publication {
         final File file;
         final String md5;
 
-        private Publication(File file, String md5) {
+        Publication(File file, String md5) {
             this.file = file;
             this.md5 = md5;
         }

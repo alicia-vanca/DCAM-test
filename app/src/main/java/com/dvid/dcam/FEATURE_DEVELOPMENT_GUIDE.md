@@ -1,311 +1,169 @@
-# Hướng dẫn phát triển feature DCAM
+# Hướng dẫn phát triển tính năng
 
-Tài liệu này viết cho người mới/intern. Mục tiêu là khi nhận một task, mọi
-người biết file nên đặt ở đâu và logic nên nằm ở lớp nào, không phải đoán ý đồ
-kiến trúc.
+Tài liệu này trả lời hai câu hỏi: nên đặt mã nguồn ở đâu, và khi nào cần interface.
+Đọc `ARCHITECTURE.md` nếu chưa rõ ba khu `app/ui`, `feature`, `platform`.
 
-Đọc thêm: [ARCHITECTURE.md](ARCHITECTURE.md).
+- Use case điều phối một hành động của ứng dụng.
+- `domain` chứa model, phép tính hoặc quy tắc nghiệp vụ Java thuần.
+- `port` mô tả khả năng mà phần nghiệp vụ cần từ bên ngoài.
+- `adapter` trong `platform` triển khai port và gọi Android, DB, SDK hoặc phần cứng.
 
-## 1. Nhớ nhanh trong 30 giây
+## 1. Bắt đầu bằng một câu về người dùng
 
-```text
-domain ← application ← presentation/app/platform
-```
+Viết yêu cầu thành một hành động cụ thể, ví dụ:
 
-- `domain`: dữ liệu/quy tắc thuần Java.
-- `application/usecase`: workflow nghiệp vụ.
-- `application/port`: interface mà application cần để gọi repository/hardware/provider.
-- `presentation`: ViewModel/UI state của feature, nếu feature có màn hình riêng.
-- `platform`: Android, CameraX, MediaRecorder, filesystem, Room, WorkManager.
-- `app`: Activity, navigation, cross-feature ViewModel, composition root.
+- “Người dùng mở một thư mục media.”
+- “Người dùng lưu số sê-ri thiết bị.”
+- “Người dùng bấm nút cứng để dừng ghi video.”
 
-## 2. Cây package của một feature
+Đừng bắt đầu bằng “tạo controller”, “tạo service” hoặc “tạo repository”. Những tên đó chỉ
+xuất hiện sau khi đã biết việc cần làm.
 
-```text
-feature/<name>/
-├── domain/
-├── application/
-│   ├── usecase/
-│   ├── port/
-│   └── repository/        chỉ dùng khi implementation thuần application/core
-└── presentation/          chỉ dùng khi feature có UI state/ViewModel riêng
-```
+## 2. Chọn nơi đặt code
 
-Không cần feature nào cũng đủ mọi folder. Nhưng đã có loại file nào thì đặt
-đúng chỗ đó.
-
-Không tạo `interfaces/`, `classes/`, `implementations/`, `services/`,
-`adapter/in`, `adapter/out`, `port/in`, hoặc `port/out` trong source hiện tại.
-
-## 3. Chọn vị trí file
-
-| Câu hỏi | Đặt ở đâu |
+| Câu hỏi | Làm gì |
 |---|---|
-| Đây là enum/entity/value object/rule thuần Java? | `feature/<name>/domain` |
-| Đây là workflow như start recording, browse media, đổi ngôn ngữ? | `feature/<name>/application/usecase` |
-| Đây là interface để use case gọi camera, audio, storage, repository, logging? | `feature/<name>/application/port` hoặc `core/<capability>/application/port` |
-| Đây là repository implementation thuần Java, không Android SDK? | `application/repository` |
-| Đây là UI state/ViewModel riêng của feature? | `feature/<name>/presentation` |
-| Đây là Android/CameraX/MediaRecorder/filesystem/Room/WorkManager code? | `platform/<capability>` |
-| Đây là wiring chọn implementation thật? | `app/AppComposition` |
-| Đây là Activity/navigation/cross-feature shell? | `app` |
+| Chỉ đổi giao diện, trạng thái màn hình, chuyển màn hình (navigation) hoặc vòng đời Android? | Sửa `app/ui`, rồi dừng. |
+| Có hành động như kiểm tra dữ liệu, bắt đầu/dừng ghi hoặc lưu cài đặt? | Tạo hoặc sửa class `*UseCase` trong `feature/<name>/application/usecase`. |
+| Có quy tắc hoặc phép tính Java thuần? | Đặt trong `feature/<name>/domain` và gọi từ use case. |
+| Cần DB, file, Android SDK, camera, phần cứng hoặc mạng? | Tạo interface trong `application/port` và class cụ thể trong `platform`. |
+| Logic Java thuần được nhiều feature dùng thật? | Cân nhắc `core`; không dùng `core` làm chỗ tạm. |
 
-## 4. Khi nào tạo interface?
+Không phải tính năng nào cũng cần đủ mọi phần. Thay đổi chỉ ở giao diện không cần use case.
+Use case không truy cập hệ thống bên ngoài thì không cần port hoặc adapter. Chỉ tạo `domain` khi
+có quy tắc nghiệp vụ Java thuần cần tách riêng.
 
-Team chọn convention chặt:
+## 3. Quy trình ngắn
 
-1. Use case public phải là interface.
-2. Implementation của use case phải là `*UseCaseImpl`.
-3. Capability boundary trong `application/port` cũng là interface.
-4. Concrete implementation của project interface phải kết thúc bằng `Impl`.
+1. Phân loại thay đổi: UI, hành động của ứng dụng, hay gọi hệ thống bên ngoài.
+2. Nếu có hành động của ứng dụng, tạo class `*UseCase` có dạng `public final class`.
+3. Nếu cần DB, file, camera, phần cứng hoặc mạng, thêm interface trong `application/port`
+   và class cụ thể trong `platform`.
+4. Nối các class trong `AppComposition`, truyền use case vào nơi gọi, rồi viết test.
 
-Tạo interface khi có boundary thật:
+Không tạo thư mục hoặc file trống để “đủ kiến trúc”. Dừng ngay khi đã đủ cho yêu cầu hiện tại.
 
-- UI hoặc hardware router cần gọi workflow application;
-- application cần gọi Android/hardware/provider mà không phụ thuộc SDK cụ thể;
-- cần fake để unit test workflow;
-- repository là contract giữa use case và data source;
-- có khả năng đổi implementation như CameraX/vendor/fake/local/remote.
+## 4. Ví dụ: duyệt media
 
-Không tạo interface cho:
+Yêu cầu: người dùng mở màn hình Files và xem nội dung một thư mục.
 
-- model/enum/value object;
-- helper nhỏ;
-- class chỉ có một responsibility nội bộ, không cần fake;
-- feature chưa có requirement;
-- marker/placeholder interface rỗng chỉ để "giữ chỗ".
+### Bước 1: class use case
 
-Nếu chưa trả lời được “ai gọi interface này?” và “implementation nào làm thật?”,
-thì khoan tạo.
-
-Không tạo `EventBus`, `DomainEventPublisher` hoặc application-event dispatcher chung
-cho tới khi có workflow cụ thể cần side effect tách rời giữa metadata/media lifecycle,
-cloud hoặc feature khác.
-
-## 5. Use case interface
-
-Use case là API đi vào application.
+File: `feature/media/application/usecase/BrowseMediaUseCase.java`
 
 ```java
-package com.dvid.dcam.feature.capture.application.usecase;
+public final class BrowseMediaUseCase {
+    private final MediaRepository repository;
 
-public interface VideoRecordingUseCase {
-    void toggleVideo();
-    void startVideo();
-    void startSos();
-    void stopRecording();
-    void toggleSos();
+    public BrowseMediaUseCase(MediaRepository repository) {
+        this.repository = repository;
+    }
+
+    public List<MediaEntry> execute(String relativePath) throws Exception {
+        return repository.list(relativePath);
+    }
 }
 ```
 
-Recording command/event orchestration:
+Không tạo `BrowseMediaUseCase` interface và `BrowseMediaUseCaseImpl`. UI gọi class trên trực
+tiếp.
+
+### Bước 2: interface cho việc đọc dữ liệu
+
+File: `feature/media/application/port/MediaRepository.java`
 
 ```java
-package com.dvid.dcam.feature.capture.application.usecase;
-
-public final class SerializedRecordingCoordinator
-        implements VideoRecordingUseCase, CaptureEventUseCase {
-    // UI, hardware and platform callbacks enter one FIFO state authority.
+public interface MediaRepository {
+    List<MediaEntry> list(String relativePath) throws Exception;
 }
 ```
 
-Một use case interface có thể gom nhiều operation cùng một nghiệp vụ nhỏ.
-Ví dụ `VideoRecordingUseCase` gom start/stop/toggle video và SOS vì đều là
-video-recording workflow. Đừng gom bừa `Media + Device + Settings` vào một
-interface lớn.
+`MediaRepository` là port mô tả khả năng đọc danh sách media mà use case cần. Nó không chứa `Context`, `File`, `Cursor` hoặc class Android.
 
-## 6. Interface trong `application/port`
+### Bước 3: class đọc hệ thống tệp
 
-Đây là API application cần để gọi ra ngoài. Folder tên `port` vì theo
-Clean/Hexagonal, nhưng **class name không dùng `Port`**.
-
-Ví dụ:
+File: `platform/storage/LocalMediaRepository.java`
 
 ```java
-package com.dvid.dcam.feature.capture.application.port;
-
-public interface CameraGateway {
-    void takePhoto();
-    void startVideo();
-    void startSos();
-    void stopRecording();
+public final class LocalMediaRepository implements MediaRepository {
+    // Đọc DcamStorage và trả về MediaEntry.
 }
 ```
 
-Implementation nằm ở platform nếu dùng Android/framework:
+Xử lý path, file, MIME type và API Android nằm ở đây.
+
+### Bước 4: nối các class
+
+Trong `AppComposition`:
 
 ```java
-package com.dvid.dcam.platform.camera;
-
-import com.dvid.dcam.feature.capture.application.port.CameraGateway;
-
-public final class CameraXCameraGatewayImpl implements CameraGateway {
-    // CameraX implementation
-}
+MediaRepository mediaRepository = new LocalMediaRepository(storage);
+browseMedia = new BrowseMediaUseCase(mediaRepository);
 ```
 
-Tên nên theo capability, không theo chữ `Port`:
+`MainViewModel` nhận `browseMedia`, gọi nó, rồi cập nhật `MediaBrowserState`.
+`MediaBrowserRenderer` chỉ đọc trạng thái và vẽ.
 
-| Nên dùng | Không dùng |
+## 5. Chọn class hay interface
+
+Dùng class cụ thể theo mặc định.
+
+Tạo interface khi có một trong các nhu cầu cụ thể sau:
+
+- Phần nghiệp vụ cần DB, file, Android SDK, camera, phần cứng hoặc mạng.
+- Nhiều nguồn input cùng gọi một nhóm lệnh, như `RecordingCommands`.
+
+- Một phần gửi sự kiện về phần khác, như `CaptureEvents`.
+
+Không tạo interface chỉ vì:
+
+- muốn fake chính use case trong test;
+- hiện có một class nhưng đoán sau này sẽ có class thứ hai;
+- muốn mọi tên đều có cặp interface/`Impl`.
+
+Tên gợi ý:
+
+| Vai trò | Ví dụ |
 |---|---|
-| `CameraGateway` | `CameraPort` |
-| `AudioRecorder` | `AudioPort` |
-| `MediaOpener` | `MediaOpenPort` |
-| `LanguagePreferenceStore` | `LanguagePreferencePort` |
-| `ConfigurationSource` | `ConfigurationSourcePort` |
-| `LogSink` | `LogPort` |
+| Hành động của ứng dụng, luôn là class | `BrowseMediaUseCase`, `DeviceSerialNumberUseCase` |
+| Đọc/lưu dữ liệu | `MediaRepository` |
+| Lưu giá trị hoặc trạng thái nhỏ | `FeatureGateStore`, `DeviceSerialNumberStore` |
+| Gọi thiết bị hoặc SDK | `CameraGateway` |
+| Nhóm lệnh | `RecordingCommands` |
+| Sự kiện gửi ngược lại | `CaptureEvents` |
+| Class cụ thể | `LocalMediaRepository`, `AndroidFeatureGateStore` |
 
-`Repository` giữ nguyên vì đã là boundary quen thuộc: `MediaRepository`,
-`DeviceRepository`, `ConfigurationRepository`.
+Không thêm tiền tố `I`. Không thêm hậu tố `Impl` cho use case.
 
-## 7. Ví dụ luồng capture đủ layer
+### Khi app khởi động sau process restart
+
+App không tự quay lại. Nếu lần chạy trước còn file trong `Temp`, startup chỉ đánh dấu capture cũ là đang hoàn tất rồi gọi cơ chế finalize file. Không tạo đoạn video hoặc audio mới.
+
+Switch vật lý vẫn có thể bắt đầu quay, nhưng chỉ sau khi Android gửi event switch đang bật. Không tự thêm API đọc trạng thái switch khi chưa có bằng chứng từ thiết bị.
+
+## 6. Công tắc nhà phát triển
+
+Chỉ thêm công tắc khi sản phẩm cần tắt/mở tính năng trong màn hình nhà phát triển.
+
+1. Thêm hoặc cập nhật `FeatureGate` trong `core/featuregate`.
+2. Trong `FeatureGate`, khai báo giá trị mặc định. Chỉ khai báo quan hệ gate cha/con khi một công tắc phụ thuộc công tắc khác. `FeatureGates` tính trạng thái bật cuối cùng.
+3. Đăng ký nhãn, nhóm và `SettingId` trong `app/devmode/DeveloperFeatureToggles`.
+4. Để `app/ui` hiển thị công tắc.
+5. Không đọc `SharedPreferences` hoặc tính lại gate cha trong `app/devmode`.
+
+Chi tiết nằm trong `app/devmode/README.md`.
+
+## 7. Trước khi gửi duyệt
+
+- [ ] UI/input gọi class `*UseCase`; không gọi thẳng `platform`.
+- [ ] `*UseCase` là class cụ thể; không có interface cùng tên hoặc `*UseCaseImpl`.
+- [ ] Việc gọi DB, file, SDK, thiết bị hoặc mạng đi qua interface trong `application/port`.
+- [ ] Class cụ thể nằm trong `platform`; `AppComposition` là nơi nối các class.
+- [ ] Test hành vi và `LayerDependencyTest` chạy được.
+
+Nếu vẫn chưa biết đặt file, hỏi đúng một câu:
 
 ```text
-UI button / hardware key
-    ↓
-VideoRecordingUseCase                  application/usecase interface
-    ↓
-SerializedRecordingCoordinator         application/usecase orchestration
-    ↓
-CameraGateway                          application/port interface
-    ↑
-CameraXCameraGatewayImpl               platform/camera implementation
-    ↓
-CameraX                                framework thật
+Phần này chỉ hiển thị UI, điều phối hành động trong use case, áp dụng quy tắc nghiệp vụ Java
+thuần trong domain, hay truy cập hệ thống bên ngoài qua port/adapter?
 ```
-
-Đọc dòng trên hơi ngược một chút:
-
-- Flow chạy runtime: UI → use case → gateway → CameraX.
-- Dependency source code: implementation ngoài phụ thuộc interface trong.
-
-Đó là “dependency rule”.
-
-## 8. Ví dụ đổi ngôn ngữ
-
-```text
-MainActivity
-    ↓
-LanguageSettingsUseCase
-    ↓
-LanguageSettingsUseCaseImpl
-    ↓
-LanguagePreferenceStore
-    ↑
-AndroidLanguagePreferenceStoreImpl
-    ↓
-SharedPreferences / LocaleManager
-```
-
-Use case không biết `SharedPreferences`. UI không tự ghi preference. Platform
-implementation mới biết Android lưu và apply locale như thế nào.
-
-## 9. Naming convention
-
-| Loại | Quy ước | Ví dụ |
-|---|---|---|
-| Use case interface | `*UseCase` | `BrowseMediaUseCase` |
-| Use case implementation | `*UseCaseImpl` | `BrowseMediaUseCaseImpl` |
-| Repository interface | `*Repository` | `MediaRepository` |
-| Repository implementation | provider + `*RepositoryImpl` | `LocalMediaRepositoryImpl` |
-| Capability interface | tên capability, không `Port` | `CameraGateway`, `LogSink` |
-| Platform implementation | provider/framework + capability + `Impl` | `CameraXCameraGatewayImpl` |
-| Test fake | `Fake*Impl` nếu implement interface | `FakeVideoRecordingUseCaseImpl` |
-| UI state | `*State` hoặc `*UiState` | `MediaBrowserState`, `MainUiState` |
-| ViewModel | `*ViewModel` | `MainViewModel` |
-
-Không dùng `I` prefix kiểu `ICameraGateway`. Không dùng `Manager`, `Helper`,
-`Utils`, `Service` nếu có tên trách nhiệm rõ hơn.
-
-## 10. Checklist implement feature
-
-### Bước 1: hiểu requirement
-
-Trước khi code, phải biết:
-
-- user/action nào trigger;
-- output thành công là gì;
-- lỗi/unavailable xử lý sao;
-- có cần offline không;
-- có cần persist không;
-- có cần BDMA/Data Contract không.
-
-### Bước 2: tạo domain nếu cần
-
-Chỉ tạo domain model phục vụ requirement hiện tại. Không tạo model “để sau này”.
-
-### Bước 3: tạo use case
-
-Tạo interface `*UseCase` và implementation `*UseCaseImpl` trong
-`application/usecase`.
-
-Use case nên chứa workflow:
-
-- kiểm tra precondition;
-- quyết định thứ tự gọi;
-- gọi repository/gateway/store;
-- map result về dạng application hiểu.
-
-### Bước 4: tạo port nếu use case cần gọi ra ngoài
-
-Nếu use case cần Android/hardware/filesystem/provider, tạo interface trong
-`application/port`. Đặt tên theo capability.
-
-### Bước 5: tạo implementation
-
-- Android/SDK/filesystem/Room thật → `platform/<capability>`.
-- Pure repository implementation → `application/repository`.
-- Tất cả class implement project interface → `Impl`.
-
-### Bước 6: wiring trong `AppComposition`
-
-Không `new CameraX...` trong ViewModel/use case. Nối graph tại
-`AppComposition`.
-
-### Bước 7: test
-
-- Unit test use case bằng fake interface.
-- Test platform/repository boundary nếu có logic quan trọng.
-- Chạy architecture test để bắt dependency sai.
-- Với camera/audio/storage thật, cần real-device/instrumentation sau.
-
-## 11. Không đặt logic ở đâu?
-
-| Logic | Không nên đặt | Nên đặt |
-|---|---|---|
-| Start/stop/toggle recording policy | Activity/ViewModel/platform | `SerializedRecordingCoordinator` |
-| Tạo file bằng CameraX/MediaStore | Use case/domain | `platform/storage` hoặc `platform/camera` |
-| Parse config/fallback default | Activity | `ConfigurationRepositoryImpl` |
-| Lưu language preference Android | Use case | `AndroidLanguagePreferenceStoreImpl` |
-| Hiển thị row/menu/text | Use case/domain | Activity/ViewModel/presentation |
-| Map exception SDK thành trạng thái app | UI/domain | Platform implementation boundary |
-
-## 12. Checklist trước PR
-
-- [ ] Domain không import Android/SDK/platform.
-- [ ] Use case nằm trong `application/usecase`.
-- [ ] Use case có interface và `Impl`.
-- [ ] Interface gọi ra ngoài nằm trong `application/port`.
-- [ ] Capability interface không dùng hậu tố `Port`.
-- [ ] Implementation của project interface kết thúc bằng `Impl`.
-- [ ] Android/CameraX/MediaRecorder/filesystem/Room code nằm trong `platform`.
-- [ ] Wiring concrete implementation chỉ nằm trong `AppComposition`.
-- [ ] Không tạo interface/feature rỗng để placeholder.
-- [ ] Architecture tests pass.
-- [ ] `test` và `assembleDebug` pass trước khi handoff.
-
-## 13. Khi nào hỏi reviewer/senior?
-
-Hỏi trước khi:
-
-- thêm public interface mới mà chưa rõ requirement;
-- tạo dependency trực tiếp giữa hai feature;
-- đưa code vào `core`;
-- thay storage/metadata/BDMA contract;
-- thêm vendor SDK/cloud provider/update mechanism;
-- thay recording owner/process-death recovery;
-- đổi convention package hoặc naming.
-
-Kiến trúc tốt không phải là nhiều file. Kiến trúc tốt là nhìn vào file biết
-logic thuộc ai, boundary ở đâu, và đổi implementation nào sẽ không làm vỡ rule
-bên trong.

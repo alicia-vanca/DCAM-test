@@ -81,7 +81,7 @@ These are beta capabilities, not a promise of full production hardening.
 
 ## Important prototype-vs-scope note
 
-The current repository contains standalone AAC recording, SOS action/state, legacy CSON configuration, Loggly upload, a Room-backed log outbox, and contract-shaped media folders/naming. SOS remains an application action in current code, but Important Media creation/activation is conditional and not active for Build 0.1. Contract storage modes, device-information-only CSON migration, app/contract metadata, MP4 MD5 generation, `dcam.db` operational scope, and BDMA integration remain implementation gaps.
+The current repository contains standalone AAC recording, SOS action/state, device-identity storage, Loggly upload, a Room-backed log outbox, and contract-shaped media folders/naming. SOS remains an application action in current code, but Important Media creation/activation is conditional and not active for Build 0.1. Contract storage modes, app/contract metadata, MP4 MD5 generation, `dcam.db` operational scope, and BDMA integration remain implementation gaps.
 
 ## Cross-feature platform capabilities
 

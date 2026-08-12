@@ -1,8 +1,8 @@
 # Settings grid design map
 
-This is a repository-local implementation map, not a Confluence mirror. The broader expected Setting hub, in-app console, role/capability/runtime guards, Maintenance Password Gate, and media-console direction are summarized in [Technical design draft digest](../../dcam-knowledge/05-technical-design/README.md).
+This is a repository-local implementation map, not a Confluence mirror. The broader expected Setting hub, in-app console, role/capability/runtime guards, Maintenance Password Gate, and media-console direction are summarized in [Technical design draft digest](../../dcam-knowledge/confluence-summary/05-technical-design/README.md).
 
-Status: feature-gated 12-category navigation with a read-only Files explorer, local language persistence, and a gated media-encryption preference. Draft/demo setting controls remain scaffolding and are not counted as completed operational settings.
+Status: feature-gated 12-category navigation with a read-only Files explorer, local language persistence, operational `INTERNAL`/`EXTERNAL`/`AUTO` storage selection, and a gated media-encryption preference. Draft/demo setting controls remain scaffolding and are not counted as completed operational settings.
 
 The settings home behaves like an app launcher: a three-column grid containing only an icon and category label, without recording/device status or a page heading. Feature gates decide which tiles are visible and send disabled destinations back to Menu. Opening a category shows a scrollable title and controls/list content; system Back returns to the grid. Endpoint values, usernames, passwords, passcodes, and secret keys are deliberately absent.
 
@@ -10,6 +10,7 @@ The settings home behaves like an app launcher: a three-column grid containing o
 
 - Files browses only `Video`, `IMP`, `Image`, and `Audio` inside DCAM-managed media storage and opens files through a temporary Android viewer grant.
 - Language selection is persisted locally and recreates the Activity with the localized context.
+- Storage selection persists `INTERNAL`, `EXTERNAL`, or `AUTO` and recreates the Activity so the next media session resolves one stable app-specific root. Production physical-root mapping still requires device proof.
 - Security/Encryption has a media-encryption preference. Hiding its settings surface does not disable the shared crypto/storage capability. When the preference is enabled, photo, video/SOS, and audio save flows apply local AES-256-CTR transforms and use the `_enc` filename marker.
 - Developer settings expose opt-in local feature gates. These gates are a project-control surface, not an approved operational settings feature and not a registry requirement for ordinary new features.
 - Other setting controls backed by `DemoSettingsState` are local UI scaffolding only.

@@ -10,8 +10,9 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION: 0.${{ github.run_number }}
+  APP_VERSION: 0.1.${{ github.run_number }}
   BODYCAM_CRYPTO_PASSWORD: ${{ secrets.BODYCAM_CRYPTO_PASSWORD }}
+  LOGGLY_TOKEN: ${{ secrets.LOGGLY_TOKEN }}
 
 jobs:
   build:
@@ -39,23 +40,40 @@ jobs:
       - name: Run unit tests
         run: ./gradlew test
 
-      - name: Build APK
+      - name: Prepare release signing
+        shell: bash
+        env:
+          DCAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.DCAM_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          printf 'LOGGLY_TOKEN=%s\n' '${{ secrets.LOGGLY_TOKEN }}' > application-local.properties
+          if [ -z "$DCAM_RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::Missing required GitHub secret: DCAM_RELEASE_KEYSTORE_BASE64"
+            exit 1
+          fi
+          printf '%s' "$DCAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/dcam-release.keystore"
+          if [ ! -s "$RUNNER_TEMP/dcam-release.keystore" ]; then
+            echo "::error::Decoded release keystore is empty"
+            exit 1
+          fi
+
+      - name: Build APK
+        env:
+          DCAM_RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/dcam-release.keystore
+          DCAM_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.DCAM_RELEASE_KEYSTORE_PASSWORD }}
+          DCAM_RELEASE_KEY_ALIAS: ${{ secrets.DCAM_RELEASE_KEY_ALIAS }}
+          DCAM_RELEASE_KEY_PASSWORD: ${{ secrets.DCAM_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew clean assembleRelease
+          mkdir -p build/release
           if [ "${GITHUB_REF_NAME}" = "release" ]; then
-            ./gradlew clean assembleRelease
-            mkdir -p build/release
             cp app/build/outputs/apk/release/*.apk "build/release/DCAM-${APP_VERSION}.apk"
           else
-            ./gradlew clean assembleDebug
-            mkdir -p build/release
-            cp app/build/outputs/apk/debug/*.apk "build/release/DCAM-dev-${APP_VERSION}.apk"
+            cp app/build/outputs/apk/release/*.apk "build/release/DCAM-dev-${APP_VERSION}.apk"
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DCAM-${{ github.ref_name }}-${{ env.APP_VERSION }}
+          name: DCAM-${{ env.APP_VERSION }}
           path: build/release/*.apk
           retention-days: 7
 

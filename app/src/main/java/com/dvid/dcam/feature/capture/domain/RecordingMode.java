@@ -4,6 +4,5 @@ package com.dvid.dcam.feature.capture.domain;
 public enum RecordingMode {
     IDLE,
     VIDEO,
-    SOS,
-    AUDIO
+    IMP
 }

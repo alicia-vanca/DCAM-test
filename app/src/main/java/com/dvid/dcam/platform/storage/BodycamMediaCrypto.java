@@ -95,7 +95,7 @@ public final class BodycamMediaCrypto {
     private static Cipher cipher(String password, int mode) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance(DIGEST_ALGORITHM);
-            byte[] keyBytes = digest.digest(safePassword(password).getBytes(StandardCharsets.UTF_8));
+            byte[] keyBytes = digest.digest(requirePassword(password).getBytes(StandardCharsets.UTF_8));
             SecretKeySpec key = new SecretKeySpec(keyBytes, KEY_ALGORITHM);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
             cipher.init(mode, key, new IvParameterSpec(new byte[IV_BYTES]));
@@ -105,8 +105,11 @@ public final class BodycamMediaCrypto {
         }
     }
 
-    private static String safePassword(String password) {
-        return password == null ? "" : password;
+    private static String requirePassword(String password) throws IOException {
+        if (password == null || password.isBlank()) {
+            throw new IOException("Media encryption password is required");
+        }
+        return password;
     }
 
     private static File createTempFile(File directory) throws IOException {

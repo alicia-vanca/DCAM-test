@@ -20,8 +20,8 @@ public final class CaptureStorageCapacityPolicy {
         return CaptureStorageCheck.ready(availableBytes, MIN_CAPTURE_FREE_BYTES);
     }
 
-    /** Maximum bytes CameraX may consume while preserving the hard free-space floor. */
+    /** Maximum bytes camera capture may consume while preserving the hard free-space floor. */
     public long recordingFileSizeLimit(long availableBytes) {
-        return Math.max(1L, (availableBytes - MIN_CAPTURE_FREE_BYTES) / 2L);
+        return Math.max(1L, availableBytes - MIN_CAPTURE_FREE_BYTES);
     }
 }

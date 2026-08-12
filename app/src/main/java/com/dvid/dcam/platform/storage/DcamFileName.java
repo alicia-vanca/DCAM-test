@@ -13,11 +13,21 @@ public final class DcamFileName {
         return DATE_FOLDER.format(at);
     }
 
-    public static String build(DcamFileType type, String accountUserId, String policeUserId,
+    static boolean matchesTypeSecond(
+            DcamFileType type, LocalDateTime at, String fileName) {
+        String marker = type.getMarker().isEmpty() ? "" : "_" + type.getMarker();
+        String timestamp = "_" + DATE.format(at) + "_" + TIME.format(at) + marker;
+        String extension = "." + type.getExtension();
+        return fileName.startsWith("DCAM_")
+                && (fileName.endsWith(timestamp + extension)
+                || fileName.endsWith(timestamp + "_enc" + extension));
+    }
+
+    public static String build(DcamFileType type, String cameraId, String fileUserId,
                                LocalDateTime at, boolean encrypted) {
         String marker = type.getMarker().isEmpty() ? "" : "_" + type.getMarker();
         String enc = encrypted ? "_enc" : "";
-        return "DCAM_" + accountUserId + "_" + policeUserId + "_" + DATE.format(at) + "_" +
+        return "DCAM_" + cameraId + "_" + fileUserId + "_" + DATE.format(at) + "_" +
                 TIME.format(at) + marker + enc + "." + type.getExtension();
     }
 }

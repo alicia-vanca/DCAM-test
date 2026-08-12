@@ -3,28 +3,22 @@ import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 
 import android.content.Context;
 import android.media.MediaScannerConnection;
-import android.net.Uri;
-import android.os.Build;
-import androidx.camera.core.ImageCapture;
-import androidx.camera.video.FileOutputOptions;
-import androidx.camera.video.MediaStoreOutputOptions;
-import androidx.camera.video.PendingRecording;
-import androidx.camera.video.Recorder;
-import androidx.camera.video.VideoCapture;
 import androidx.work.ExistingPeriodicWorkPolicy;
 import androidx.work.ExistingWorkPolicy;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
-import com.dvid.dcam.platform.logging.DcamLogger;
+import com.dvid.dcam.core.logging.application.port.Logger;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 public final class DcamMediaOutputImpl implements DcamMediaOutput {
     private static final String MD5_RETRY_NOW = "dcam-md5-retry-now";
@@ -35,6 +29,13 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
                 thread.setDaemon(true);
                 return thread;
             });
+    private static final ExecutorService RECOVERY_EXECUTOR =
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "dcam-media-recovery");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     private static final ScheduledExecutorService MD5_EXECUTOR =
             Executors.newSingleThreadScheduledExecutor(runnable -> {
                 Thread thread = new Thread(runnable, "dcam-video-md5");
@@ -43,24 +44,45 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
             });
     private final DcamStorage storage;
     private final DcamMediaFinalizer finalizer;
+    private final DcamInterruptedMp4Finalizer mp4Finalizer;
     private final ExecutorService finalizationExecutor;
     private final BooleanSupplier createVideoMd5;
     private final DcamMd5RetryQueue md5RetryQueue;
+    private final DcamMediaReservation mediaReservation;
     private final Context context;
-
-    public DcamMediaOutputImpl(DcamStorage storage) {
-        this(storage, null);
-    }
-
-    public DcamMediaOutputImpl(DcamStorage storage, BooleanSupplier createVideoMd5) {
-        this(null, storage, createVideoMd5);
-    }
+    private final Supplier<String> mediaEncryptionPassword;
+    private final Logger logger;
 
     public DcamMediaOutputImpl(
-            Context context, DcamStorage storage, BooleanSupplier createVideoMd5) {
+            Context context, DcamStorage storage, BooleanSupplier createVideoMd5,
+            Supplier<String> mediaEncryptionPassword, Logger logger) {
+        this(context, storage, createVideoMd5, mediaEncryptionPassword, logger,
+                new DcamMediaReservation());
+    }
+
+    DcamMediaOutputImpl(
+            Context context, DcamStorage storage, BooleanSupplier createVideoMd5, Logger logger) {
+        this(context, storage, createVideoMd5, () -> "", logger, new DcamMediaReservation());
+    }
+
+    DcamMediaOutputImpl(
+            Context context, DcamStorage storage, BooleanSupplier createVideoMd5,
+            Logger logger, DcamMediaReservation mediaReservation) {
+        this(context, storage, createVideoMd5, () -> "", logger, mediaReservation);
+    }
+
+    DcamMediaOutputImpl(
+            Context context, DcamStorage storage, BooleanSupplier createVideoMd5,
+            Supplier<String> mediaEncryptionPassword, Logger logger,
+            DcamMediaReservation mediaReservation) {
         this.context = context == null ? null : context.getApplicationContext();
+        this.mediaEncryptionPassword = Objects.requireNonNull(
+                mediaEncryptionPassword, "mediaEncryptionPassword");
+        this.logger = Objects.requireNonNull(logger, "logger");
         this.storage = storage;
+        this.mediaReservation = Objects.requireNonNull(mediaReservation, "mediaReservation");
         this.finalizer = new DcamMediaFinalizer(storage);
+        this.mp4Finalizer = new DcamInterruptedMp4Finalizer();
         this.finalizationExecutor = FINALIZATION_EXECUTOR;
         this.createVideoMd5 = createVideoMd5;
         this.md5RetryQueue = new DcamMd5RetryQueue(
@@ -72,19 +94,107 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
             DcamFileType type,
             String cameraId,
             String fileUserId,
-            LocalDateTime at,
             boolean encrypted) {
-        return storage.mediaFile(type, cameraId, fileUserId, at, encrypted);
+        try {
+            return claimMediaFile(type, cameraId, fileUserId, encrypted);
+        } catch (IOException failure) {
+            throw new IllegalStateException("Could not reserve media file", failure);
+        }
     }
 
     @Override public DcamMediaFile durableAudioMediaFile(
-            String cameraId, String fileUserId, LocalDateTime at, boolean encrypted)
+            String cameraId, String fileUserId, boolean encrypted)
             throws IOException {
-        return storage.durableAudioMediaFile(cameraId, fileUserId, at, encrypted);
+        return claimMediaFile(DcamFileType.AUDIO, cameraId, fileUserId, encrypted);
+    }
+
+    private DcamMediaFile claimMediaFile(
+            DcamFileType type, String cameraId, String fileUserId, boolean encrypted)
+            throws IOException {
+        long startedAtNanos = System.nanoTime();
+        int collisionCount = 0;
+        while (true) {
+            long reservationStartedAtNanos = System.nanoTime();
+            LocalDateTime reservedAt = mediaReservation.reserve(type);
+            long reservedAtNanos = System.nanoTime();
+            DcamMediaFile mediaFile = storage.mediaFile(
+                    type, cameraId, fileUserId, reservedAt, encrypted);
+            long pathResolvedAtNanos = System.nanoTime();
+            synchronized (DcamMediaReservation.FILESYSTEM_LOCK) {
+                if (mediaFile.getFile().isFile()
+                        || storage.hasFinalMediaFile(mediaFile)
+                        || !mediaReservation.trackActiveStaging(mediaFile.getFile())) {
+                    collisionCount++;
+                    continue;
+                }
+                long completedAtNanos = System.nanoTime();
+                logger.info("Reserve " + type + " media filename success. Filename wait: "
+                        + elapsedMillis(reservationStartedAtNanos, reservedAtNanos)
+                        + " ms. Path resolve: "
+                        + elapsedMillis(reservedAtNanos, pathResolvedAtNanos)
+                        + " ms. Collision check: "
+                        + elapsedMillis(pathResolvedAtNanos, completedAtNanos)
+                        + " ms. Total: "
+                        + elapsedMillis(startedAtNanos, completedAtNanos)
+                        + " ms. Collisions: " + collisionCount + ".");
+                return mediaFile;
+            }
+        }
+    }
+    private void logMediaReservationFailure(DcamFileType type, File target, IOException failure) {
+        File parent = target.getParentFile();
+        String storageCheck;
+        try {
+            CaptureStorageCheck check = storage.checkCaptureReady();
+            storageCheck = "ready=" + check.isReady()
+                    + ", preparing=" + check.isPreparing()
+                    + ", unavailable=" + check.isUnavailable()
+                    + ", availableBytes=" + check.getAvailableBytes()
+                    + ", requiredBytes=" + check.getRequiredBytes()
+                    + ", reason=" + check.getReason();
+        } catch (RuntimeException checkFailure) {
+            storageCheck = "failed with " + checkFailure.getClass().getSimpleName()
+                    + ": " + checkFailure.getMessage();
+        }
+        logger.error("Reserve " + type + " media file failed at " + target.getAbsolutePath()
+                + ". Failure: " + failure.getClass().getSimpleName()
+                + ": " + failure.getMessage()
+                + ". Parent exists: " + (parent != null && parent.exists())
+                + ". Parent directory: " + (parent != null && parent.isDirectory())
+                + ". Parent writable: " + (parent != null && parent.canWrite())
+                + ". Requested storage: " + storage.getRequestedMode()
+                + ". Fresh storage check: " + storageCheck + ".", failure);
+    }
+
+    @Override public long mediaReservationDelayMillis(DcamFileType type) {
+        return mediaReservation.delayMillis(type);
+    }
+
+    @Override public boolean hasPublishedFile(String fileName) {
+        return storage.hasPublishedFile(fileName);
     }
 
     @Override public CaptureStorageCheck checkCaptureReady() {
-        return storage.checkCaptureReady();
+        long startedAtNanos = System.nanoTime();
+        CaptureStorageCheck check = storage.checkCaptureReady();
+        long completedAtNanos = System.nanoTime();
+        long elapsedMillis = elapsedMillis(startedAtNanos, completedAtNanos);
+        if (elapsedMillis >= 100L) {
+            logger.info("Check capture storage readiness completed. Ready: "
+                    + check.isReady() + ". Preparing: " + check.isPreparing()
+                    + ". Unavailable: " + check.isUnavailable()
+                    + ". Elapsed: " + elapsedMillis + " ms.");
+        }
+        return check;
+    }
+
+    @Override public CaptureStorageCheck checkCaptureWritable() {
+        return storage.checkCaptureWritable();
+    }
+
+    @Override public boolean isExternalStorageRequested() {
+        return storage.getRequestedMode()
+                == com.dvid.dcam.feature.storage.domain.MediaPartitionLocation.EXTERNAL;
     }
 
     @Override public long availableBytesForNextCapture() {
@@ -95,78 +205,257 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         return storage.recordingFileSizeLimit();
     }
 
-    @Override public ImageCapture.OutputFileOptions imageOptions(Context context, DcamMediaFile mediaFile) {
-        if (usesPublicMediaStore(mediaFile.getType())) {
-            return new ImageCapture.OutputFileOptions.Builder(context.getContentResolver(),
-                    DcamMediaStore.imageCollection(), DcamMediaStore.values(mediaFile)).build();
-        }
-        return new ImageCapture.OutputFileOptions.Builder(storage.prepareFile(mediaFile)).build();
+    @Override public void prepareVideoFile(DcamMediaFile mediaFile) {
+        File staged = storage.prepareFile(mediaFile);
+        logger.info("media_stage type=video file=" + staged.getName());
+    }
+    @Override public DcamRecordingOutput openVideoOutput(DcamMediaFile mediaFile)
+            throws IOException {
+        return openRecordingOutput(mediaFile);
     }
 
-    @Override public PendingRecording prepareVideoRecording(
-            Context context,
-            VideoCapture<Recorder> videoCapture,
-            DcamMediaFile mediaFile,
-            long fileSizeLimitBytes) {
-        if (usesPublicMediaStore(mediaFile.getType())) {
-            MediaStoreOutputOptions options = new MediaStoreOutputOptions.Builder(context.getContentResolver(),
-                    DcamMediaStore.videoCollection())
-                    .setContentValues(DcamMediaStore.values(mediaFile))
-                    .setFileSizeLimit(fileSizeLimitBytes)
-                    .build();
-            return videoCapture.getOutput().prepareRecording(context, options);
-        }
-        FileOutputOptions options = new FileOutputOptions.Builder(storage.prepareFile(mediaFile))
-                .setFileSizeLimit(fileSizeLimitBytes)
-                .build();
-        return videoCapture.getOutput().prepareRecording(context, options);
+    @Override public void prepareImageFile(DcamMediaFile mediaFile) {
+        storage.prepareFile(mediaFile);
     }
 
     @Override public File audioFile(DcamMediaFile mediaFile) {
-        return storage.prepareFile(mediaFile);
+        File staged = storage.prepareFile(mediaFile);
+        logger.info("media_stage type=audio file=" + staged.getName());
+        return staged;
     }
-
-    @Override public void encryptSaved(Context context, DcamMediaFile mediaFile, Uri savedUri, String password)
+    @Override public DcamRecordingOutput openAudioOutput(DcamMediaFile mediaFile)
             throws IOException {
-        if (savedUri != null) {
-            BodycamMediaCrypto.encryptContentUri(
-                    context.getContentResolver(), savedUri, context.getCacheDir(), password);
-            return;
-        }
-        BodycamMediaCrypto.encryptFileInPlace(mediaFile.getFile(), password);
+        return openRecordingOutput(mediaFile);
     }
 
-    @Override public void publishSaved(Context context, DcamMediaFile mediaFile) {
-        if (!storage.isPublicDcim() || usesPublicMediaStore(mediaFile.getType())) return;
-        MediaScannerConnection.scanFile(context, new String[] { mediaFile.getFile().getAbsolutePath() },
-                new String[] { mediaFile.getType().getMimeType() }, null);
+    private DcamRecordingOutput openRecordingOutput(DcamMediaFile mediaFile)
+            throws IOException {
+        Objects.requireNonNull(mediaFile, "mediaFile");
+        File staged = storage.prepareFile(mediaFile);
+        if (mediaFile.isEncrypted()) {
+            int blockBytes = mediaFile.getType() == DcamFileType.AUDIO
+                    ? SegmentedAesGcmMediaStore.AUDIO_RECORDING_BLOCK_BYTES
+                    : SegmentedAesGcmMediaStore.RECORDING_BLOCK_BYTES;
+            return DcamRecordingOutput.openSegmentedAesGcm(
+                    staged, mediaEncryptionPassword.get(), blockBytes);
+        }
+        return DcamRecordingOutput.openPlain(staged, true);
+    }
+
+    @Override public void releaseMediaReservation(DcamMediaFile mediaFile) {
+        mediaReservation.releaseActiveStaging(
+                Objects.requireNonNull(mediaFile, "mediaFile").getFile());
+    }
+
+
+    @Override public void encryptSaved(
+            Context context, DcamMediaFile mediaFile, String password) throws IOException {
+        if (DcamEncryptionJournal.isComplete(mediaFile)) return;
+        if (SegmentedAesGcmMediaStore.hasFamilyMagic(mediaFile.getFile())) {
+            throw new IOException("Segmented AES-GCM media must not use legacy AES-CTR encryption.");
+        }
+        finalizeMp4(mediaFile);
+        BodycamMediaCrypto.encryptFileInPlace(mediaFile.getFile(), password);
+        DcamEncryptionJournal.markComplete(mediaFile);
     }
 
     @Override public void finalizeSaved(
-            Context context, DcamMediaFile mediaFile, FinalizationCallback callback) {
+            Context context,
+            DcamMediaFile mediaFile,
+            String encryptionPassword,
+            FinalizationCallback callback) {
         finalizationExecutor.execute(() -> {
+            String stagedDescription = stagedDescription(mediaFile);
+            String stage = encryptionPassword == null && isMp4(mediaFile)
+                    ? "container finalization"
+                    : encryptionPassword == null ? "publication" : "encryption";
+            if (!"publication".equals(stage)) {
+                logger.info("Finalization started for staged media " + stagedDescription
+                        + ". First stage: " + stage + ".");
+            }
+            File finalFile;
             try {
-                File finalFile = finalizeSavedNow(context, mediaFile);
-                callback.onSuccess(finalFile);
-                if (createVideoMd5 != null && createVideoMd5.getAsBoolean()
-                        && "mp4".equals(mediaFile.getType().getExtension())) {
-                    createMd5WithRetry(finalFile);
+                if (encryptionPassword != null) {
+                    encryptSaved(context, mediaFile, encryptionPassword);
+                    logger.info("Encryption completed for staged media " + stagedDescription + ".");
+                } else {
+                    finalizeMp4(mediaFile);
                 }
+                stage = "publication";
+                finalFile = publishSavedNow(context, mediaFile);
             } catch (Exception failure) {
+                logger.error("Finalization failed for staged media " + stagedDescription
+                        + ". Failed stage: " + stage + ". Staged file remains in Temp. Reason: "
+                        + message(failure) + ".", failure);
+                mediaReservation.releaseActiveStaging(mediaFile.getFile());
                 callback.onFailure(failure);
+                return;
+            }
+            logger.info("Finalization completed for staged media '" + mediaFile.getFileName()
+                    + "'. Published to '" + finalFile.getAbsolutePath() + "'.");
+            mediaReservation.releaseActiveStaging(mediaFile.getFile());
+            callback.onSuccess(finalFile);
+            if (createVideoMd5 != null && createVideoMd5.getAsBoolean()
+                    && "mp4".equals(mediaFile.getType().getExtension())) {
+                createMd5WithRetry(finalFile);
             }
         });
     }
 
+    @Override public void finalizeCleanVideo(
+            Context context, DcamMediaFile mediaFile, DcamRecordingOutput recordingOutput,
+            long durationUs, FinalizationCallback callback) {
+        finalizationExecutor.execute(() -> {
+            long started = System.nanoTime();
+            long durationMillis;
+            long metadataPatchMillis;
+            long durabilitySyncMillis;
+            boolean writerSeekIndexUsed;
+            long patched;
+            long outputFinalized;
+            long published;
+            String stage = "container patch";
+            File finalFile;
+            try {
+                DcamInterruptedMp4Finalizer.CleanResult cleanResult;
+                if (recordingOutput == null) {
+                    cleanResult = mp4Finalizer.finalizeCleanTimed(
+                            mediaFile.getFile(), durationUs);
+                } else {
+                    if (!recordingOutput.isOpen()) {
+                        throw new IOException("Recording output closed before finalization.");
+                    }
+                    cleanResult = mp4Finalizer.finalizeCleanTimed(
+                            recordingOutput.media(), durationUs);
+                }
+                durationMillis = cleanResult.durationMillis();
+                metadataPatchMillis = cleanResult.metadataPatchMillis();
+                durabilitySyncMillis = cleanResult.durabilitySyncMillis();
+                writerSeekIndexUsed = cleanResult.writerSeekIndexUsed();
+                patched = System.nanoTime();
+                if (recordingOutput != null) {
+                    stage = "recording output finalization";
+                    recordingOutput.finish();
+                    recordingOutput.close();
+                }
+                outputFinalized = System.nanoTime();
+                stage = "publication rename";
+                finalFile = publishCleanSavedNow(context, mediaFile, false);
+                published = System.nanoTime();
+            } catch (Exception failure) {
+                if (recordingOutput != null && recordingOutput.isOpen()) {
+                    try {
+                        recordingOutput.close();
+                    } catch (IOException closeFailure) {
+                        failure.addSuppressed(closeFailure);
+                    }
+                }
+                boolean stagingPreserved = mediaFile.getFile().isFile();
+                logger.error("Clean MP4 finalization failed for staged media '"
+                        + mediaFile.getFileName() + "'. Failed stage: " + stage + ". "
+                        + (stagingPreserved
+                                ? "File remains in Temp for recovery. "
+                                : "Staged file is no longer in Temp; recovery must reconcile final publication. ")
+                        + "Reason: " + message(failure) + ".", failure);
+                mediaReservation.releaseActiveStaging(mediaFile.getFile());
+                callback.onFailure(failure);
+                return;
+            }
+            logger.info("Clean MP4 finalization completed for staged media '"
+                    + mediaFile.getFileName() + "'. Duration: " + durationMillis
+                    + " ms. Container patch: " + elapsedMillis(started, patched)
+                    + " ms. Metadata write: " + metadataPatchMillis
+                    + " ms. Durability sync: " + durabilitySyncMillis
+                    + " ms. Seek index source: "
+                    + (writerSeekIndexUsed ? "writer metadata." : "final scan.")
+                    + " Recording output finalization: "
+                    + elapsedMillis(patched, outputFinalized)
+                    + " ms. Publication rename: " + elapsedMillis(outputFinalized, published)
+                    + " ms. Total: " + elapsedMillis(started, published) + " ms.");
+            mediaReservation.releaseActiveStaging(mediaFile.getFile());
+            callback.onSuccess(finalFile);
+            finalizer.cleanupCleanMedia(mediaFile);
+            if (createVideoMd5 != null && createVideoMd5.getAsBoolean()) {
+                createMd5WithRetry(finalFile);
+            }
+        });
+    }
     @Override public File finalizeSavedNow(Context context, DcamMediaFile mediaFile)
             throws IOException {
+        try {
+            boolean segmentedAesGcm =
+                    SegmentedAesGcmMediaStore.hasFamilyMagic(mediaFile.getFile());
+            if (!DcamEncryptionJournal.isComplete(mediaFile) && !segmentedAesGcm) {
+                finalizeMp4(mediaFile);
+            }
+            if (!segmentedAesGcm) return publishSavedNow(context, mediaFile);
+            File published = publishCleanSavedNow(context, mediaFile, true);
+            finalizer.cleanupCleanMedia(mediaFile);
+            return published;
+        } finally {
+            mediaReservation.releaseActiveStaging(mediaFile.getFile());
+        }
+    }
+
+    private File publishSavedNow(Context context, DcamMediaFile mediaFile) throws IOException {
         File finalFile = finalizer.finalizeMedia(mediaFile, false);
+        return completePublication(context, mediaFile, finalFile);
+    }
+
+    private File publishCleanSavedNow(
+            Context context, DcamMediaFile mediaFile, boolean verifySegmentedFinal)
+            throws IOException {
+        if (verifySegmentedFinal
+                && SegmentedAesGcmMediaStore.hasFamilyMagic(mediaFile.getFile())) {
+            try (SegmentedAesGcmMediaStore ignored = SegmentedAesGcmMediaStore.openPublished(
+                    mediaFile.getFile(), mediaEncryptionPassword.get())) {
+            }
+        }
+        File finalFile = finalizer.finalizeCleanMedia(mediaFile);
+        try {
+            return completePublication(context, mediaFile, finalFile);
+        } catch (RuntimeException failure) {
+            logger.warn("Final media publication completed, but post-publication notification failed for '"
+                    + mediaFile.getFileName() + "'.", failure);
+            return finalFile;
+        }
+    }
+
+    private File completePublication(Context context, DcamMediaFile mediaFile, File finalFile) {
+        DcamEncryptionJournal.clear(mediaFile);
         if (storage.isPublicDcim()) {
             MediaScannerConnection.scanFile(context,
                     new String[] { finalFile.getAbsolutePath() },
                     new String[] { mediaFile.getType().getMimeType() }, null);
         }
         return finalFile;
+    }
+
+    private void finalizeMp4(DcamMediaFile mediaFile) throws IOException {
+        if (!isMp4(mediaFile)) return;
+        DcamInterruptedMp4Finalizer.Result result =
+                mp4Finalizer.finalizeInterrupted(mediaFile.getFile());
+        if (result.durationMillis() <= 0L) {
+            throw new IOException("MP4 duration finalization failed. " + result.detail());
+        }
+        logger.info("Finalized staged MP4 container '" + mediaFile.getFileName() + "'. "
+                + result.detail());
+    }
+
+    private static boolean isMp4(DcamMediaFile mediaFile) {
+        return "mp4".equals(mediaFile.getType().getExtension());
+    }
+
+    private static String stagedDescription(DcamMediaFile mediaFile) {
+        File staged = mediaFile.getFile();
+        return "'" + mediaFile.getFileName() + "' (" + mediaFile.getType().name()
+                + ", " + staged.length() + " bytes at '" + staged.getAbsolutePath() + "')";
+    }
+
+    private static String message(Throwable failure) {
+        String detail = failure.getMessage();
+        return detail == null || detail.isBlank()
+                ? failure.getClass().getSimpleName() : detail;
     }
 
     private void createMd5WithRetry(File file) {
@@ -178,16 +467,16 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
                 try { md5RetryQueue.add(file); }
                 catch (IOException queueFailure) {
                     failure.addSuppressed(queueFailure);
-                    DcamLogger.e("Video MD5 failed; retry queue unavailable: "
+                    logger.error("Video MD5 failed; retry queue unavailable: "
                             + file.getAbsolutePath(), failure);
                     return;
                 }
-                DcamLogger.e("Video MD5 failed; queued for retry: " + file.getAbsolutePath(), failure);
+                logger.error("Video MD5 failed; queued for retry: " + file.getAbsolutePath(), failure);
                 if (context != null) {
                     try {
                         scheduleMd5RetryNow(context);
                     } catch (RuntimeException schedulingFailure) {
-                        DcamLogger.e("Video MD5 retry scheduling failed: "
+                        logger.error("Video MD5 retry scheduling failed: "
                                 + file.getAbsolutePath(), schedulingFailure);
                     }
                 }
@@ -210,12 +499,40 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
     }
 
     @Override public void recoverStaged(RecoveryCallback callback) {
-        finalizationExecutor.execute(() -> callback.onComplete(
-                new DcamStagedMediaRecovery(
-                        storage, finalizer, new AndroidDcamMediaValidator(), createVideoMd5).recover()));
+        Objects.requireNonNull(callback, "callback");
+        try {
+            DcamStagedMediaRecovery recovery = stagedRecovery();
+            java.util.Set<String> activeStagingPaths = mediaReservation.activeStagingPaths();
+            if (!activeStagingPaths.isEmpty()) {
+                logger.info("Staged-media recovery skipped active capture files. Count: "
+                        + activeStagingPaths.size() + ".");
+            }
+            File[][] candidates = recovery.snapshot(activeStagingPaths);
+            RECOVERY_EXECUTOR.execute(() -> callback.onComplete(
+                    recoverSafely(() -> recovery.recover(candidates))));
+        } catch (RuntimeException failure) {
+            callback.onComplete(StagedMediaRecoveryReport.failed(failure));
+        }
     }
 
-    private boolean usesPublicMediaStore(DcamFileType type) {
-        return Build.VERSION.SDK_INT >= 29 && storage.isPublicDcim() && type != DcamFileType.AUDIO;
+
+    private DcamStagedMediaRecovery stagedRecovery() {
+        return new DcamStagedMediaRecovery(
+                storage, finalizer, new AndroidDcamMediaValidator(), createVideoMd5,
+                mediaEncryptionPassword, this::createMd5WithRetry, logger);
     }
+
+    private static long elapsedMillis(long startedNanos, long completedNanos) {
+        return Math.max(0L, completedNanos - startedNanos) / 1_000_000L;
+    }
+
+    static StagedMediaRecoveryReport recoverSafely(
+            Supplier<StagedMediaRecoveryReport> recovery) {
+        try {
+            return recovery.get();
+        } catch (RuntimeException failure) {
+            return StagedMediaRecoveryReport.failed(failure);
+        }
+    }
+
 }

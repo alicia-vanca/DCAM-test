@@ -1,7 +1,9 @@
 # DCAM MVP Readiness Report
 
+> **Historical snapshot.** This report preserves evidence from its audit date. Do not use its package names or architecture conventions for new code. Use [`ARCHITECTURE.md`](../../app/src/main/java/com/dvid/dcam/ARCHITECTURE.md) and [`FEATURE_DEVELOPMENT_GUIDE.md`](../../app/src/main/java/com/dvid/dcam/FEATURE_DEVELOPMENT_GUIDE.md) instead.
+
 **Date:** 2026-07-10  
-**Status:** Active implementation Sprint 1 (partial)  
+**Status:** Historical implementation snapshot
 **Source:** Full repo and document review
 
 ## Project Overview

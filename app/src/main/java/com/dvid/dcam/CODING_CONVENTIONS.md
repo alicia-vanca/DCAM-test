@@ -2,18 +2,19 @@
 
 ## Logging
 
-Operational events must use `com.dvid.dcam.platform.logging.DcamLogger`:
+Operational events use `Logger`:
 
-- `DcamLogger.i(...)` for normal lifecycle and state events.
-- `DcamLogger.w(...)` for recoverable failures, with the `Throwable` when available.
-- `DcamLogger.e(...)` for failed operations and crash events, with the `Throwable` when available.
+- `logger.debug(...)` for diagnostic detail.
+- `logger.info(...)` for normal lifecycle and state events.
+- `logger.warn(...)` for recoverable failures, with `Throwable` when available.
+- `logger.error(...)` for failed operations and crash events, with `Throwable` when available.
 
-Production code must not call `android.util.Log`, `System.out`, `System.err`, or
-`printStackTrace()` directly. Direct Android log calls inside `DcamLogger` are implementation
-details for Logcat. Operational events must still pass through local `logs.txt`, Room outbox,
-and Loggly delivery logic.
+Feature and application code that cannot depend on platform code must depend on `Logger`.
+Do not call `android.util.Log`, `System.out`, `System.err`, or `printStackTrace()` outside
+`platform.logging` infrastructure.
 
-Feature and application code that cannot depend on Android platform code must use `LogSink`.
+Process boundaries and file roles live in `ARCHITECTURE.md`. Agent-enforced repository rules
+live in the root `AGENTS.md`.
 
 Logs must remain useful offline, exclude passwords, tokens, secrets, and sensitive payloads,
 and never block capture or storage when remote delivery is unavailable.

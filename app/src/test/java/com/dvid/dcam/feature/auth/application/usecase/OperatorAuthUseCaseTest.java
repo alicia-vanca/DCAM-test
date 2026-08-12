@@ -30,8 +30,8 @@ final class OperatorAuthUseCaseTest {
         MutableBootIdentity boot = new MutableBootIdentity("boot-a");
         OperatorSessionMemory memory = new OperatorSessionMemory();
 
-        new ManageOperatorUsersUseCaseImpl(repository).ensureDefaultUser();
-        LoginResult result = new AuthenticateOperatorUseCaseImpl(repository, boot, memory)
+        new ManageOperatorUsersUseCase(repository).ensureDefaultUser();
+        LoginResult result = new AuthenticateOperatorUseCase(repository, boot, memory)
                 .execute(LoginCredentials.usernameAndPassword("B01OPR", "000000"));
 
         assertTrue(result.isSuccess());
@@ -43,9 +43,9 @@ final class OperatorAuthUseCaseTest {
     @Test void wrongPinFailsWithoutOpeningSession() {
         FakeRepository repository = new FakeRepository();
         OperatorSessionMemory memory = new OperatorSessionMemory();
-        new ManageOperatorUsersUseCaseImpl(repository).ensureDefaultUser();
+        new ManageOperatorUsersUseCase(repository).ensureDefaultUser();
 
-        LoginResult result = new AuthenticateOperatorUseCaseImpl(
+        LoginResult result = new AuthenticateOperatorUseCase(
                 repository, new MutableBootIdentity("boot-a"), memory)
                 .execute(LoginCredentials.passwordOnly("111111"));
 
@@ -58,7 +58,7 @@ final class OperatorAuthUseCaseTest {
         FakeRepository repository = new FakeRepository();
         repository.upsert(account("111111", UserSource.DEVELOPER), "123456");
         repository.upsert(account("222222", UserSource.CLOUD), "123456");
-        AuthenticateOperatorUseCaseImpl authenticate = new AuthenticateOperatorUseCaseImpl(
+        AuthenticateOperatorUseCase authenticate = new AuthenticateOperatorUseCase(
                 repository, new MutableBootIdentity("boot-a"), new OperatorSessionMemory());
 
         LoginResult ambiguous = authenticate.execute(LoginCredentials.passwordOnly("123456"));
@@ -73,7 +73,7 @@ final class OperatorAuthUseCaseTest {
 
     @Test void provisioningValidatesAndKeepsDeveloperAndCloudUsersAtSameBoundary() {
         FakeRepository repository = new FakeRepository();
-        ManageOperatorUsersUseCaseImpl users = new ManageOperatorUsersUseCaseImpl(repository);
+        ManageOperatorUsersUseCase users = new ManageOperatorUsersUseCase(repository);
 
         UserProvisioningResult badId = users.upsert(new UserProvisioningRequest(
                 "12345", "Short", "123456", UserSource.DEVELOPER));
@@ -98,17 +98,17 @@ final class OperatorAuthUseCaseTest {
         FakeRepository repository = new FakeRepository();
         MutableBootIdentity boot = new MutableBootIdentity("boot-a");
         OperatorSessionMemory loginMemory = new OperatorSessionMemory();
-        new ManageOperatorUsersUseCaseImpl(repository).ensureDefaultUser();
-        LoginResult login = new AuthenticateOperatorUseCaseImpl(repository, boot, loginMemory)
+        new ManageOperatorUsersUseCase(repository).ensureDefaultUser();
+        LoginResult login = new AuthenticateOperatorUseCase(repository, boot, loginMemory)
                 .execute(LoginCredentials.passwordOnly("000000"));
 
         OperatorSessionMemory restoredMemory = new OperatorSessionMemory();
-        OperatorSessionUseCaseImpl sessions =
-                new OperatorSessionUseCaseImpl(repository, boot, restoredMemory);
+        OperatorSessionUseCase sessions =
+                new OperatorSessionUseCase(repository, boot, restoredMemory);
         OperatorSession restored = sessions.restore();
         boot.bootId = "boot-b";
         OperatorSession wrongBoot = sessions.restore();
-        LoginResult secondLogin = new AuthenticateOperatorUseCaseImpl(repository, boot, restoredMemory)
+        LoginResult secondLogin = new AuthenticateOperatorUseCase(repository, boot, restoredMemory)
                 .execute(LoginCredentials.passwordOnly("000000"));
         sessions.logout();
 

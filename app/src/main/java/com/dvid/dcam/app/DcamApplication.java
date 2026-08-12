@@ -2,36 +2,48 @@ package com.dvid.dcam.app;
 
 import android.app.ActivityManager;
 import android.app.Application;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
 import android.os.Build;
-import android.os.IBinder;
 import android.os.Process;
-import com.dvid.dcam.platform.logging.DcamLogger;
-import com.dvid.dcam.platform.logging.LogglyDrainService;
-import com.dvid.dcam.platform.device.AndroidDeviceCapabilities;
+import androidx.annotation.NonNull;
+import androidx.work.Configuration;
+import com.dvid.dcam.core.device.domain.DeviceInfo;
+import com.dvid.dcam.platform.device.AndroidDeviceRepositoryImpl;
+import com.dvid.dcam.platform.logging.app.AppLogger;
+import com.dvid.dcam.platform.logging.loggly.LogglyProcessSupervisor;
+import com.dvid.dcam.platform.recording.RecordingForegroundService;
 
-public final class DcamApplication extends Application {
-    private final ServiceConnection logglyConnection = new ServiceConnection() {
-        @Override public void onServiceConnected(ComponentName name, IBinder service) { }
-        @Override public void onServiceDisconnected(ComponentName name) { }
-    };
+public final class DcamApplication extends Application implements Configuration.Provider {
+    private static final int WORK_MANAGER_JOB_ID_MIN = 0xE000;
+    private static final int WORK_MANAGER_JOB_ID_MAX = 0xEFFF;
+    private LogglyProcessSupervisor logglySupervisor;
 
     @Override public void onCreate() {
         super.onCreate();
         if (processName().endsWith(":loggly")) return;
-        new AndroidDeviceCapabilities(this).evaluate();
-        DcamLogger.setRemoteUploadsEnabled(true);
-        DcamLogger.setContinuousDrainEnabled(LogglyDrainService.start(this));
+        AppLogger.bootstrap(this);
+        DeviceInfo deviceInfo = new AndroidDeviceRepositoryImpl(this, getFilesDir()).readInfo();
+        AppLogger.init(this, deviceInfo);
+        logglySupervisor = new LogglyProcessSupervisor(this);
+        logglySupervisor.start();
+        AppComposition.loadConfiguredDeviceSerial(this);
+        AppComposition.startCameraCapabilities(this, AppLogger.get());
+        finalizeInterruptedCapture();
+    }
+
+    @NonNull @Override public Configuration getWorkManagerConfiguration() {
+        return new Configuration.Builder()
+                .setJobSchedulerJobIdRange(WORK_MANAGER_JOB_ID_MIN, WORK_MANAGER_JOB_ID_MAX)
+                .build();
+    }
+
+    private void finalizeInterruptedCapture() {
+        if (!RecordingForegroundService.hasUnfinishedCapture(this)) return;
+        RecordingForegroundService.markUnfinishedCaptureFinalizing(this);
         try {
-            bindService(new Intent(this, LogglyDrainService.class), logglyConnection,
-                    Context.BIND_AUTO_CREATE);
+            AppComposition.create(this);
         } catch (RuntimeException error) {
-            DcamLogger.sendBootstrapFailure("Could not bind Loggly drain service", error);
+            AppLogger.get().error("Could not prepare interrupted media finalization", error);
         }
-        DcamLogger.bootstrap(this);
     }
 
     private String processName() {

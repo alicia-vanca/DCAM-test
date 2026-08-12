@@ -2,7 +2,7 @@ package com.dvid.dcam.platform.storage;
 
 public enum DcamFileType {
     VIDEO("Video", "mp4", "", "video/mp4"),
-    SOS("IMP", "mp4", "IMP", "video/mp4"),
+    IMP("IMP", "mp4", "IMP", "video/mp4"),
     IMAGE("Image", "jpg", "", "image/jpeg"),
     AUDIO("Audio", "aac", "", "audio/aac");
 

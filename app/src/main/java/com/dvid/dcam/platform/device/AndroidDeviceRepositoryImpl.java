@@ -8,7 +8,7 @@ import android.os.Build;
 import android.os.StatFs;
 import com.dvid.dcam.feature.device.application.port.DeviceRepository;
 import com.dvid.dcam.feature.device.domain.CapabilityStatus;
-import com.dvid.dcam.feature.device.domain.DeviceInfo;
+import com.dvid.dcam.core.device.domain.DeviceInfo;
 import com.dvid.dcam.feature.device.domain.DeviceStatus;
 import java.io.File;
 import java.lang.reflect.Method;
@@ -36,7 +36,7 @@ public final class AndroidDeviceRepositoryImpl implements DeviceRepository {
         String platformSerial = platformSerialNumber();
         String hardwareId = platformSerial == null ? "unknown" : platformSerial;
         String model = Build.MANUFACTURER + " " + Build.MODEL;
-        return new DeviceInfo(hardwareId, model.trim(), platformSerial);
+        return new DeviceInfo(hardwareId, model.trim());
     }
 
     @Override public DeviceStatus readStatus() {

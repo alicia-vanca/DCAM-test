@@ -114,7 +114,7 @@ Existing local documents remain evidence/history, not competing sources of truth
 - [x] App external root is ADB-visible at `/storage/emulated/0/Android/data/com.dvid.dcam/files` with `Config`, `Logs`, `Media` and `Temp`.
 - [x] Streaming is disabled by default through `FeatureGate.VIDEO_STREAMING(false)`.
 - [x] Cloud settings UI is disabled by default through `FeatureGate.CLOUD_SETTINGS(false)`.
-- [x] Media encryption is disabled by both `FeatureGate.MEDIA_ENCRYPTION(false)` and `DcamConfig.DEFAULT_VIDEO_ENCRYPTED = false`; device has no encryption preference override.
+- [x] Media encryption is disabled by default through `FeatureGate.MEDIA_ENCRYPTION(false)` and the runtime preference store default; device has no encryption preference override.
 - [x] Self Update, AI and PTT have no active Build 0.1 runtime implementation discovered. PTT exists only as future streaming documentation/surface scope.
 - [x] Startup cloud identity/Remote Config initialization was removed from `AppComposition`; cloud settings remain disabled by default.
 - [x] MD5 is enabled by default through `FeatureGate.VIDEO_MD5(true)` and `AndroidVideoMd5PreferenceStoreImpl` default `true`; it remains user/developer configurable. Existing device installs without an override adopt this default.

@@ -2,6 +2,7 @@ package com.dvid.dcam.platform.storage;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -41,5 +42,16 @@ final class BodycamMediaCryptoTest {
 
         BodycamMediaCrypto.decryptFileInPlace(media, "123456");
         assertArrayEquals(clearBytes, Files.readAllBytes(media.toPath()));
+    }
+
+    @Test void rejectsMissingPassword() throws Exception {
+        File clear = tempDir.resolve("clear.bin").toFile();
+        File encrypted = tempDir.resolve("clear_enc.bin").toFile();
+        Files.write(clear.toPath(), new byte[] {1, 2, 3});
+
+        assertThrows(java.io.IOException.class,
+                () -> BodycamMediaCrypto.encryptFile(clear, encrypted, ""));
+        assertThrows(java.io.IOException.class,
+                () -> BodycamMediaCrypto.encryptFile(clear, encrypted, null));
     }
 }

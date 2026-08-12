@@ -1,8 +1,10 @@
-﻿# DCAM MVP Delivery Plan
+# DCAM MVP Delivery Plan
+
+> **Historical snapshot.** This plan preserves decisions and evidence from its update date. Do not use its package names or architecture conventions for new code. Use [`ARCHITECTURE.md`](../../../app/src/main/java/com/dvid/dcam/ARCHITECTURE.md) and [`FEATURE_DEVELOPMENT_GUIDE.md`](../../../app/src/main/java/com/dvid/dcam/FEATURE_DEVELOPMENT_GUIDE.md) instead.
 
 **Confluence refresh note:** 2026-07-15 gap report is `docs/local-dev/evidence/confluence-refresh-gap-report-2026-07-15.md`. Treat it as current local gap triage before expanding Build 0.1 scope.
 
-- Status: active implementation plan
+- Status: historical implementation plan
 - Prepared from repository state: 2026-07-09
 - Last Confluence scope review: 2026-07-15
 - Active build profile: DCAM MVP Internal Build 0.1
@@ -60,14 +62,14 @@ platform concerns remain valid target work, but they are not Build 0.1 release b
 
 | Source | Snapshot version | Planning effect |
 |---|---:|---|
-| [Release & Build Applicability Matrix](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/02-Sprint-Operations/DCAM-Release-&-Build-Applicability-Matrix.md) | 2 | Owns Build 0.1 applicability and release blockers |
-| [DCAM MVP Scope](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/01-Product-Management/DCAM-MVP-Scope.md) | 9 | Defines the Working Recording Slice and acceptance criteria |
-| [DCAM 9-Month Development Plan](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/02-Sprint-Operations/DCAM-9-Month-Development-Plan.md) | 8 | Maps Build 0.1 to Phase 1, Sprints 1–6 |
-| [Architecture Delivery Profile](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.1-Software-Architecture/DCAM-Architecture-Home/DCAM-Architecture-Delivery-Profile.md) | 4 | Limits Phase 1 architecture and runtime state |
-| [DCAM–BDMA Data Contract](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/03-Requirements/DCAM-BDMA-Data-Contract.md) | 9 | Defines media/config/database/log paths and BDMA behavior |
-| [Concurrency & Threading Model](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Concurrency-&-Threading-Model-Design.md) | 3 | Requires serialized critical-path execution lanes |
-| [Performance Budget](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Performance-Budget-&-Resource-Constraints.md) | 2 | Supplies measurable Build 0.1 targets |
-| [Logging & Diagnostics Design](../../dcam-knowledge/confluence-original/DVID-SnT/Projects/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Logging-&-Diagnostics-Design.md) | 4 | Defines local-first logging and the sanitized `logs.txt` artifact |
+| [Release & Build Applicability Matrix](../../dcam-knowledge/confluence-original/DCAM/02-Sprint-Operations/DCAM-Release-&-Build-Applicability-Matrix.md) | 2 | Owns Build 0.1 applicability and release blockers |
+| [DCAM MVP Scope](../../dcam-knowledge/confluence-original/DCAM/01-Product-Management/DCAM-MVP-Scope.md) | 9 | Defines the Working Recording Slice and acceptance criteria |
+| [DCAM 9-Month Development Plan](../../dcam-knowledge/confluence-original/DCAM/02-Sprint-Operations/DCAM-9-Month-Development-Plan.md) | 8 | Maps Build 0.1 to Phase 1, Sprints 1–6 |
+| [Architecture Delivery Profile](../../dcam-knowledge/confluence-original/DCAM/04-Technical-Documentation/4.1-Software-Architecture/DCAM-Architecture-Home/DCAM-Architecture-Delivery-Profile.md) | 4 | Limits Phase 1 architecture and runtime state |
+| [DCAM–BDMA Data Contract](../../dcam-knowledge/confluence-original/DCAM/03-Requirements/DCAM-BDMA-Data-Contract.md) | 9 | Defines media/config/database/log paths and BDMA behavior |
+| [Concurrency & Threading Model](../../dcam-knowledge/confluence-original/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Concurrency-&-Threading-Model-Design.md) | 3 | Requires serialized critical-path execution lanes |
+| [Performance Budget](../../dcam-knowledge/confluence-original/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Performance-Budget-&-Resource-Constraints.md) | 2 | Supplies measurable Build 0.1 targets |
+| [Logging & Diagnostics Design](../../dcam-knowledge/confluence-original/DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Logging-&-Diagnostics-Design.md) | 4 | Defines local-first logging and the sanitized `logs.txt` artifact |
 
 ## 3. Current-state assessment
 

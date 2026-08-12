@@ -63,16 +63,16 @@ Optional cloud/config/diagnostics providers sit behind application-owned output 
 | Interface Adapter | Translate UI/storage/provider input/output and implement application boundaries | Core product policy and direct dependency from application/domain |
 | Frameworks & Drivers | Android, CameraX, MediaRecorder, Room, filesystem, network, vendor SDK | Product policy that belongs in domain/application |
 
-The source uses feature-first Clean Architecture with Ports and Adapters. MVVM is the presentation pattern at the UI boundary; it does not replace or conflict with the four dependency layers. A Java `interface` is placed by ownership: use-case interfaces live in `application/usecase`; repository/hardware/provider boundaries live in `application/port`; concrete implementations live in `platform` or an application repository package. The folder keeps the architecture term `port`, but class/file names use capability names such as `CameraGateway`, not a `Port` suffix.
+The source uses feature-first Clean Architecture with Ports and Adapters. MVVM is the presentation pattern at the UI boundary; it does not replace or conflict with the dependency layers. Use cases are concrete classes in `application/usecase`; interfaces belong in `application/port` when they describe a repository, gateway, store, or other provider boundary. Explicit command/event seams may use `Commands` or `Events` names when another runtime component genuinely calls them. Concrete implementations live in `platform` or an application repository package. The folder keeps the architecture term `port`, but class/file names use capability names such as `CameraGateway`, not a `Port` suffix.
 
 ## Current source organization
 
 | Package family | Responsibility |
 |---|---|
-| `app` | Android entry point, navigation, cross-feature presentation, and composition root |
+| `app` | Android entry points, composition root, and app-level metadata |
 | `feature/<name>/domain` | Feature-owned entities and pure rules |
 | `feature/<name>/application` | Use cases and application-owned capability/repository boundaries |
-| `feature/<name>/presentation` | Feature-owned UI state/ViewModel when a feature needs its own presentation |
+| `app/ui` | ViewModel, UI state, renderer, navigation, and Android input binding |
 | `platform` | Android, hardware, storage, database, and provider adapters |
 | `core` | Deliberately shared capabilities using the same domain/application vocabulary |
 
@@ -98,7 +98,7 @@ Before adding another architecture layer or module, demonstrate the working slic
 
 ## Boundary and capability rule
 
-Current approved boundaries include use cases such as `PhotoCaptureUseCase`, `VideoRecordingUseCase`, `AudioRecordingUseCase`, `CaptureEventUseCase`, `BrowseMediaUseCase`, `OpenMediaUseCase`, and capability/repository boundaries such as `CameraGateway`, `AudioRecorder`, `DeviceRepository`, `MediaRepository`, `MediaOpener`, `ConfigurationSource`, `ConfigurationRepository`, `LanguagePreferenceStore`, and `LogSink`. Names describe the application capability, never the current library or vendor. Concrete implementations end with `Impl`, for example `CameraXCameraGatewayImpl` and `DcamLogSinkImpl`.
+Current approved application classes include `PhotoCaptureUseCase`, `AudioRecordingUseCase`, `BrowseMediaUseCase`, `OpenMediaUseCase`, and `SerializedRecordingCoordinator`. Interfaces describe real boundaries such as `CameraGateway`, `AudioRecorder`, `DeviceRepository`, `DeviceSerialNumberStore`, `MediaRepository`, `MediaOpener`, `LanguagePreferenceStore`, `RecordingCommands`, `CaptureEvents`, and `Logger`. Concrete names describe role or provider, for example `LocalMediaRepository`, `CameraXCameraGatewayImpl`, and `AppLogger`; use cases do not use an `Impl` suffix.
 
 Do not reserve future architecture with empty `*Service` interfaces. Location, metadata, integrity, cloud, update, streaming, PTT, and other future capabilities enter source only after an approved use case defines domain inputs/results/errors and demonstrates the need for a replaceable boundary. Do not add a generic event bus, domain-event publisher, or cross-feature application-event dispatcher until a concrete metadata/media lifecycle/cloud workflow needs decoupled side effects. Each BodyCamera or provider-specific implementation belongs behind a platform implementation. A vendor SDK change should primarily change that implementation, not UI, ViewModel, use cases, or domain.
 

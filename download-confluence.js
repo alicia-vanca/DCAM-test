@@ -180,6 +180,25 @@ function sanitizeFilename(name) {
     .substring(0, 200);
 }
 
+const INCLUDED_PAGE_ROOT = 'DVID-SnT/Projects/DCAM';
+
+function pagePath(page) {
+  return [...(page.ancestors || []), page]
+    .map(item => sanitizeFilename(item.title))
+    .join('/');
+}
+
+function isDcamPage(page) {
+  const candidate = pagePath(page);
+  return candidate === INCLUDED_PAGE_ROOT || candidate.startsWith(`${INCLUDED_PAGE_ROOT}/`);
+}
+
+function relativeDcamPath(page) {
+  const parts = pagePath(page).split('/');
+  const parentParts = INCLUDED_PAGE_ROOT.split('/').slice(0, -1);
+  return parts.slice(parentParts.length);
+}
+
 // Fetch all pages in the space
 async function fetchAllPages() {
   console.log('Fetching all pages from Confluence...');
@@ -221,9 +240,11 @@ async function downloadPages() {
     
     // Fetch either one requested page or the complete space.
     const requestedPageId = process.argv[2];
-    const pages = requestedPageId
+    const fetchedPages = requestedPageId
       ? [await fetchPageContent(requestedPageId)]
       : await fetchAllPages();
+    const pages = fetchedPages.filter(page => isDcamPage(page));
+    console.log(`Skipped non-DCAM pages: ${fetchedPages.length - pages.length}`);
     
     // Build page map for hierarchy
     const pageMap = new Map();
@@ -261,12 +282,9 @@ async function downloadPages() {
     let blocked = 0;
     for (const page of pages) {
       try {
-        // Build path from ancestors
-        const pathParts = [];
-        const ancestors = page.ancestors || [];
-        ancestors.forEach(a => {
-          pathParts.push(sanitizeFilename(a.title));
-        });
+        // Build path relative to the DCAM project root
+        const relativeParts = relativeDcamPath(page);
+        const pathParts = relativeParts.length === 1 ? relativeParts : relativeParts.slice(0, -1);
         
         // Create directory structure
         let currentPath = CONFIG.outputDir;
@@ -278,7 +296,7 @@ async function downloadPages() {
         }
         
         // Save page content
-        const filename = sanitizeFilename(page.title) + '.md';
+        const filename = sanitizeFilename(relativeParts[relativeParts.length - 1]) + '.md';
         const filepath = path.join(currentPath, filename);
 
         if (isBlockedPage(page.title)) {

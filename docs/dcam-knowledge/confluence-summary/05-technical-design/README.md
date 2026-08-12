@@ -105,7 +105,7 @@ Architecture pages are condensed mainly in `02-architecture`; Android rules and 
 
 ## Implementation caution
 
-Use these pages to understand intended direction, design vocabulary, and future acceptance discussions. Do not mark a feature complete just because it appears here. Current implementation status remains under [local current repository notes](../../local-dev/current-repo/current-state.md), and source-backed gaps remain under [local evidence](../../local-dev/evidence/README.md).
+Use these pages to understand intended direction, design vocabulary, and future acceptance discussions. Do not mark a feature complete just because it appears here. Current implementation status remains under [local current repository notes](../../../local-dev/current-repo/current-state.md), and source-backed gaps remain under [local evidence](../../local-dev/evidence/README.md).
 
 ## Concurrency and threading model
 

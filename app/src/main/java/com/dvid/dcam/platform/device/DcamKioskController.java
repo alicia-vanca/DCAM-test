@@ -10,19 +10,31 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Build;
-import com.dvid.dcam.platform.logging.DcamLogger;
-import com.dvid.dcam.platform.permission.DcamPermissions;
+import android.os.Looper;
+import android.os.SystemClock;
+import com.dvid.dcam.core.logging.application.port.Logger;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** Coordinates soft launcher behavior and real Device Owner kiosk policy. */
 public final class DcamKioskController {
+    private static final long SLOW_POLICY_CALL_MS = 1_000L;
+    private static final ExecutorService POLICY_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "dcam-kiosk-policy");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final Context appContext;
     private final DevicePolicyManager devicePolicyManager;
     private final ComponentName admin;
     private final String packageName;
+    private final Logger logger;
 
-    public DcamKioskController(Context context) {
+    public DcamKioskController(Context context, Logger logger) {
         appContext = context.getApplicationContext();
+        this.logger = Objects.requireNonNull(logger, "logger");
         devicePolicyManager = appContext.getSystemService(DevicePolicyManager.class);
         admin = new ComponentName(appContext, DcamDeviceAdminReceiver.class);
         packageName = appContext.getPackageName();
@@ -42,81 +54,196 @@ public final class DcamKioskController {
                 && packageName.equals(resolved.activityInfo.packageName);
     }
 
-    public void applyActiveKioskPolicy() {
-        if (!isDeviceOwner()) return;
-        applyManagedKioskPolicy();
+    public boolean removeDeviceOwner() {
+        if (!isDeviceOwner()) return false;
+        logger.info("KIOSK_TRACE remove-device-owner begin");
+        devicePolicyManager.setLockTaskPackages(admin, new String[0]);
+        devicePolicyManager.clearDeviceOwnerApp(packageName);
+        boolean removed = !isDeviceOwner();
+        logger.info("KIOSK_TRACE remove-device-owner complete removed=" + removed);
+        return removed;
     }
 
-    public void applyManagedKioskPolicy() {
-        if (!isDeviceOwner()) return;
+    public static void applyActiveKioskPolicyAsync(
+            Context context, Logger logger, Runnable completion) {
+        Objects.requireNonNull(logger, "logger");
+        Context appContext = context.getApplicationContext();
         try {
-            devicePolicyManager.setPermissionPolicy(
-                    admin, DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT);
-            grantRuntimePermissions();
-            ComponentName homeActivity = homeActivityComponent();
-            if (homeActivity != null) {
-                devicePolicyManager.addPersistentPreferredActivity(
-                        admin, homeIntentFilter(), homeActivity);
-            } else {
-                DcamLogger.i("No DCAM Home activity found for persistent preferred policy");
-            }
-            devicePolicyManager.setLockTaskPackages(admin, new String[] { packageName });
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                devicePolicyManager.setLockTaskFeatures(
-                        admin, DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS
-                                | DevicePolicyManager.LOCK_TASK_FEATURE_HOME);
-            }
-            devicePolicyManager.setStatusBarDisabled(admin, true);
-            devicePolicyManager.setUninstallBlocked(admin, packageName, true);
-            DcamLogger.i("Managed kiosk policy applied");
-        } catch (SecurityException error) {
-            DcamLogger.w("Managed kiosk policy rejected by device policy", error);
-        }
-    }
-
-    public void clearManagedKioskPolicy() {
-        if (!isDeviceOwner()) return;
-        try {
-            devicePolicyManager.setUninstallBlocked(admin, packageName, false);
-            devicePolicyManager.setStatusBarDisabled(admin, false);
-            devicePolicyManager.setLockTaskPackages(admin, new String[0]);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                devicePolicyManager.setLockTaskFeatures(
-                        admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE);
-            }
-            devicePolicyManager.clearPackagePersistentPreferredActivities(admin, packageName);
-            devicePolicyManager.setPermissionPolicy(
-                    admin, DevicePolicyManager.PERMISSION_POLICY_PROMPT);
-            for (String permission : DcamPermissions.allRuntime()) {
-                devicePolicyManager.setPermissionGrantState(
-                        admin, packageName, permission,
-                        DevicePolicyManager.PERMISSION_GRANT_STATE_DEFAULT);
-            }
-            DcamLogger.i("Managed kiosk policy cleared");
-        } catch (SecurityException error) {
-            DcamLogger.w("Managed kiosk policy clear rejected by device policy", error);
+            POLICY_EXECUTOR.execute(() -> {
+                try {
+                    DcamKioskController controller = new DcamKioskController(appContext, logger);
+                    boolean deviceOwner = controller.isDeviceOwner();
+                    controller.logPolicyEntry(
+                            "applyActiveKioskPolicy", "deviceOwner=" + deviceOwner);
+                    if (deviceOwner) controller.applyManagedKioskPolicy();
+                } catch (RuntimeException error) {
+                    logger.error("KIOSK_TRACE async policy failed", error);
+                } finally {
+                    complete(completion, logger);
+                }
+            });
+        } catch (RuntimeException error) {
+            logger.error("KIOSK_TRACE policy scheduling failed", error);
+            complete(completion, logger);
         }
     }
 
     public void enterLockTaskIfAllowed(Activity activity) {
-        if (!isDeviceOwner() || !devicePolicyManager.isLockTaskPermitted(packageName)) return;
-        if (lockTaskActive(activity)) return;
+        enterLockTaskIfAllowed(activity, null);
+    }
+
+    public void enterLockTaskIfAllowed(Activity activity, Runnable onPolicyStateReady) {
+        if (activity == null) return;
         try {
-            activity.startLockTask();
-            devicePolicyManager.setStatusBarDisabled(admin, true);
-            DcamLogger.i("DCAM entered lock task mode");
+            POLICY_EXECUTOR.execute(() -> {
+                try {
+                    boolean deviceOwner = isDeviceOwner();
+                    boolean permitted = deviceOwner
+                            && devicePolicyManager.isLockTaskPermitted(packageName);
+                    boolean active = lockTaskActive(activity);
+                    logger.info("Lock task mode is " + (active ? "active" : "inactive")
+                            + " for " + activity.getClass().getSimpleName()
+                            + ". This app is " + (deviceOwner ? "" : "not ")
+                            + "the device owner, and Android "
+                            + (permitted ? "permits" : "does not permit")
+                            + " lock task mode. Policy check ran on "
+                            + (isMainThread() ? "main thread." : "background thread."));
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()) return;
+                        if (permitted && !active) {
+                            try {
+                                logger.info("KIOSK_TRACE begin operation=Activity.startLockTask"
+                                        + " mainThread=" + isMainThread());
+                                activity.startLockTask();
+                                logger.info("KIOSK_TRACE end operation=Activity.startLockTask");
+                                logger.info("DCAM entered lock task mode");
+                            } catch (RuntimeException error) {
+                                logger.warn("Could not enter lock task mode", error);
+                            }
+                        }
+                        complete(onPolicyStateReady, logger);
+                    });
+                } catch (RuntimeException error) {
+                    logger.error("KIOSK_TRACE lock-task check failed", error);
+                    try {
+                        activity.runOnUiThread(() -> complete(onPolicyStateReady, logger));
+                    } catch (RuntimeException callbackError) {
+                        logger.error("KIOSK_TRACE lock-task callback failed", callbackError);
+                    }
+                }
+            });
         } catch (RuntimeException error) {
-            DcamLogger.w("Could not enter lock task mode", error);
+            logger.error("KIOSK_TRACE lock-task scheduling failed", error);
+            complete(onPolicyStateReady, logger);
         }
     }
 
-    private void grantRuntimePermissions() {
-        for (String permission : DcamPermissions.allRuntime()) {
-            boolean granted = devicePolicyManager.setPermissionGrantState(
-                    admin, packageName, permission,
-                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED);
-            if (!granted) DcamLogger.i("Runtime permission not policy-granted: " + permission);
+    private void applyManagedKioskPolicy() {
+        boolean deviceOwner = isDeviceOwner();
+        long startedAt = SystemClock.elapsedRealtime();
+        logger.info("KIOSK_TRACE managed-policy begin deviceOwner=" + deviceOwner
+                + " package=" + packageName + " mainThread=" + isMainThread());
+        if (!deviceOwner) return;
+        try {
+            runPolicyCall("setPermissionPolicy policy=AUTO_GRANT", () ->
+                    devicePolicyManager.setPermissionPolicy(
+                            admin, DevicePolicyManager.PERMISSION_POLICY_AUTO_GRANT));
+            ComponentName homeActivity = homeActivityComponent();
+            if (homeActivity != null) {
+                runPolicyCall("addPersistentPreferredActivity component="
+                        + homeActivity.flattenToShortString(), () ->
+                        devicePolicyManager.addPersistentPreferredActivity(
+                                admin, homeIntentFilter(), homeActivity));
+            } else {
+                logger.info("No DCAM Home activity found for persistent preferred policy");
+            }
+            runPolicyCall("setLockTaskPackages", () ->
+                    devicePolicyManager.setLockTaskPackages(admin, new String[] { packageName }));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                runPolicyCall("setLockTaskFeatures", () ->
+                        devicePolicyManager.setLockTaskFeatures(
+                                admin, DevicePolicyManager.LOCK_TASK_FEATURE_GLOBAL_ACTIONS
+                                        | DevicePolicyManager.LOCK_TASK_FEATURE_HOME));
+            }
+            runPolicyCall("setStatusBarDisabled disabled=true", () -> {
+                if (!devicePolicyManager.setStatusBarDisabled(admin, true)) {
+                    throw new IllegalStateException("Device policy rejected status bar disable");
+                }
+            });
+            runPolicyCall("setUninstallBlocked blocked=true", () ->
+                    devicePolicyManager.setUninstallBlocked(admin, packageName, true));
+            logger.info("KIOSK_TRACE managed-policy complete elapsedMs="
+                    + elapsedSince(startedAt));
+            logger.info("Managed kiosk policy applied");
+        } catch (SecurityException error) {
+            logger.warn("Managed kiosk policy rejected by device policy elapsedMs="
+                    + elapsedSince(startedAt), error);
         }
+    }
+
+    private void runPolicyCall(String operation, Runnable action) {
+        long startedAt = SystemClock.elapsedRealtime();
+        logger.info("KIOSK_TRACE begin operation=" + operation
+                + " mainThread=" + isMainThread()
+                + " caller=" + callerFrame());
+        try {
+            action.run();
+            long elapsedMs = elapsedSince(startedAt);
+            String message = "KIOSK_TRACE end operation=" + operation
+                    + " elapsedMs=" + elapsedMs;
+            if (isSlowPolicyCall(elapsedMs)) {
+                logger.warn(message + " slow=true", stackTrace(
+                        "KIOSK_TRACE slow policy call operation=" + operation));
+            } else {
+                logger.info(message);
+            }
+        } catch (RuntimeException error) {
+            logger.error("KIOSK_TRACE failed operation=" + operation
+                    + " elapsedMs=" + elapsedSince(startedAt), error);
+            throw error;
+        }
+    }
+
+    static boolean isSlowPolicyCall(long elapsedMs) {
+        return elapsedMs >= SLOW_POLICY_CALL_MS;
+    }
+
+    private void logPolicyEntry(String operation, String details) {
+        logger.info("KIOSK_TRACE entry operation=" + operation + " " + details
+                + " mainThread=" + isMainThread() + " caller=" + callerFrame());
+    }
+
+    private static void complete(Runnable completion, Logger logger) {
+        if (completion == null) return;
+        try {
+            completion.run();
+        } catch (RuntimeException error) {
+            logger.error("KIOSK_TRACE completion failed", error);
+        }
+    }
+
+    private static RuntimeException stackTrace(String message) {
+        return new RuntimeException(message);
+    }
+
+    private static boolean isMainThread() {
+        return Looper.myLooper() == Looper.getMainLooper();
+    }
+
+    private static String callerFrame() {
+        for (StackTraceElement frame : Thread.currentThread().getStackTrace()) {
+            String className = frame.getClassName();
+            if (!Thread.class.getName().equals(className)
+                    && !DcamKioskController.class.getName().equals(className)
+                    && !"dalvik.system.VMStack".equals(className)) {
+                return frame.toString();
+            }
+        }
+        return "unknown";
+    }
+
+    private static long elapsedSince(long startedAt) {
+        return SystemClock.elapsedRealtime() - startedAt;
     }
 
     private boolean lockTaskActive(Context context) {

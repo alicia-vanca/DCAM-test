@@ -24,6 +24,6 @@ final class CaptureStorageCapacityPolicyTest {
 
     @Test void fileLimitPreservesHardFreeSpaceFloor() {
         long available = 600L * 1024L * 1024L;
-        assertEquals(200L * 1024L * 1024L, policy.recordingFileSizeLimit(available));
+        assertEquals(400L * 1024L * 1024L, policy.recordingFileSizeLimit(available));
     }
 }
