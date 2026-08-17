@@ -33,6 +33,40 @@ final class CameraOrientationTest {
         }
     }
 
+    @Test void physicalOrientationRoundsToNearestQuarterTurn() {
+        int[] orientations = {0, 44, 45, 134, 135, 224, 225, 314, 315, 359};
+        int[] expected = {0, 0, 90, 90, 180, 180, 270, 270, 0, 0};
+        for (int index = 0; index < orientations.length; index++) {
+            assertEquals(expected[index],
+                    CameraOrientation.nearestQuarterTurn(orientations[index]));
+        }
+    }
+
+    @Test void photoRotationUsesPhysicalOrientationForBothLensFacings() {
+        for (int sensorIndex = 0; sensorIndex < QUARTER_TURNS.length; sensorIndex++) {
+            for (int deviceIndex = 0; deviceIndex < QUARTER_TURNS.length; deviceIndex++) {
+                int sensor = QUARTER_TURNS[sensorIndex];
+                int device = QUARTER_TURNS[deviceIndex];
+                assertEquals(FRONT_OUTPUT[sensorIndex][deviceIndex],
+                        CameraOrientation.photoRotation(sensor, device, false));
+                assertEquals(BACK_OUTPUT[sensorIndex][deviceIndex],
+                        CameraOrientation.photoRotation(sensor, device, true));
+            }
+        }
+    }
+
+    @Test void jpegExifOrientationUsesRequestedQuarterTurn() {
+        int[] expected = {
+                android.media.ExifInterface.ORIENTATION_NORMAL,
+                android.media.ExifInterface.ORIENTATION_ROTATE_90,
+                android.media.ExifInterface.ORIENTATION_ROTATE_180,
+                android.media.ExifInterface.ORIENTATION_ROTATE_270
+        };
+        for (int index = 0; index < QUARTER_TURNS.length; index++) {
+            assertEquals(expected[index],
+                    CameraOrientation.exifOrientation(QUARTER_TURNS[index]));
+        }
+    }
     @Test void lensFacingLabelsStayStable() {
         assertEquals("back", CameraOrientation.lensFacingLabel(
                 CameraCharacteristics.LENS_FACING_BACK));

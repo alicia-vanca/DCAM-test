@@ -489,6 +489,24 @@ final class VerifyCameraSelectionUseCaseTest {
         }
     }
 
+    @Test void sensorNativeJpegDimensionsVerifyQuarterTurnCameraOutput() {
+        CandidateKey requested = tupleKey(IMAGE_HD);
+        FakeRuntime runtime = new FakeRuntime();
+        FakeStore store = new FakeStore(withSensorOrientation(snapshot(
+                List.of(videoKey(), imageKey(IMAGE_HD), requested), Map.of(),
+                Optional.empty()), 270));
+
+        VerifyCameraSelectionUseCase.Result result = usecase(runtime, store)
+                .execute(new VerifyCameraSelectionUseCase.Request(
+                        store.snapshot, requested, 76, 0));
+
+        assertTrue(result.verified());
+        assertEquals(VerifyCameraSelectionUseCase.Completion.REQUESTED_VERIFIED,
+                result.completion());
+        assertEquals(VerificationOutcome.VERIFIED_PASS, result.outcome());
+        assertEquals(1, runtime.captureCalls);
+    }
+
     @Test void transposedJpegDimensionsRejectStraightCameraOutput() {
         for (int sensorOrientationDegrees : List.of(0, 180)) {
             CandidateKey requested = tupleKey(IMAGE_HD);

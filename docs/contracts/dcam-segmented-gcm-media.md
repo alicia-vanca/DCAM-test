@@ -10,7 +10,7 @@ This is an internal binary revision. It does not change the `_enc` suffix and do
 - Complete MP4 fragments recover exactly as they do for plaintext fragmented MP4.
 - Sequential tail DATA records are visible when their individual GCM authentication succeeds; they do not wait for a global COMMIT.
 - COMMIT is used when an update cannot be one sequential tail DATA generation: non-tail rewrites, multi-record changes, or truncate changes.
-- BDMA ExternalMediaDecrypt detects this format from file content, never from filename.
+- BDMA crypto facade detects this format from file content, never from filename. Sync and External Media Decrypt submit encrypted input/output paths and do not select an algorithm.
 - A detected segmented-GCM file with invalid metadata or authentication never falls back to legacy CTR.
 - Legacy `_enc` files without the segmented-GCM family magic retain the existing whole-file AES-256-CTR decoder.
 
@@ -31,7 +31,7 @@ This is an internal binary revision. It does not change the `_enc` suffix and do
 | 18 | 2 | header bytes | `96` |
 | 20 | 4 | flags | `0` |
 | 24 | 4 | logical block bytes | power of two, 4096..1048576 |
-| 28 | 4 | PBKDF2 iterations | 100000..2000000; DCAM default `200000` |
+| 28 | 4 | PBKDF2 iterations | 1000..2000000; DCAM default `1000` |
 | 32 | 2 | KDF ID | `1` = PBKDF2-HMAC-SHA256 over UTF-8 password bytes |
 | 34 | 2 | cipher ID | `1` = AES-256-GCM |
 | 36 | 2 | nonce bytes | `12` |
@@ -179,7 +179,7 @@ These allowances apply only when DCAM opens its own unpublished staging file aft
 5. Run the existing fragmented-MP4 interrupted finalizer against the recovered logical view; it alone trims any incomplete MP4 fragment.
 6. Append fresh records with the next sequence and new nonces; never reuse bytes or nonces from the discarded tail.
 
-## BDMA ExternalMediaDecrypt dispatch
+## BDMA crypto facade dispatch
 
 ```text
 if primary or mirror DCAM-GCM magic is present:
@@ -195,13 +195,13 @@ Once content detection classifies a file as segmented GCM, a wrong password, mod
 
 ## Interoperability proof
 
-Both repositories carry the same deterministic encrypted fixture and plaintext fixture. DCAM regenerates the encrypted fixture from explicit salt, file ID, nonces, records, and password. BDMA `SegmentedAesGcmCryptoService` detects and decrypts that fixture. ExternalMediaDecrypt regression runs the fixture through content dispatch, rejects tampering without AES-CTR fallback, and separately verifies legacy AES-CTR.
+DCAM and BDMA independently generate equivalent test vectors from explicit salt, file ID, nonces, records, and the configured `DCAM_CRYPTO_PASSWORD`. DCAM verifies serialized fields and decrypted plaintext. BDMA `SegmentedAesGcmCryptoService` detects and decrypts its independently generated vector. Crypto-facade regressions run the vector through content dispatch, reject tampering without AES-CTR fallback, and separately verify legacy AES-CTR. Data sync regression verifies encrypted files are delegated to the facade and persisted with plaintext output size. No `DCAM_CRYPTO_PASSWORD` value, derived key, secret-dependent ciphertext hash, `.bin`, or `.plain` fixture is stored in either repository.
 
-Canonical vector:
+Interoperability test parameters:
 
-- Password: `contract-pass`.
-- Derived 32-byte key: `1925c3ce56e5eb7a668e82ec0b625ff348147827a4cf34c76a98b172484fa7e5`; independently reproduced with .NET PBKDF2-HMAC-SHA256.
-- Encrypted fixture: 9,276 bytes; SHA-256 `9d53238c68e15fa1ba326edfbcfde43f14eec15febe6f04b7b112596c3d12883`.
-- Plaintext fixture: 4,200 bytes; SHA-256 `ff6a7b63623fba846c3e2079c4e004b3c03dbbd382e67a4b1ce8a2f7181d7d5e`.
-- DCAM paths: `app/src/test/resources/crypto/dcam-segmented-gcm-contract.bin` and `.plain`.
-- BDMA paths: `docs/contracts/vectors/dcam-segmented-gcm-contract.bin` and `.plain`.
+- Password source: `DCAM_CRYPTO_PASSWORD`; no password value is embedded in source, tests, or this contract.
+- Header PBKDF2 iterations: `1000`.
+- Encrypted output: 9,276 bytes.
+- Plaintext output: 4,200 bytes.
+- DCAM generator: `app/src/test/java/com/dvid/dcam/platform/storage/DcamSegmentedGcmFormatTest.java`.
+- BDMA generator: `src/test/java/com/app/common/modules/crypto/services/DcamSegmentedGcmContractVector.java`.

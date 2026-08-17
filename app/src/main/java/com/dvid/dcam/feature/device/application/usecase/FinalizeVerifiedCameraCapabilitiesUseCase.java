@@ -71,8 +71,8 @@ public final class FinalizeVerifiedCameraCapabilitiesUseCase {
             PipelineVerificationCoverage durableCoverageB = verificationCoverage(sourceB.evidence());
             requireCandidatesTerminal(sourceA.evidence());
             requireCandidatesTerminal(sourceB.evidence());
-            tuplesA += tupleCount(finalA);
-            tuplesB += tupleCount(finalB);
+            tuplesA += effectiveTupleCount(finalA);
+            tuplesB += effectiveTupleCount(finalB);
 
             Set<CaptureModeTuple> validUniverse = tupleUnion(finalA, finalB);
             if (tupleCount(finalA) + tupleCount(finalB) == 0) {
@@ -248,6 +248,13 @@ public final class FinalizeVerifiedCameraCapabilitiesUseCase {
                 .filter(candidate -> candidate.kind() == CandidateKey.Kind.TUPLE)
                 .map(candidate -> candidate.tuple().orElseThrow())
                 .forEach(target::add);
+    }
+
+    private static int effectiveTupleCount(PipelineEvidence evidence) {
+        return Math.toIntExact(evidence.effectiveCandidates().stream()
+                .filter(candidate -> candidate.kind() == CandidateKey.Kind.TUPLE)
+                .filter(candidate -> evidence.outcome(candidate) == VerificationOutcome.VERIFIED_PASS)
+                .count());
     }
 
     private static int tupleCount(PipelineEvidence evidence) {

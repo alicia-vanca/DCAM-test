@@ -83,6 +83,34 @@ final class FinalizeVerifiedCameraCapabilitiesUseCaseTest {
         assertEquals(27, result.summary().pipelineBElapsedMillis());
     }
 
+    @Test void summaryCountsOnlyEffectiveVerifiedTuples() {
+        CaptureModeTuple lowerSd = tuple(StandardResolutionLabel.SD, 640, 480);
+        CaptureModeTuple pinnedSd = tuple(StandardResolutionLabel.SD, 720, 480);
+        Snapshot baseline = baseline(HD);
+        PipelineRun runA = run(PIPELINE_A, Map.of(
+                lowerSd, VerificationOutcome.VERIFIED_PASS,
+                pinnedSd, VerificationOutcome.VERIFIED_PASS), 1, 1);
+        PipelineRun runB = run(PIPELINE_B, Map.of(
+                lowerSd, VerificationOutcome.VERIFIED_PASS,
+                pinnedSd, VerificationOutcome.VERIFIED_PASS), 1, 1);
+
+        FinalizeVerifiedCameraCapabilitiesUseCase.Result result =
+                new FinalizeVerifiedCameraCapabilitiesUseCase().execute(
+                        new FinalizeVerifiedCameraCapabilitiesUseCase.Request(
+                                baseline, runA, runB, Optional.of(PIPELINE_A)));
+
+        assertEquals(2, pipeline(result.snapshot(), PIPELINE_A)
+                .rawFastCandidates().stream()
+                .filter(candidate -> candidate.kind() == CandidateKey.Kind.TUPLE)
+                .count());
+        assertEquals(1, pipeline(result.snapshot(), PIPELINE_A)
+                .effectiveCandidates().stream()
+                .filter(candidate -> candidate.kind() == CandidateKey.Kind.TUPLE)
+                .count());
+        assertEquals(1, result.summary().pipelineATupleCount());
+        assertEquals(1, result.summary().pipelineBTupleCount());
+    }
+
     @Test void validPreviousProfileIsPreservedInsteadOfDefaultingHigher() {
         Snapshot baseline = baseline(HD);
         PipelineRun runA = run(PIPELINE_A, Map.of(

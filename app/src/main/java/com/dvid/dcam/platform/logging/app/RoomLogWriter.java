@@ -1,7 +1,7 @@
 package com.dvid.dcam.platform.logging.app;
 
 import android.content.Context;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 import com.dvid.dcam.platform.database.AppDatabase;
 import com.dvid.dcam.platform.database.dao.PendingLogDao;
 import com.dvid.dcam.platform.database.entities.PendingLogEntity;
@@ -53,7 +53,7 @@ final class RoomLogWriter {
         return runAndWait(() -> {
             pendingLogs.insert(newPendingLog(level, payload));
             prune();
-            if (!BuildConfig.LOGGLY_TOKEN.isBlank() && pendingLogs.pendingCount() == 1) {
+            if (BuildSecrets.LOGGLY_TOKEN_CONFIGURED() && pendingLogs.pendingCount() == 1) {
                 LogglyUploadScheduler.scheduleNow(appContext);
             }
         }, "Failed to persist Room log event");
@@ -100,7 +100,7 @@ final class RoomLogWriter {
             pendingLogs.insert(summary);
             pendingLogs.deleteIds(deadIds);
         });
-        if (!BuildConfig.LOGGLY_TOKEN.isBlank()) LogglyUploadScheduler.scheduleNow(appContext);
+        if (BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) LogglyUploadScheduler.scheduleNow(appContext);
     }
 
     private String summaryPayload(String archiveName, List<PendingLogEntity> events) {
@@ -195,7 +195,7 @@ final class RoomLogWriter {
     }
 
     private void scheduleUpload() {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return;
         if (pendingLogs.pendingCount() > 0) LogglyUploadScheduler.scheduleNow(appContext);
         else LogglyUploadScheduler.scheduleRetry(appContext, pendingLogs.earliestRetryAt());
     }

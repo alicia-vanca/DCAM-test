@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.logging.app;
 import android.content.Context;
 import android.util.Log;
 import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.core.device.domain.DeviceInfo;
 import com.dvid.dcam.platform.logging.loggly.LogglyCrashSpool;
@@ -117,7 +118,7 @@ public final class AppLogger implements Logger {
                 writeInternal("ERROR", "Crash persistence failed", loggingFailure);
             } catch (Throwable ignored) {
             }
-            if (!BuildConfig.LOGGLY_TOKEN.isBlank()) {
+            if (BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) {
                 try {
                     spoolCrash(json("ERROR", message, error, threadName, source));
                 } catch (Throwable ignored) {
@@ -176,7 +177,7 @@ public final class AppLogger implements Logger {
             return;
         }
         boolean savedToRoom = persist(level, line, error, payload);
-        boolean logglyConfigured = !BuildConfig.LOGGLY_TOKEN.isBlank();
+        boolean logglyConfigured = BuildSecrets.LOGGLY_TOKEN_CONFIGURED();
         if (shouldSpoolCrash(level, message, logglyConfigured, savedToRoom))
             spoolCrash(payload);
     }

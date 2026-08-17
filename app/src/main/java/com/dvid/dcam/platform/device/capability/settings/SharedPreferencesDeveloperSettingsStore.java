@@ -12,6 +12,8 @@ public final class SharedPreferencesDeveloperSettingsStore implements DeveloperS
     private static final String MODE = "mode";
     private static final String RELEASE_CAMERA_WHEN_SCREEN_OFF =
             "release_camera_when_screen_off";
+    private static final String RESOURCE_MONITOR_ENABLED =
+            "resource_monitor_enabled";
 
     private final PreferenceAccess preferences;
     private volatile DeveloperSettingsStore.Mode sessionMode;
@@ -57,6 +59,14 @@ public final class SharedPreferencesDeveloperSettingsStore implements DeveloperS
 
     @Override public void setReleaseCameraWhenScreenOff(boolean enabled) {
         preferences.put(RELEASE_CAMERA_WHEN_SCREEN_OFF, Boolean.toString(enabled));
+    }
+
+    @Override public boolean resourceMonitorEnabled() {
+        return parseBoolean(preferences.get(RESOURCE_MONITOR_ENABLED)).orElse(false);
+    }
+
+    @Override public void setResourceMonitorEnabled(boolean enabled) {
+        preferences.put(RESOURCE_MONITOR_ENABLED, Boolean.toString(enabled));
     }
 
     private static String cameraModeKey(String cameraId) {

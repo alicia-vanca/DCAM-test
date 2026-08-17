@@ -11,8 +11,6 @@ permissions:
 
 env:
   APP_VERSION: 0.1.${{ github.run_number }}
-  BODYCAM_CRYPTO_PASSWORD: ${{ secrets.BODYCAM_CRYPTO_PASSWORD }}
-  LOGGLY_TOKEN: ${{ secrets.LOGGLY_TOKEN }}
 
 jobs:
   build:
@@ -38,7 +36,13 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew test
+        shell: bash
+        run: |
+          while IFS='=' read -r name policy; do
+            [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+            export "$name=test-only-${name,,}"
+          done < build-secrets.properties
+          ./gradlew --no-configuration-cache test
 
       - name: Prepare release signing
         shell: bash
@@ -57,12 +61,14 @@ jobs:
 
       - name: Build APK
         env:
+          DCAM_CRYPTO_PASSWORD: ${{ secrets.DCAM_CRYPTO_PASSWORD }}
+          LOGGLY_TOKEN: ${{ secrets.LOGGLY_TOKEN }}
           DCAM_RELEASE_KEYSTORE_FILE: ${{ runner.temp }}/dcam-release.keystore
           DCAM_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.DCAM_RELEASE_KEYSTORE_PASSWORD }}
           DCAM_RELEASE_KEY_ALIAS: ${{ secrets.DCAM_RELEASE_KEY_ALIAS }}
           DCAM_RELEASE_KEY_PASSWORD: ${{ secrets.DCAM_RELEASE_KEY_PASSWORD }}
         run: |
-          ./gradlew clean assembleRelease
+          ./gradlew --no-configuration-cache --no-daemon clean assembleRelease
           mkdir -p build/release
           if [ "${GITHUB_REF_NAME}" = "release" ]; then
             cp app/build/outputs/apk/release/*.apk "build/release/DCAM-${APP_VERSION}.apk"

@@ -12,15 +12,18 @@ import android.os.SystemClock;
 import android.util.Range;
 import android.view.Surface;
 import androidx.media3.common.util.MediaFormatUtil;
+import androidx.media3.container.Mp4LocationData;
 import androidx.media3.container.Mp4OrientationData;
 import androidx.media3.muxer.FragmentedMp4Muxer;
 import androidx.media3.muxer.MuxerException;
 import androidx.media3.muxer.MuxerUtil;
 import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
 import com.dvid.dcam.platform.audio.SharedMicrophoneCapture;
 import com.dvid.dcam.platform.storage.DcamFragmentedMp4Layout;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,12 +34,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public final class SharedAvcEncoder implements AutoCloseable {
     public record Segment(File file, long sampleCount, long durationUs, String detail) {}
 
     private static final String MIME_TYPE = MediaFormat.MIMETYPE_VIDEO_AVC;
     private static final String AUDIO_MIME_TYPE = MediaFormat.MIMETYPE_AUDIO_AAC;
+
     private static final int AUDIO_SAMPLE_RATE = SharedMicrophoneCapture.SAMPLE_RATE;
     private static final int AUDIO_CHANNEL_COUNT = SharedMicrophoneCapture.CHANNEL_COUNT;
     private static final int AUDIO_BIT_RATE = 64_000;
@@ -52,6 +57,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
     // ponytail: Startup RAM holds one GOP; use disk-backed retention before enabling pre-record.
     private static final int MIN_PENDING_VIDEO_GOP_BYTES = 8 * 1024 * 1024;
     private static final int MAX_PENDING_VIDEO_GOP_BYTES = 64 * 1024 * 1024;
+    private static final int RECENT_VIDEO_SAMPLE_CAPACITY = 64;
+    private static final int VIDEO_SAMPLE_PREFIX_BYTES = 8;
     private static final Object REUSABLE_CODEC_LOCK = new Object();
     private static final Map<String, MediaCodec> REUSABLE_CODECS = new HashMap<>();
 
@@ -63,6 +70,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
     private final boolean recycleCodec;
     private final long preRecordGopDurationUs;
     private final long nominalVideoFrameDurationUs;
+    private final int videoBitrateBitsPerSecond;
+    private final Supplier<GpsCoordinate> captureLocation;
     private int rotationDegrees;
     private HandlerThread callbackThread;
     private Handler callbackHandler;
@@ -73,6 +82,32 @@ public final class SharedAvcEncoder implements AutoCloseable {
     private final List<PendingVideoSample> pendingVideoGop = new ArrayList<>();
     private final int maxPendingVideoGopBytes;
     private int pendingVideoGopBytes;
+    private final VideoSampleAssembler videoSampleAssembler;
+    private final long[] recentVideoSampleSequences =
+            new long[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final long[] recentVideoSamplePresentationTimesUs =
+            new long[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final long[] recentVideoSamplePrefixes =
+            new long[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final int[] recentVideoSampleOffsets =
+            new int[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final int[] recentVideoSampleSizes =
+            new int[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final int[] recentVideoSampleFlags =
+            new int[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final int[] recentVideoSampleBufferCounts =
+            new int[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private final int[] recentVideoSamplePrefixLengths =
+            new int[RECENT_VIDEO_SAMPLE_CAPACITY];
+    private long nextVideoSampleSequence;
+    private int recentVideoSampleCount;
+    private int nextRecentVideoSampleIndex;
+    private boolean partialVideoSampleLogged;
+    private boolean partialVideoTimestampMismatchLogged;
+    private boolean malformedVideoRecoveryActive;
+    private int malformedVideoSamplesDropped;
+    private int dependentVideoSamplesDropped;
+    private long malformedVideoRecoveryStartedAtUs = -1L;
     private FragmentedMp4Muxer muxer;
     private DcamRecordingOutput muxerOutput;
     private boolean muxerOutputOwned;
@@ -81,9 +116,13 @@ public final class SharedAvcEncoder implements AutoCloseable {
     private CountDownLatch segmentOutputReady = new CountDownLatch(0);
     private int trackIndex = -1;
     private int audioTrackIndex = -1;
+    private boolean gpsRouteEnabled;
     private MediaFormat audioOutputFormat;
     private MediaFormat primedAudioOutputFormat;
     private boolean audioRequired;
+    private GpsCoordinate segmentLocation;
+    private GpsCoordinate lastGpsCoordinate;
+    private boolean gpsLookupFailureLogged;
 
     private Thread audioThread;
     private MediaCodec audioCodec;
@@ -124,7 +163,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
     public static SharedAvcEncoder open(
             int width, int height, int framesPerSecond, Logger logger,
             String pipelineId, String callbackThreadName, boolean recycleCodec,
-            int rotationDegrees, long preRecordGopDurationMillis) throws IOException {
+            int rotationDegrees, long preRecordGopDurationMillis,
+            Supplier<GpsCoordinate> captureLocation) throws IOException {
         EncoderSelection selection = selectEncoder(width, height, framesPerSecond);
         HandlerThread callbackThread = new HandlerThread(
                 Objects.requireNonNull(callbackThreadName, "callbackThreadName"));
@@ -138,7 +178,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     logger, pipelineId, selection.codecName(), recycleCodec,
                     callbackThread, codec, width, height, framesPerSecond,
                     selection.bitrate(), CameraOrientation.normalize(rotationDegrees),
-                    preRecordGopDurationMillis);
+                    preRecordGopDurationMillis, captureLocation);
             inputSurface = encoder.inputSurface;
             encoder.primeAudioCodec();
             return encoder;
@@ -156,12 +196,14 @@ public final class SharedAvcEncoder implements AutoCloseable {
     private SharedAvcEncoder(Logger logger, String pipelineId, String codecName,
             boolean recycleCodec, HandlerThread callbackThread, MediaCodec codec,
             int width, int height, int framesPerSecond, int bitrate, int rotationDegrees,
-            long preRecordGopDurationMillis) {
+            long preRecordGopDurationMillis, Supplier<GpsCoordinate> captureLocation) {
         this.logger = Objects.requireNonNull(logger, "logger");
         microphoneCapture = SharedMicrophoneCapture.process(logger);
         this.pipelineId = Objects.requireNonNull(pipelineId, "pipelineId");
         this.codecName = Objects.requireNonNull(codecName, "codecName");
         this.recycleCodec = recycleCodec;
+        videoBitrateBitsPerSecond = bitrate;
+        this.captureLocation = Objects.requireNonNull(captureLocation, "captureLocation");
         if (preRecordGopDurationMillis < 0L
                 || preRecordGopDurationMillis > Long.MAX_VALUE / 1_000L) {
             throw new IllegalArgumentException("invalid pre-record GOP duration");
@@ -173,6 +215,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         this.rotationDegrees = rotationDegrees;
         maxPendingVideoGopBytes = Math.min(MAX_PENDING_VIDEO_GOP_BYTES,
                 Math.max(MIN_PENDING_VIDEO_GOP_BYTES, bitrate / 4));
+        videoSampleAssembler = new VideoSampleAssembler(maxPendingVideoGopBytes);
         this.callbackThread = callbackThread;
         callbackHandler = new Handler(callbackThread.getLooper());
         this.codec = codec;
@@ -228,6 +271,23 @@ public final class SharedAvcEncoder implements AutoCloseable {
 
     public Surface inputSurface() {
         return inputSurface;
+    }
+
+    public long recordingBitrateBitsPerSecond(boolean includeAudio) {
+        return totalRecordingBitrateBitsPerSecond(videoBitrateBitsPerSecond, includeAudio);
+    }
+
+    static long recordingBitrateBitsPerSecond(
+            int width, int height, int framesPerSecond, boolean includeAudio)
+            throws IOException {
+        return totalRecordingBitrateBitsPerSecond(
+                selectEncoder(width, height, framesPerSecond).bitrate(), includeAudio);
+    }
+
+    private static long totalRecordingBitrateBitsPerSecond(
+            int videoBitrateBitsPerSecond, boolean includeAudio) {
+        return Math.addExact((long) videoBitrateBitsPerSecond,
+                includeAudio ? AUDIO_BIT_RATE : 0L);
     }
 
     public void observeVideoFrameTimestamp(
@@ -455,6 +515,10 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 throw new IllegalStateException("audio_encoder_already_active");
             }
             segmentFile = outputFile;
+            gpsRouteEnabled = true;
+            lastGpsCoordinate = null;
+            gpsLookupFailureLogged = false;
+            segmentLocation = currentCaptureLocation();
             segmentSamples = 0;
             seekIndexReserved = false;
             resetSegmentDurationLocked();
@@ -479,6 +543,9 @@ public final class SharedAvcEncoder implements AutoCloseable {
             outputReady = segmentOutputReady;
             waitingForKeyFrame = true;
             clearPendingVideoGopLocked();
+            videoSampleAssembler.clear();
+            clearMalformedVideoRecoveryLocked();
+            clearRecentVideoSamplesLocked();
             acceptingSegment = true;
             trackIndex = -1;
             muxerStarted = false;
@@ -578,6 +645,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
         long audioStopRequestedAt = SystemClock.elapsedRealtime();
         synchronized (lock) {
             clearPendingVideoGopLocked();
+            videoSampleAssembler.clear();
+            clearMalformedVideoRecoveryLocked();
         }
         logger.info("Pause recording encoder input success. Input suspend: "
                 + (inputSuspendedAt - startedAt) + " ms. Audio stop requested: "
@@ -604,6 +673,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
             audioCaptureStarted = false;
             waitingForKeyFrame = false;
             clearPendingVideoGopLocked();
+            videoSampleAssembler.clear();
+            clearMalformedVideoRecoveryLocked();
             firstSample.countDown();
         }
     }
@@ -640,6 +711,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 audioCaptureStarted = false;
                 waitingForKeyFrame = false;
                 clearPendingVideoGopLocked();
+                videoSampleAssembler.clear();
+                clearMalformedVideoRecoveryLocked();
                 firstSample.countDown();
                 result = new Segment(file, samples, durationUs, detail);
             }
@@ -1037,6 +1110,19 @@ public final class SharedAvcEncoder implements AutoCloseable {
         }
     }
 
+    private GpsCoordinate currentCaptureLocation() {
+        try {
+            return captureLocation.get();
+        } catch (RuntimeException error) {
+            if (!gpsLookupFailureLogged) {
+                gpsLookupFailureLogged = true;
+                logger.warn("Recording GPS route lookup failed. Video continues without new "
+                        + "GPS metadata until location becomes available.", error);
+            }
+            return null;
+        }
+    }
+
     static long segmentVideoCutoffUs(long latestVideoTimestampUs, long preRecordDurationUs) {
         return latestVideoTimestampUs < 0L
                 ? -1L : Math.max(0L, latestVideoTimestampUs - preRecordDurationUs);
@@ -1071,6 +1157,21 @@ public final class SharedAvcEncoder implements AutoCloseable {
         }
         return maximumPresentationTimeUs > Long.MAX_VALUE - finalSampleDurationUs
                 ? Long.MAX_VALUE : maximumPresentationTimeUs + finalSampleDurationUs;
+    }
+
+
+    static Mp4LocationData mp4LocationData(GpsCoordinate coordinate) {
+        Objects.requireNonNull(coordinate, "coordinate");
+        return new Mp4LocationData(
+                (float) coordinate.getLatitude(), (float) coordinate.getLongitude());
+    }
+
+    static boolean gpsCoordinateChanged(
+            GpsCoordinate previous, GpsCoordinate current) {
+        if (current == null) return false;
+        return previous == null
+                || Double.compare(previous.getLatitude(), current.getLatitude()) != 0
+                || Double.compare(previous.getLongitude(), current.getLongitude()) != 0;
     }
 
 
@@ -1117,39 +1218,106 @@ public final class SharedAvcEncoder implements AutoCloseable {
     }
     private void handleOutput(int index, MediaCodec.BufferInfo sourceInfo) {
         Runnable limitListener = null;
+        String recentSamples = "none";
         try {
             synchronized (lock) {
                 ByteBuffer buffer = codec.getOutputBuffer(index);
-                if (buffer == null || sourceInfo.size <= 0
-                        || (sourceInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
-                        || !acceptingSegment) {
+                if (buffer == null || sourceInfo.size <= 0) return;
+                if (!acceptingSegment) {
+                    videoSampleAssembler.clear();
                     return;
                 }
-                if (!sampleAfterCutoff(
-                        segmentVideoCutoffUs, sourceInfo.presentationTimeUs)) return;
-                boolean keyFrame = (sourceInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
-                if (waitingForKeyFrame && !keyFrame) return;
-                waitingForKeyFrame = false;
+                if ((sourceInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) return;
                 buffer.position(sourceInfo.offset);
                 buffer.limit(sourceInfo.offset + sourceInfo.size);
-                if (!muxerStarted) {
-                    bufferPendingVideoSampleLocked(buffer, sourceInfo, keyFrame);
+                long presentationTimeUs = sourceInfo.presentationTimeUs;
+                int flags = sourceInfo.flags;
+                int sourceBufferCount = 1;
+                if (videoSampleAssembler.hasPending()
+                        || (flags & MediaCodec.BUFFER_FLAG_PARTIAL_FRAME) != 0) {
+                    AssembledVideoSample assembled = videoSampleAssembler.append(
+                            buffer, presentationTimeUs, flags);
+                    if (assembled == null) return;
+                    buffer = ByteBuffer.wrap(assembled.data());
+                    presentationTimeUs = assembled.presentationTimeUs();
+                    flags = assembled.flags();
+                    sourceBufferCount = assembled.bufferCount();
+                    if (!partialVideoSampleLogged) {
+                        partialVideoSampleLogged = true;
+                        logger.info("Join split H.264 encoder output into one video sample success. "
+                                + "Encoder buffers: " + sourceBufferCount + ". Bytes: "
+                                + buffer.remaining() + ". Pipeline: " + pipelineId + ". Codec: "
+                                + codecName + ".");
+                    }
+                    if (assembled.timestampChanged()
+                            && !partialVideoTimestampMismatchLogged) {
+                        partialVideoTimestampMismatchLogged = true;
+                        logger.info("Join split H.264 encoder output whose buffer timestamps "
+                                + "differed. First timestamp retained. Pipeline: " + pipelineId
+                                + ". Codec: " + codecName + ".");
+                    }
+                }
+                if (!sampleAfterCutoff(segmentVideoCutoffUs, presentationTimeUs)) return;
+                long sampleSequence = ++nextVideoSampleSequence;
+                int malformedByteOffset = invalidAnnexBOffset(buffer);
+                if (malformedByteOffset >= 0) {
+                    malformedVideoSamplesDropped++;
+                    if (!malformedVideoRecoveryActive) {
+                        malformedVideoRecoveryActive = true;
+                        malformedVideoRecoveryStartedAtUs = presentationTimeUs;
+                        logger.warn("Drop malformed H.264 encoder sample before MP4 muxing. "
+                                + "Video recording continues at the next valid key frame. Sample: #"
+                                + sampleSequence + ". Timestamp: " + presentationTimeUs
+                                + " us. Bytes: " + buffer.remaining() + ". Flags: 0x"
+                                + Integer.toHexString(flags) + ". Encoder buffers: "
+                                + sourceBufferCount + ". Invalid Annex-B offset: "
+                                + malformedByteOffset + ". Nearby bytes: "
+                                + annexBBytesAround(buffer, malformedByteOffset) + ". Pipeline: "
+                                + pipelineId + ". Codec: " + codecName + ".", null);
+                    }
+                    waitingForKeyFrame = true;
                     return;
                 }
-                limitListener = writeVideoSampleLocked(buffer, sourceInfo.presentationTimeUs,
-                        sourceInfo.flags);
+                boolean keyFrame = (flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+                if (waitingForKeyFrame && !keyFrame) {
+                    if (malformedVideoRecoveryActive) dependentVideoSamplesDropped++;
+                    return;
+                }
+                waitingForKeyFrame = false;
+                if (malformedVideoRecoveryActive) {
+                    long videoGapMillis = Math.max(
+                            0L, presentationTimeUs - malformedVideoRecoveryStartedAtUs) / 1_000L;
+                    logger.info("Resume H.264 video muxing at a valid key frame after malformed "
+                            + "encoder output. Dropped malformed samples: "
+                            + malformedVideoSamplesDropped + ". Dropped dependent samples: "
+                            + dependentVideoSamplesDropped + ". Video gap: " + videoGapMillis
+                            + " ms. Recording continued. Pipeline: " + pipelineId + ". Codec: "
+                            + codecName + ".");
+                    clearMalformedVideoRecoveryLocked();
+                }
+                rememberVideoSampleLocked(
+                        sampleSequence, buffer, presentationTimeUs, flags, sourceBufferCount);
+                if (!muxerStarted) {
+                    bufferPendingVideoSampleLocked(
+                            buffer, presentationTimeUs, flags, keyFrame);
+                    return;
+                }
+                limitListener = writeVideoSampleLocked(buffer, presentationTimeUs, flags);
             }
         } catch (MuxerException | RuntimeException error) {
             synchronized (lock) {
                 callbackError = "muxer_write:" + error.getClass().getSimpleName();
                 acceptingSegment = false;
                 audioStopRequested = true;
+                videoSampleAssembler.clear();
+                clearMalformedVideoRecoveryLocked();
                 firstSample.countDown();
+                recentSamples = recentVideoSamplesLocked();
             }
-            logger.warn(
-                    "pipeline=" + pipelineId + " stage=muxer_write"
-                            + " outcome=global_failure",
-                    error);
+            logger.error("Write encoded H.264 output to MP4 failed. Recording segment stopped "
+                    + "to protect the container. Recent complete video samples, oldest first: "
+                    + recentSamples + ". Pipeline: " + pipelineId + ". Codec: " + codecName
+                    + ".", error);
         } finally {
             try { codec.releaseOutputBuffer(index, false); } catch (RuntimeException ignored) {}
         }
@@ -1178,6 +1346,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         if (sizeDecision.shouldWrite()) {
             muxer.writeSampleData(trackIndex, buffer,
                     MuxerUtil.getMuxerBufferInfoFromMediaCodecBufferInfo(writeInfo));
+            writeGpsSampleLocked(writeInfo.presentationTimeUs);
             reserveSeekIndexLocked();
             recordVideoPresentationTimeLocked(writeInfo.presentationTimeUs);
             segmentSamples++;
@@ -1194,8 +1363,24 @@ public final class SharedAvcEncoder implements AutoCloseable {
         return recordingLimitListener;
     }
 
+
+
+    private void writeGpsSampleLocked(long presentationTimeUs) {
+        if (!gpsRouteEnabled || muxerChannel == null) return;
+        GpsCoordinate coordinate = currentCaptureLocation();
+        if (!gpsCoordinateChanged(lastGpsCoordinate, coordinate)) return;
+        try {
+            muxerChannel.queueGpsRoutePoint(presentationTimeUs,
+                    coordinate.getLatitude(), coordinate.getLongitude());
+            lastGpsCoordinate = coordinate;
+        } catch (RuntimeException error) {
+            gpsRouteEnabled = false;
+            logger.warn("Stop embedding GPS route metadata because the MP4 output rejected a "
+                    + "route point. Video recording continues.", error);
+        }
+    }
     private void bufferPendingVideoSampleLocked(
-            ByteBuffer buffer, MediaCodec.BufferInfo sourceInfo, boolean keyFrame) {
+            ByteBuffer buffer, long presentationTimeUs, int flags, boolean keyFrame) {
         if (keyFrame) clearPendingVideoGopLocked();
         int size = buffer.remaining();
         if (size > maxPendingVideoGopBytes
@@ -1210,8 +1395,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         }
         byte[] data = new byte[size];
         buffer.duplicate().get(data);
-        pendingVideoGop.add(new PendingVideoSample(
-                data, sourceInfo.presentationTimeUs, sourceInfo.flags));
+        pendingVideoGop.add(new PendingVideoSample(data, presentationTimeUs, flags));
         pendingVideoGopBytes += size;
     }
 
@@ -1233,6 +1417,174 @@ public final class SharedAvcEncoder implements AutoCloseable {
         pendingVideoGopBytes = 0;
     }
 
+    static int invalidAnnexBOffset(ByteBuffer input) {
+        ByteBuffer data = Objects.requireNonNull(input, "input").asReadOnlyBuffer().slice();
+        if (!data.hasRemaining()) return -1;
+        int nalStartCodeIndex = findAnnexBStartCodeOrInvalid(data, 0);
+        if (nalStartCodeIndex < 0) return ~nalStartCodeIndex;
+        int currentIndex = nalStartCodeIndex + 3;
+        while (currentIndex < data.limit()) {
+            currentIndex = findAnnexBNalEndIndex(data, currentIndex);
+            if (currentIndex >= data.limit()) return -1;
+            nalStartCodeIndex = findAnnexBStartCodeOrInvalid(data, currentIndex);
+            if (nalStartCodeIndex < 0) return ~nalStartCodeIndex;
+            if (nalStartCodeIndex >= data.limit()) return -1;
+            currentIndex = nalStartCodeIndex + 3;
+        }
+        return -1;
+    }
+
+    private static int findAnnexBNalEndIndex(ByteBuffer input, int currentIndex) {
+        while (currentIndex <= input.limit() - 4) {
+            int fourBytes = input.getInt(currentIndex);
+            if ((fourBytes & 0xffffff00) == 0
+                    || (fourBytes & 0xffffff00) == 0x00000100) {
+                return currentIndex;
+            }
+            if ((fourBytes & 0x00ffffff) == 0
+                    || (fourBytes & 0x00ffffff) == 0x00000001) {
+                return currentIndex + 1;
+            }
+            if ((fourBytes & 0x0000ffff) == 0) {
+                currentIndex += 2;
+            } else if ((fourBytes & 0x000000ff) == 0) {
+                currentIndex += 3;
+            } else {
+                currentIndex += 4;
+            }
+        }
+        if (currentIndex == input.limit() - 3) {
+            short firstTwoBytes = input.getShort(currentIndex);
+            byte lastByte = input.get(currentIndex + 2);
+            if (firstTwoBytes == 0 && (lastByte == 0 || lastByte == 1)) {
+                return currentIndex;
+            }
+        }
+        return input.limit();
+    }
+
+    private static int findAnnexBStartCodeOrInvalid(ByteBuffer input, int currentIndex) {
+        while (currentIndex <= input.limit() - 4) {
+            int fourBytes = input.getInt(currentIndex);
+            if ((fourBytes & 0xffffff00) == 0x00000100) return currentIndex;
+            if ((fourBytes & 0xffffff00) != 0) {
+                for (int byteIndex = 0; byteIndex < 3; byteIndex++) {
+                    if (input.get(currentIndex + byteIndex) != 0) {
+                        return ~(currentIndex + byteIndex);
+                    }
+                }
+            }
+            int lastByte = fourBytes & 0x000000ff;
+            if (lastByte == 1) return currentIndex + 1;
+            if (lastByte != 0) return ~(currentIndex + 3);
+            currentIndex++;
+        }
+        if (currentIndex <= input.limit() - 3) {
+            short firstTwoBytes = input.getShort(currentIndex);
+            if (firstTwoBytes != 0) {
+                return input.get(currentIndex) != 0 ? ~currentIndex : ~(currentIndex + 1);
+            }
+            byte lastByte = input.get(currentIndex + 2);
+            if (lastByte == 1) return currentIndex;
+            if (lastByte != 0) return ~(currentIndex + 2);
+        } else {
+            while (currentIndex < input.limit()) {
+                if (input.get(currentIndex) != 0) return ~currentIndex;
+                currentIndex++;
+            }
+        }
+        return input.limit();
+    }
+
+    private static String annexBBytesAround(ByteBuffer input, int invalidOffset) {
+        ByteBuffer data = input.asReadOnlyBuffer().slice();
+        int offset = Math.max(0, Math.min(invalidOffset, data.limit() - 1));
+        int start = Math.max(0, offset - 8);
+        int end = Math.min(data.limit(), offset + 9);
+        StringBuilder bytes = new StringBuilder();
+        if (start > 0) bytes.append("... ");
+        for (int index = start; index < end; index++) {
+            if (index > start) bytes.append(' ');
+            if (index == offset) bytes.append('[');
+            int value = data.get(index) & 0xff;
+            bytes.append(Character.forDigit(value >>> 4, 16));
+            bytes.append(Character.forDigit(value & 0x0f, 16));
+            if (index == offset) bytes.append(']');
+        }
+        if (end < data.limit()) bytes.append(" ...");
+        return bytes.toString();
+    }
+
+    private void clearMalformedVideoRecoveryLocked() {
+        malformedVideoRecoveryActive = false;
+        malformedVideoSamplesDropped = 0;
+        dependentVideoSamplesDropped = 0;
+        malformedVideoRecoveryStartedAtUs = -1L;
+    }
+    private void rememberVideoSampleLocked(
+            long sampleSequence, ByteBuffer buffer, long presentationTimeUs,
+            int flags, int sourceBufferCount) {
+        int index = nextRecentVideoSampleIndex;
+        int prefixLength = Math.min(VIDEO_SAMPLE_PREFIX_BYTES, buffer.remaining());
+        long prefix = 0L;
+        for (int byteIndex = 0; byteIndex < prefixLength; byteIndex++) {
+            prefix = prefix << 8 | buffer.get(buffer.position() + byteIndex) & 0xffL;
+        }
+        recentVideoSampleSequences[index] = sampleSequence;
+        recentVideoSamplePresentationTimesUs[index] = presentationTimeUs;
+        recentVideoSamplePrefixes[index] = prefix;
+        recentVideoSampleOffsets[index] = buffer.position();
+        recentVideoSampleSizes[index] = buffer.remaining();
+        recentVideoSampleFlags[index] = flags;
+        recentVideoSampleBufferCounts[index] = sourceBufferCount;
+        recentVideoSamplePrefixLengths[index] = prefixLength;
+        nextRecentVideoSampleIndex = (index + 1) % RECENT_VIDEO_SAMPLE_CAPACITY;
+        recentVideoSampleCount = Math.min(
+                RECENT_VIDEO_SAMPLE_CAPACITY, recentVideoSampleCount + 1);
+    }
+
+    private void clearRecentVideoSamplesLocked() {
+        nextVideoSampleSequence = 0L;
+        recentVideoSampleCount = 0;
+        nextRecentVideoSampleIndex = 0;
+    }
+
+    private String recentVideoSamplesLocked() {
+        if (recentVideoSampleCount == 0) return "none";
+        StringBuilder samples = new StringBuilder();
+        int index = (nextRecentVideoSampleIndex - recentVideoSampleCount
+                + RECENT_VIDEO_SAMPLE_CAPACITY) % RECENT_VIDEO_SAMPLE_CAPACITY;
+        for (int sampleIndex = 0; sampleIndex < recentVideoSampleCount; sampleIndex++) {
+            if (sampleIndex > 0) samples.append("; ");
+            int current = (index + sampleIndex) % RECENT_VIDEO_SAMPLE_CAPACITY;
+            samples.append('#').append(recentVideoSampleSequences[current])
+                    .append(" at ").append(recentVideoSamplePresentationTimesUs[current])
+                    .append(" us, ").append(recentVideoSampleSizes[current]).append(" bytes, offset ")
+                    .append(recentVideoSampleOffsets[current]).append(", flags 0x")
+                    .append(Integer.toHexString(recentVideoSampleFlags[current])).append(", ")
+                    .append(recentVideoSampleBufferCounts[current]).append(" encoder buffers, prefix ");
+            appendVideoSamplePrefix(samples, recentVideoSamplePrefixes[current],
+                    recentVideoSamplePrefixLengths[current]);
+            if (recentVideoSampleSizes[current] > recentVideoSamplePrefixLengths[current]) {
+                samples.append("...");
+            }
+        }
+        return samples.toString();
+    }
+
+    private static void appendVideoSamplePrefix(
+            StringBuilder output, long prefix, int length) {
+        if (length == 0) {
+            output.append("empty");
+            return;
+        }
+        for (int byteIndex = length - 1; byteIndex >= 0; byteIndex--) {
+            int value = (int) (prefix >>> byteIndex * 8) & 0xff;
+            output.append(Character.forDigit(value >>> 4, 16));
+            output.append(Character.forDigit(value & 0x0f, 16));
+        }
+    }
+
     private void recordVideoPresentationTimeLocked(long presentationTimeUs) {
         if (presentationTimeUs >= segmentMaxVideoPresentationTimeUs) {
             segmentSecondMaxVideoPresentationTimeUs = segmentMaxVideoPresentationTimeUs;
@@ -1252,6 +1604,14 @@ public final class SharedAvcEncoder implements AutoCloseable {
         if (muxer == null || muxerStarted || outputFormat == null
                 || audioRequired && audioOutputFormat == null) return null;
         try {
+            if (segmentLocation != null) {
+                try {
+                    muxer.addMetadataEntry(mp4LocationData(segmentLocation));
+                } catch (RuntimeException error) {
+                    logger.warn("Start recording without GPS metadata because MP4 muxer "
+                            + "rejected current location.", error);
+                }
+            }
             muxer.addMetadataEntry(new Mp4OrientationData(rotationDegrees));
             trackIndex = muxer.addTrack(MediaFormatUtil.createFormatFromMediaFormat(outputFormat));
             if (audioRequired) {
@@ -1264,6 +1624,12 @@ public final class SharedAvcEncoder implements AutoCloseable {
             callbackError = "muxer_start:" + error.getClass().getSimpleName();
             acceptingSegment = false;
             audioStopRequested = true;
+            videoSampleAssembler.clear();
+            clearMalformedVideoRecoveryLocked();
+            logger.error("Start MP4 muxer failed while flushing buffered H.264 samples. "
+                    + "Recording segment stopped to protect the container. Recent complete "
+                    + "video samples, oldest first: " + recentVideoSamplesLocked()
+                    + ". Pipeline: " + pipelineId + ". Codec: " + codecName + ".", error);
             audioCaptureStarted = false;
             audioCaptureReady.countDown();
             firstSample.countDown();
@@ -1287,9 +1653,15 @@ public final class SharedAvcEncoder implements AutoCloseable {
         muxerStarted = false;
         trackIndex = -1;
         audioTrackIndex = -1;
+        gpsRouteEnabled = false;
         audioOutputFormat = null;
         audioRequired = false;
+        segmentLocation = null;
+        lastGpsCoordinate = null;
+        gpsLookupFailureLogged = false;
         clearPendingVideoGopLocked();
+        videoSampleAssembler.clear();
+        clearMalformedVideoRecoveryLocked();
         boolean closed = true;
         if (current != null) {
             Throwable failure = null;
@@ -1306,7 +1678,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             }
             if (failure != null) {
                 closed = false;
-                logger.warn("Could not finalize recording container '"
+                logger.error("Could not finalize recording container '"
                         + segmentPath() + "'. Temp file remains available for startup recovery. "
                         + "Reason: " + message(failure) + ".", failure);
             }
@@ -1316,7 +1688,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 output.close();
             } catch (IOException failure) {
                 closed = false;
-                logger.warn("Could not close recording file '" + segmentPath()
+                logger.error("Could not close recording file '" + segmentPath()
                         + "'. Temp file remains available for startup recovery. Reason: "
                         + message(failure) + ".", failure);
             }
@@ -1515,6 +1887,70 @@ public final class SharedAvcEncoder implements AutoCloseable {
         long clamped = Math.max(range.getLower(), Math.min(range.getUpper(), desired));
         return (int) Math.min(Integer.MAX_VALUE, clamped);
     }
+
+    static final class VideoSampleAssembler {
+        private final int maxBytes;
+        private ByteArrayOutputStream pendingData;
+        private long presentationTimeUs;
+        private int flags;
+        private int bufferCount;
+        private boolean timestampChanged;
+
+        VideoSampleAssembler(int maxBytes) {
+            if (maxBytes <= 0) throw new IllegalArgumentException("maxBytes must be positive");
+            this.maxBytes = maxBytes;
+        }
+
+        boolean hasPending() {
+            return pendingData != null;
+        }
+
+        AssembledVideoSample append(ByteBuffer buffer, long presentationTimeUs, int flags) {
+            Objects.requireNonNull(buffer, "buffer");
+            int partSize = buffer.remaining();
+            if (pendingData == null) {
+                pendingData = new ByteArrayOutputStream(
+                        Math.min(maxBytes, Math.max(32, partSize)));
+                this.presentationTimeUs = presentationTimeUs;
+                this.flags = 0;
+                bufferCount = 0;
+                timestampChanged = false;
+            } else if (presentationTimeUs != this.presentationTimeUs) {
+                timestampChanged = true;
+            }
+            int pendingSize = pendingData.size();
+            if (partSize > maxBytes - pendingSize) {
+                long combinedSize = (long) pendingSize + partSize;
+                clear();
+                throw new IllegalStateException(
+                        "partial H.264 sample exceeds " + maxBytes + " bytes: " + combinedSize);
+            }
+            byte[] part = new byte[partSize];
+            buffer.duplicate().get(part);
+            pendingData.write(part, 0, part.length);
+            this.flags |= flags;
+            bufferCount++;
+            if ((flags & MediaCodec.BUFFER_FLAG_PARTIAL_FRAME) != 0) return null;
+            AssembledVideoSample sample = new AssembledVideoSample(
+                    pendingData.toByteArray(), this.presentationTimeUs,
+                    this.flags & ~MediaCodec.BUFFER_FLAG_PARTIAL_FRAME,
+                    bufferCount, timestampChanged);
+            clear();
+            return sample;
+        }
+
+        void clear() {
+            pendingData = null;
+            presentationTimeUs = 0L;
+            flags = 0;
+            bufferCount = 0;
+            timestampChanged = false;
+        }
+    }
+
+    record AssembledVideoSample(
+            byte[] data, long presentationTimeUs, int flags,
+            int bufferCount, boolean timestampChanged) {}
 
     private record PendingVideoSample(byte[] data, long presentationTimeUs, int flags) {}
 

@@ -5,6 +5,7 @@ import com.dvid.dcam.feature.storage.application.port.ActiveStoragePolicyGateway
 import com.dvid.dcam.feature.storage.application.port.MediaPartitionLocationPreferenceStore;
 import com.dvid.dcam.feature.storage.application.port.StorageCapacitySource;
 import com.dvid.dcam.feature.storage.application.port.StorageWarningPreferenceStore;
+import com.dvid.dcam.feature.storage.domain.CaptureStorageCapacityPolicy;
 import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import com.dvid.dcam.feature.storage.domain.StorageVolumeStatus;
 import com.dvid.dcam.feature.storage.domain.StorageWarningStatus;
@@ -52,10 +53,22 @@ public final class StorageSettingsUseCase {
 
     public void changeWarningGb(int value) { warningPreferences.setWarningGb(value); }
 
-    public StorageWarningStatus warningStatus() {
-        StorageVolumeStatus volume = activeStorage.activeStorageVolume();
+    public StorageWarningStatus warningStatus(
+            long minimumRecordingStartFreeBytes, boolean preserveRecordingVolume) {
+        if (minimumRecordingStartFreeBytes
+                < CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES) {
+            throw new IllegalArgumentException(
+                    "minimumRecordingStartFreeBytes must preserve capture safety margin");
+        }
+        StorageVolumeStatus volume = activeStorage.activeStorageVolume(
+                minimumRecordingStartFreeBytes, preserveRecordingVolume);
         long freeBytes = volume == null || !volume.isAvailable() ? 0L : volume.getFreeBytes();
-        long thresholdBytes = warningGb() * 1024L * 1024L * 1024L;
-        return new StorageWarningStatus(freeBytes <= thresholdBytes, freeBytes);
+        long configuredThresholdBytes = warningGb() * 1024L * 1024L * 1024L;
+        long thresholdBytes = Math.max(
+                minimumRecordingStartFreeBytes, configuredThresholdBytes);
+        return new StorageWarningStatus(
+                freeBytes <= thresholdBytes,
+                freeBytes < minimumRecordingStartFreeBytes,
+                freeBytes);
     }
 }

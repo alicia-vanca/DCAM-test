@@ -16,6 +16,7 @@ import android.content.SharedPreferences;
 import android.database.ContentObserver;
 import android.graphics.Color;
 import android.hardware.display.DisplayManager;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.content.pm.ActivityInfo;
@@ -50,6 +51,7 @@ import androidx.lifecycle.ViewModelProvider;
 import com.dvid.dcam.BuildConfig;
 import com.dvid.dcam.R;
 import com.dvid.dcam.app.devmode.DeveloperFeatureToggles;
+import com.dvid.dcam.app.resourcemonitor.ResourceMonitorController;
 import com.dvid.dcam.app.ui.ActivityChromeController;
 import com.dvid.dcam.app.ui.camera.CameraFlowCoordinator;
 import com.dvid.dcam.app.ui.FloatingNotice;
@@ -175,6 +177,7 @@ public final class MainActivity extends ComponentActivity {
     private AppComposition.CaptureRuntime captureRuntime;
     private AppComposition.CaptureRuntime refreshedDisplayRotationRuntime;
     private int refreshedDisplayRotation = -1;
+    private boolean recordingRotationLocked;
     private MainViewModel viewModel;
     private HardwareButtonRouter hardwareButtons;
     private boolean redirectingToHomeTask;
@@ -229,6 +232,7 @@ public final class MainActivity extends ComponentActivity {
     private boolean defaultHomeRequestStarted;
     private Boolean pendingLocationEnabled;
     private ActivityChromeController activityChrome;
+    private ResourceMonitorController resourceMonitorController;
     private RecordingStatusRenderer recordingStatusRenderer;
     private MediaBrowserRenderer mediaBrowserRenderer;
     private ContentObserver autoRotateObserver;
@@ -284,15 +288,29 @@ public final class MainActivity extends ComponentActivity {
             }
         }
     };
+    private final BroadcastReceiver locationModeChangedReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String action = intent.getAction();
+            if (LocationManager.MODE_CHANGED_ACTION.equals(action)
+                    || LocationManager.PROVIDERS_CHANGED_ACTION.equals(action)) {
+                refreshLocationTracking();
+                refreshDeveloperSettingsRows();
+            }
+        }
+    };
     private final BroadcastReceiver storageMountedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             storageVolumesGeneration++;
             storageVolumesStale = true;
             composition.refreshCaptureStorageNotice();
-            if (latestState != null
-                    && latestState.getScreen() == MainScreen.STORAGE_SETTINGS) {
+            if (latestState == null) return;
+            if (latestState.getScreen() == MainScreen.STORAGE_SETTINGS) {
                 refreshCurrentSettingsControls();
+            } else if (latestState.getScreen() == MainScreen.FILES) {
+                viewModel.openMediaFolder(latestState.getMediaBrowser().getRelativePath());
             }
         }
     };
@@ -410,8 +428,10 @@ public final class MainActivity extends ComponentActivity {
         logger = composition.logger();
         androidRuntime = composition.androidRuntime();
         screenOff = !androidRuntime.isScreenInteractive();
-        idleCameraReleaseStateSubscription = composition.observeCameraStateChanges(
-                this::requestIdleCameraReleaseIfScreenOff);
+        idleCameraReleaseStateSubscription = composition.observeCameraStateChanges(() -> {
+            requestIdleCameraReleaseIfScreenOff();
+            cameraClock.post(this::syncRecordingRotationLock);
+        });
         languageSettings = composition.languageSettingsUseCase();
         deviceSerialNumbers = composition.deviceSerialNumberUseCase();
         developerFeatureToggles = composition.developerFeatureToggles();
@@ -439,6 +459,7 @@ public final class MainActivity extends ComponentActivity {
                 androidRuntime.isWifiEnabled());
         settingsUiState.setLowStorageWarningGb(storageSettings.warningGb());
 
+        recordingRotationLocked = composition.cameraRecordingActiveForUi();
         applyAutoRotate(androidRuntime.isAutoRotateEnabled());
         menuModel = new MainMenuModel();
 
@@ -449,6 +470,9 @@ public final class MainActivity extends ComponentActivity {
                 activityBinding, () -> cameraScreen, () -> latestState, () -> renderedScreen);
         root = activityBinding.contentRoot;
         setContentView(activityBinding.getRoot());
+        resourceMonitorController = new ResourceMonitorController(this,
+                activityBinding.getRoot(), androidRuntime::isDeviceOwner, logger,
+                composition.resourceMonitorEnabled());
         activityChrome.updateManagedTopBar();
         activityChrome.bindSystemNavigationInset();
         activityChrome.hideSystemStatusBar();
@@ -1020,6 +1044,7 @@ public final class MainActivity extends ComponentActivity {
                         SettingId.AUTO_ROTATE, enabledValue(requested));
             }
         }
+        syncRecordingRotationLock();
         syncAutoRotateFromDevice();
         activityChrome.hideSystemStatusBar();
         refreshWifiSetting();
@@ -1067,14 +1092,21 @@ public final class MainActivity extends ComponentActivity {
     @Override
     protected void onStart() {
         super.onStart();
+        resourceMonitorController.onStart();
         subscribeCameraCapabilityRecheck();
+        IntentFilter locationFilter = new IntentFilter(LocationManager.MODE_CHANGED_ACTION);
+        locationFilter.addAction(LocationManager.PROVIDERS_CHANGED_ACTION);
+        ContextCompat.registerReceiver(this, locationModeChangedReceiver, locationFilter,
+                ContextCompat.RECEIVER_NOT_EXPORTED);
         registerAutoRotateObserver();
         registerDisplayRotationListener();
     }
 
     @Override
     protected void onStop() {
+        resourceMonitorController.onStop();
         unsubscribeCameraCapabilityRecheck();
+        unregisterReceiver(locationModeChangedReceiver);
         logger.info("LIFECYCLE_TRACE onStop activity=" + identity(this)
                 + " screen=" + (latestState == null ? "unknown" : latestState.getScreen())
                 + " captureMode=" + (latestState == null
@@ -1094,7 +1126,8 @@ public final class MainActivity extends ComponentActivity {
     private void refreshDisplayRotationIfNeeded(Display display) {
         AppComposition.CaptureRuntime runtime = captureRuntime;
         if (runtime == null || display == null
-                || !androidRuntime.isAutoRotateEnabled())
+                || recordingRotationLocked
+                || composition != null && composition.cameraRecordingActiveForUi())
             return;
         int rotation = display.getRotation();
         if (runtime == refreshedDisplayRotationRuntime
@@ -1227,6 +1260,7 @@ public final class MainActivity extends ComponentActivity {
     private void render(MainUiState state) {
         MainUiState previousState = latestState;
         latestState = state;
+        syncRecordingRotationLock();
         boolean wasRecording = hasActiveRecording(previousState);
         boolean recording = hasActiveRecording(state);
         if (!wasRecording && recording) {
@@ -1244,8 +1278,9 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         if (renderedScreen != screen) {
-            if (renderedScreen == MainScreen.CAMERA && screen != MainScreen.CAMERA
-                    && captureRuntime != null) {
+            if (renderedScreen == MainScreen.CAMERA && screen != MainScreen.CAMERA) {
+                FloatingNotice.hideLowPriorityPersistent();
+                storageWarningVisible = null;
             }
             renderedScreen = screen;
             recordingStatusRenderer.updateFloatingRecordingStatus(state);
@@ -1267,7 +1302,7 @@ public final class MainActivity extends ComponentActivity {
             }
         }
         if (screen == MainScreen.DEVELOPER_SETTINGS && renderedSettingsList != null) {
-            refreshDeveloperSettingsEnabledState();
+            refreshDeveloperSettingsRows();
         }
         updateStatus(state);
         refreshGpsPermissionRetry();
@@ -1288,9 +1323,11 @@ public final class MainActivity extends ComponentActivity {
     private void updateSavingNotice(MainUiState previousState, MainUiState state) {
         boolean wasSaving = previousState != null
                 && (previousState.getCapture().isSaving()
-                        || previousState.getCapture().isPhotoSaving());
+                        || previousState.getCapture().isPhotoSaving()
+                        || previousState.getCapture().isAudioSaving());
         boolean saving = state.getCapture().isSaving()
-                || state.getCapture().isPhotoSaving();
+                || state.getCapture().isPhotoSaving()
+                || state.getCapture().isAudioSaving();
         if (wasSaving && !saving) FloatingNotice.hidePersistent();
         if (!wasSaving && saving) {
             FloatingNotice.showPersistent(this, R.string.media_saving);
@@ -1323,11 +1360,25 @@ public final class MainActivity extends ComponentActivity {
             return;
         if (message.startsWith("Finalization failed:")) {
             FloatingNotice.show(this, R.string.media_save_failed);
+        } else if (isLowStorageRecordingBlockedMessage(message)) {
+            FloatingNotice.show(this, message.substring("Storage failed: ".length()),
+                    FloatingNotice.ERROR_TEXT_COLOR);
         } else if (message.equals("Storage failed: " + getString(R.string.sd_card_unavailable))) {
             FloatingNotice.show(this, R.string.sd_card_unavailable);
         } else if (message.startsWith("Storage failed:")) {
             FloatingNotice.show(this, R.string.capture_storage_unavailable);
         }
+    }
+
+    private boolean isLowStorageRecordingBlockedMessage(String message) {
+        String marker = "%1$s";
+        String template = getString(R.string.low_storage_recording_blocked, marker);
+        int markerIndex = template.indexOf(marker);
+        if (markerIndex < 0 || !message.startsWith("Storage failed: "))
+            return false;
+        String payload = message.substring("Storage failed: ".length());
+        return payload.startsWith(template.substring(0, markerIndex))
+                && payload.endsWith(template.substring(markerIndex + marker.length()));
     }
 
     private void renderCamera() {
@@ -1594,11 +1645,11 @@ public final class MainActivity extends ComponentActivity {
                 this::performSettingAction, this::canSelectSetting);
     }
 
-    private void refreshDeveloperSettingsEnabledState() {
+    private void refreshDeveloperSettingsRows() {
         if (renderedSettingsList == null || latestState == null
                 || latestState.getScreen() != MainScreen.DEVELOPER_SETTINGS)
             return;
-        settingsRenderer.refreshEnabledStates(developerSettingsModel());
+        settingsRenderer.refreshRows(developerSettingsModel());
     }
 
     private void refreshCurrentSettingsControls() {
@@ -1724,6 +1775,11 @@ public final class MainActivity extends ComponentActivity {
         SettingsScreenModel base = developerFeatureToggles.developerSettings(
                 SettingId.FEATURE_GPS, provider);
         List<SettingsSection> sections = new ArrayList<>(base.getSections());
+        sections.add(new SettingsSection(getString(R.string.resource_monitor_section), List.of(
+                SettingItem.checkbox(SettingId.RESOURCE_MONITOR,
+                        getString(R.string.resource_monitor),
+                        composition.resourceMonitorEnabled())
+                        .withDescription(getString(R.string.resource_monitor_description)))));
         sections.add(new SettingsSection(getString(R.string.camera_lifecycle_section), List.of(
                 SettingItem.checkbox(SettingId.DEV_RELEASE_CAMERA_WHEN_SCREEN_OFF,
                         getString(R.string.release_camera_when_screen_off),
@@ -1734,7 +1790,8 @@ public final class MainActivity extends ComponentActivity {
                 .cameraPipelineCameraIds().stream()
                 .map(this::cameraPipelineSelection)
                 .collect(java.util.stream.Collectors.toList());
-        boolean recheckBlocked = !composition.cameraCapabilityRecheckControlEnabled();
+        boolean recheckBlocked = !composition.cameraCapabilityRecheckControlEnabled()
+                && !composition.cameraCapabilityRecheckInFlight();
         sections.addAll(CameraDeveloperSettingsPresentation.screen(
                 getString(R.string.camera_pipeline_section), selections,
                 getString(R.string.recheck_camera_capabilities), recheckBlocked).getSections());
@@ -1777,7 +1834,8 @@ public final class MainActivity extends ComponentActivity {
                         .orElseGet(() -> getString(R.string.camera_pipeline_unknown)),
                 detail,
                 options, Math.max(0, CAMERA_PIPELINE_MODES.indexOf(selectedMode)),
-                !fullyVerified || composition.cameraPipelineModeControlEnabled(cameraId));
+                !fullyVerified || composition.cameraCapabilityRecheckInFlight()
+                        || composition.cameraPipelineModeControlEnabled(cameraId));
     }
 
     private DescribedRadioOptionUiState cameraPipelineAutoOption(String cameraId) {
@@ -1838,15 +1896,12 @@ public final class MainActivity extends ComponentActivity {
 
     private DescribedRadioOptionUiState gpsModeOption(GpsMode mode, boolean enabled) {
         switch (mode) {
-            case AUTOMATIC:
-                return new DescribedRadioOptionUiState(getString(R.string.location_mode_automatic),
-                        getString(R.string.location_mode_automatic_description), enabled);
+            case FUSED:
+                return new DescribedRadioOptionUiState(getString(R.string.location_mode_fused),
+                        getString(R.string.location_mode_fused_description), enabled);
             case SATELLITE:
-                return new DescribedRadioOptionUiState(getString(R.string.location_mode_satellite),
-                        getString(R.string.location_mode_satellite_description), enabled);
-            case NETWORK:
-                return new DescribedRadioOptionUiState(getString(R.string.location_mode_network),
-                        getString(R.string.location_mode_network_description), enabled);
+                return new DescribedRadioOptionUiState(getString(R.string.location_mode_gnss),
+                        getString(R.string.location_mode_gnss_description), enabled);
             default:
                 throw new IllegalArgumentException("Unsupported location mode " + mode);
         }
@@ -2345,11 +2400,13 @@ public final class MainActivity extends ComponentActivity {
                     stopLocationTracking();
                 }
             }
-            if (renderedSettingsList != null
-                    && latestState != null
-                    && latestState.getScreen() == MainScreen.DEVELOPER_SETTINGS) {
-                settingsRenderer.refreshEnabledStates(developerSettingsModel());
-            }
+            refreshDeveloperSettingsRows();
+            logBooleanSettingChanged(item, id, checked);
+            return;
+        }
+        if (id == SettingId.RESOURCE_MONITOR) {
+            composition.setResourceMonitorEnabled(checked);
+            resourceMonitorController.setEnabled(checked);
             logBooleanSettingChanged(item, id, checked);
             return;
         }
@@ -2398,10 +2455,24 @@ public final class MainActivity extends ComponentActivity {
         logBooleanSettingChanged(item, id, checked);
     }
 
+    private void syncRecordingRotationLock() {
+        boolean locked = composition != null && composition.cameraRecordingActiveForUi();
+        if (recordingRotationLocked == locked)
+            return;
+        recordingRotationLocked = locked;
+        refreshedDisplayRotationRuntime = null;
+        refreshedDisplayRotation = -1;
+        applyAutoRotate(androidRuntime.isAutoRotateEnabled());
+        if (!locked) cameraClock.post(() -> refreshDisplayRotationIfNeeded(getDisplay()));
+    }
+
     private void applyAutoRotate(boolean enabled) {
-        setRequestedOrientation(enabled
-                ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-                : ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+        boolean locked = recordingRotationLocked
+                || composition != null && composition.cameraRecordingActiveForUi();
+        setRequestedOrientation(locked
+                ? ActivityInfo.SCREEN_ORIENTATION_LOCKED
+                : enabled ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                        : ActivityInfo.SCREEN_ORIENTATION_LOCKED);
     }
 
     private void syncAutoRotateFromDevice() {
@@ -2471,7 +2542,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void refreshCapabilitySensitiveSettings() {
-        refreshDeveloperSettingsEnabledState();
+        refreshDeveloperSettingsRows();
         refreshCurrentSettingsControls();
     }
 
@@ -2736,19 +2807,29 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void updateStorageWarning() {
-        if (captureRuntime == null || cameraScreen == null)
+        if (captureRuntime == null || cameraScreen == null
+                || latestState == null || latestState.getScreen() != MainScreen.CAMERA) {
+            FloatingNotice.hideLowPriorityPersistent();
+            storageWarningVisible = null;
             return;
+        }
         if (!storageWarningRefreshInFlight.compareAndSet(false, true)) return;
         composition.readStorageWarning(warning -> {
             storageWarningRefreshInFlight.set(false);
-            if (captureRuntime == null || cameraScreen == null) return;
+            if (captureRuntime == null || cameraScreen == null
+                    || latestState == null || latestState.getScreen() != MainScreen.CAMERA) {
+                FloatingNotice.hideLowPriorityPersistent();
+                storageWarningVisible = null;
+                return;
+            }
             long free = warning.getFreeBytes();
             boolean warningVisible = warning.isVisible();
             if (warningVisible) {
-                captureRuntime.showStorageWarning(
-                        getString(R.string.low_storage_preview_warning, storageSize(free)));
+                FloatingNotice.showLowPriorityPersistent(this,
+                        getString(R.string.low_storage_preview_warning, storageSize(free)),
+                        warning.isRecordingBlocked() ? FloatingNotice.ERROR_TEXT_COLOR : FloatingNotice.WARNING_TEXT_COLOR);
             } else if (storageWarningVisible == null || storageWarningVisible) {
-                captureRuntime.clearStorageWarning();
+                FloatingNotice.hideLowPriorityPersistent();
             }
             storageWarningVisible = warningVisible;
         });
@@ -3053,6 +3134,7 @@ public final class MainActivity extends ComponentActivity {
             composition.releaseCameraForActivityFinish();
         }
         identityIoExecutor.shutdown();
+        resourceMonitorController.close();
         super.onDestroy();
     }
 
@@ -3093,6 +3175,8 @@ public final class MainActivity extends ComponentActivity {
             viewModel.unbindCaptureEvents(captureRuntime.captureEvents());
         }
         captureRuntime.release();
+        FloatingNotice.hideLowPriorityPersistent();
+        storageWarningVisible = null;
         captureRuntime = null;
         refreshedDisplayRotationRuntime = null;
         refreshedDisplayRotation = -1;

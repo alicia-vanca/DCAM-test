@@ -126,9 +126,9 @@ public final class CameraPipelineBenchmarkDeviceTest {
                 (runtime, request) -> new com.dvid.dcam.feature.device.application.usecase.VerifyStandaloneImageUseCase(
                         runtime, logger, clock, health).execute(request);
         var pipelineA = new NativeSurfaceSharingPipelineFactory(
-                context, logger, root).createHeadless(0);
+                context, logger, root, () -> null).createHeadless(0);
         var pipelineB = new EglFanOutPipelineFactory(
-                context, logger, root).createHeadless(0);
+                context, logger, root, () -> null).createHeadless(0);
         SharedCameraPipelineBenchmarkRunner runnerA = new SharedCameraPipelineBenchmarkRunner(
                 new BuildFastCameraCapabilitiesUseCase(
                         new AndroidCameraCatalogSource(context, logger), logger),

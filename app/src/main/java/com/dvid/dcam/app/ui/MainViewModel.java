@@ -441,6 +441,12 @@ public final class MainViewModel extends ViewModel {
                                         ? System.currentTimeMillis() : audioStartedAt),
                         audioStarting.getMessage(), event.isReplay()));
                 break;
+            case AUDIO_RECORDING_STOPPING:
+                MainUiState audioStopping = current();
+                state.setValue(audioStopping.withCapture(
+                        audioStopping.getCapture().withAudio(false, null, true), "Saving",
+                        event.isReplay()));
+                break;
             case AUDIO_RECORDING_STOPPED:
                 MainUiState audioStopped = current();
                 String audioMessage = event.getFileName() == null

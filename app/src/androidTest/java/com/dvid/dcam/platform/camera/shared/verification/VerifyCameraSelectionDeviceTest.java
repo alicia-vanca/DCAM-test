@@ -62,7 +62,7 @@ public final class VerifyCameraSelectionDeviceTest {
         Assume.assumeTrue("No H.264 Camera2 tuple available", selection != null);
         runVerifier(context, selection, NativeSurfaceSharingPipelineFactory.PIPELINE_ID,
                 new NativeSurfaceSharingPipelineFactory(context, new NoOpLogger(),
-                        new File(context.getCacheDir(), "verifier-native"))
+                        new File(context.getCacheDir(), "verifier-native"), () -> null)
                         .createHeadless(0));
     }
 
@@ -74,7 +74,7 @@ public final class VerifyCameraSelectionDeviceTest {
         Assume.assumeTrue("No H.264 Camera2 tuple available", selection != null);
         runVerifier(context, selection, EglFanOutPipelineFactory.PIPELINE_ID,
                 new EglFanOutPipelineFactory(context, new NoOpLogger(),
-                        new File(context.getCacheDir(), "verifier-egl"))
+                        new File(context.getCacheDir(), "verifier-egl"), () -> null)
                         .createHeadless(0));
     }
 
@@ -85,7 +85,7 @@ public final class VerifyCameraSelectionDeviceTest {
         assertTrue("Aligned FHD H.264 tuple unavailable", selection != null);
         runVerifier(context, selection, NativeSurfaceSharingPipelineFactory.PIPELINE_ID,
                 new NativeSurfaceSharingPipelineFactory(context, new NoOpLogger(),
-                        new File(context.getCacheDir(), "verifier-native-fhd"))
+                        new File(context.getCacheDir(), "verifier-native-fhd"), () -> null)
                         .createHeadless(0));
     }
 
@@ -97,7 +97,7 @@ public final class VerifyCameraSelectionDeviceTest {
         assertTrue("Aligned FHD H.264 tuple unavailable", selection != null);
         runVerifier(context, selection, EglFanOutPipelineFactory.PIPELINE_ID,
                 new EglFanOutPipelineFactory(context, new NoOpLogger(),
-                        new File(context.getCacheDir(), "verifier-egl-fhd"))
+                        new File(context.getCacheDir(), "verifier-egl-fhd"), () -> null)
                         .createHeadless(0));
     }
 

@@ -13,7 +13,9 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
@@ -30,12 +32,13 @@ public final class LogglyUploadService extends Service {
     private static final String CHANNEL_ID = "dcam_background";
     private static final String LEGACY_CHANNEL_ID = "dcam_loggly";
     private static final int NOTIFICATION_ID = 1002;
-    private static final long NETWORK_RECHECK_MS = 30_000L;
+    private static final long OBSERVER_RECHECK_MS = 30_000L;
     private static final long MIN_RETRY_WAIT_MS = 2_000L;
     private final ExecutorService uploadExecutor = Executors.newSingleThreadExecutor();
     private final WakeSignal wakeSignal = new WakeSignal();
     private final IBinder binder = new LocalBinder();
     private volatile boolean stopped;
+    private volatile Network activeNetwork;
     private volatile boolean networkAvailable;
     private boolean keepAliveWhenIdle;
     private InvalidationTracker.Observer observer;
@@ -120,10 +123,6 @@ public final class LogglyUploadService extends Service {
     private void drainLoop() {
         while (!stopped) {
             ensureObserver();
-            if (networkCallback == null) {
-                networkAvailable = connectivityManager != null
-                        && hasValidatedNetwork(connectivityManager.getActiveNetwork());
-            }
             long observedWake = wakeSignal.generation();
             if (!networkAvailable) {
                 if (!keepAliveWhenIdle) {
@@ -132,7 +131,7 @@ public final class LogglyUploadService extends Service {
                     stopSelf();
                     return;
                 }
-                waitForWake(observedWake, NETWORK_RECHECK_MS);
+                waitForWake(observedWake, 0L);
                 continue;
             }
             Long nextRetryAtMillis;
@@ -153,7 +152,7 @@ public final class LogglyUploadService extends Service {
                 return;
             }
             long waitMillis = nextRetryAtMillis == null
-                    ? (observer == null ? NETWORK_RECHECK_MS : 0L)
+                    ? (observer == null ? OBSERVER_RECHECK_MS : 0L)
                     : Math.max(MIN_RETRY_WAIT_MS,
                             nextRetryAtMillis - System.currentTimeMillis());
             waitForWake(observedWake, waitMillis);
@@ -179,33 +178,38 @@ public final class LogglyUploadService extends Service {
     private void registerNetworkCallback() {
         connectivityManager = getSystemService(ConnectivityManager.class);
         if (connectivityManager == null) return;
-        updateNetworkState();
         networkCallback = new ConnectivityManager.NetworkCallback() {
-            @Override public void onAvailable(Network network) { updateNetworkState(); }
-            @Override public void onLost(Network network) { updateNetworkState(); }
-            @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
-                updateNetworkState();
+            @Override public void onAvailable(Network network) {
+                activeNetwork = network;
+                networkAvailable = false;
+                wakeSignal.wake();
+            }
+
+            @Override public void onLost(Network network) {
+                if (!network.equals(activeNetwork)) return;
+                activeNetwork = null;
+                networkAvailable = false;
+                wakeSignal.wake();
+            }
+
+            @Override public void onCapabilitiesChanged(
+                    Network network, NetworkCapabilities capabilities) {
+                if (!network.equals(activeNetwork)) return;
+                networkAvailable = hasValidatedNetwork(capabilities);
+                wakeSignal.wake();
             }
         };
         try {
-            connectivityManager.registerDefaultNetworkCallback(networkCallback);
+            connectivityManager.registerDefaultNetworkCallback(
+                    networkCallback, new Handler(Looper.getMainLooper()));
         } catch (RuntimeException error) {
             Log.e(TAG, "Could not observe network state", error);
             networkCallback = null;
         }
     }
 
-    private void updateNetworkState() {
-        networkAvailable = connectivityManager != null
-                && hasValidatedNetwork(connectivityManager.getActiveNetwork());
-        wakeSignal.wake();
-    }
-
-    private boolean hasValidatedNetwork(Network network) {
-        if (connectivityManager == null || network == null) return false;
-        NetworkCapabilities capabilities = connectivityManager.getNetworkCapabilities(network);
-        return capabilities != null
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    private static boolean hasValidatedNetwork(NetworkCapabilities capabilities) {
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 

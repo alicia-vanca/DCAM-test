@@ -16,6 +16,7 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.ExifInterface;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -60,7 +61,7 @@ public final class NativeSurfaceSharingPipelineDeviceTest {
         File outputDirectory = new File(context.getCacheDir(), "native-sharing-runtime-test");
         AudioPermissionContext pipelineContext = new AudioPermissionContext(context);
         NativeSurfaceSharingPipeline pipeline = new NativeSurfaceSharingPipelineFactory(
-                pipelineContext, new NoOpLogger(), outputDirectory).createHeadless(0);
+                pipelineContext, new NoOpLogger(), outputDirectory, () -> null).createHeadless(0);
         CameraOperationContext operation = operation(selection);
         String videoPath = null;
         String jpegPath = null;
@@ -129,6 +130,47 @@ public final class NativeSurfaceSharingPipelineDeviceTest {
         }
     }
 
+    @Test public void rotatedRecordingSnapshotCompletesAndStopsCleanly() throws Exception {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        grantPermissions(context);
+        Selection selection = select(context);
+        Assume.assumeTrue("No H.264 Camera2 tuple available", selection != null);
+        File outputDirectory = new File(context.getCacheDir(),
+                "native-sharing-rotated-snapshot-test");
+        AudioPermissionContext pipelineContext = new AudioPermissionContext(context);
+        NativeSurfaceSharingPipeline pipeline = new NativeSurfaceSharingPipelineFactory(
+                pipelineContext, new NoOpLogger(), outputDirectory, () -> null).createHeadless(0);
+        CameraOperationContext operation = operation(selection);
+        File jpeg = new File(outputDirectory, "rotated-recording-snapshot.jpg");
+        String videoPath = null;
+        try {
+            CameraOperationOutcome bind = pipeline.bindSession(operation).outcome();
+            Assume.assumeTrue("Native sharing unavailable: " + bind,
+                    bind != CameraOperationOutcome.BLOCKED_EXTERNAL);
+            assertEquals(CameraOperationOutcome.PASS, bind);
+            assertEquals(CameraOperationOutcome.PASS,
+                    pipeline.previewProgress(operation).outcome());
+            assertEquals(CameraOperationOutcome.PASS,
+                    pipeline.startEncoder(operation).outcome());
+            SystemClock.sleep(500);
+            assertEquals(CameraOperationOutcome.PASS,
+                    pipeline.captureJpeg(operation, jpeg, 90).outcome());
+            ExifInterface exif = new ExifInterface(jpeg.getAbsolutePath());
+            assertEquals(ExifInterface.ORIENTATION_ROTATE_90, exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED));
+            assertEquals(CameraOperationOutcome.PASS,
+                    pipeline.stopEncoder(operation).outcome());
+            assertEquals(CameraOperationOutcome.PASS,
+                    pipeline.finalizeEncoder(operation).outcome());
+            videoPath = pipeline.diagnostics(operation).finalizedVideoArtifact().orElseThrow();
+            assertTrue(audioSampleCount(new File(videoPath)) > 0L);
+        } finally {
+            pipeline.release(operation);
+            delete(videoPath);
+            jpeg.delete();
+        }
+    }
+
     @Test public void failedStartAndCancelledJpegRemainRetryableAndClean() throws Exception {
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         grantPermissions(context);
@@ -137,7 +179,7 @@ public final class NativeSurfaceSharingPipelineDeviceTest {
         File outputDirectory = new File(context.getCacheDir(),
                 "native-sharing-retry-cleanup-test");
         NativeSurfaceSharingPipeline pipeline = new NativeSurfaceSharingPipelineFactory(
-                context, new NoOpLogger(), outputDirectory).createHeadless(0);
+                context, new NoOpLogger(), outputDirectory, () -> null).createHeadless(0);
         CameraOperationContext operation = operation(selection);
         try {
             CameraOperationOutcome bind = pipeline.bindSession(operation).outcome();
@@ -202,8 +244,8 @@ public final class NativeSurfaceSharingPipelineDeviceTest {
             }
         };
         NativeSurfaceSharingPipeline pipeline = new NativeSurfaceSharingPipelineFactory(
-                context, new NoOpLogger(), outputDirectory).create(
-                        previewReader.getSurface(), frameSignal, 0);
+                context, new NoOpLogger(), outputDirectory, () -> null).create(
+                        previewReader.getSurface(), frameSignal, 0, 0L);
         CameraOperationContext operation = operation(selection);
         try {
             assertEquals(CameraOperationOutcome.PASS,

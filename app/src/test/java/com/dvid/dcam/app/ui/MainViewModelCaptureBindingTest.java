@@ -139,6 +139,26 @@ final class MainViewModelCaptureBindingTest {
         viewModel.onCleared();
     }
 
+    @Test void audioStoppingStopsDurationAndShowsSavingUntilSaved() {
+        MainViewModel viewModel = viewModel();
+        SerializedRecordingCoordinator events = new SerializedRecordingCoordinator(Runnable::run);
+        viewModel.bindCaptureEvents(events);
+        events.audioRecordingStarted("audio.aac", 123L);
+
+        events.audioRecordingStopping();
+
+        MainUiState saving = viewModel.state().getValue();
+        assertEquals(false, saving.getCapture().isAudioRecording());
+        assertEquals(true, saving.getCapture().isAudioSaving());
+        assertEquals(null, saving.getCapture().getAudioStartedAtMillis());
+        assertEquals("Saving", saving.getMessage());
+        events.audioRecordingStopped("audio.aac");
+        MainUiState saved = viewModel.state().getValue();
+        assertEquals(false, saved.getCapture().isAudioSaving());
+        assertEquals("Saved audio.aac", saved.getMessage());
+        viewModel.onCleared();
+    }
+
     @Test void audioStateSharesCaptureStreamAcrossActivityRecreation() {
         MainViewModel viewModel = viewModel();
         SerializedRecordingCoordinator events = new SerializedRecordingCoordinator(Runnable::run);

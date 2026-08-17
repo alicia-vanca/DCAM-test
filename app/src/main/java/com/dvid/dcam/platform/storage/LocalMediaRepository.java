@@ -62,7 +62,7 @@ public final class LocalMediaRepository implements MediaRepository {
     }
 
     private List<MediaEntry> storageRoots() {
-        List<File> roots = storage.mediaRootDirectories();
+        List<File> roots = storage.browsableMediaRootDirectories();
         List<MediaEntry> entries = new ArrayList<>();
         for (int index = 0; index < roots.size(); index++) {
             String name = index == 0 ? "Internal" : roots.size() == 2
@@ -260,6 +260,7 @@ public final class LocalMediaRepository implements MediaRepository {
         if (lower.endsWith(".mp4")) return "video/mp4";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".aac")) return "audio/aac";
+        if (lower.endsWith(".m4a")) return "audio/mp4";
         if (lower.endsWith(".mp3")) return "audio/mpeg";
         if (lower.endsWith(".wav")) return "audio/wav";
         return "application/octet-stream";

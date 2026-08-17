@@ -38,12 +38,10 @@ public final class SharedCameraPreviewView extends FrameLayout {
     private final TextView startupMessage;
     private final TextView startupDetail;
 
-    private final TextView messageView;
     private final Consumer<CharSequence> transientNotice;
     private final Consumer<CharSequence> persistentNotice;
     private final Runnable clearPersistentNotice;
     private String storageWarning;
-    private String lowStorageWarning;
     private Consumer<Boolean> previewExpectedChanged = ignored -> {};
     private boolean previewSurfaceAvailable;
     private boolean hideStartupOnNextFrame;
@@ -159,14 +157,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
         addView(startupOverlay, new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        messageView = new TextView(context);
-        messageView.setTextColor(Color.WHITE);
-        messageView.setTextSize(18f);
-        messageView.setGravity(Gravity.CENTER);
-        messageView.setPadding(dp(24), dp(16), dp(24), dp(16));
-        addView(messageView, new LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER));
         showStarting();
     }
 
@@ -202,7 +192,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
 
     public void showStarting() {
         if (deferToUiThread(this::showStarting)) return;
-        clearMessage();
         startupProgress.setIndeterminate(true);
         startupProgress.setVisibility(VISIBLE);
         startupDetail.setVisibility(GONE);
@@ -213,7 +202,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
 
     public void showCheckingCapabilities() {
         if (deferToUiThread(this::showCheckingCapabilities)) return;
-        clearMessage();
         startupProgress.setIndeterminate(false);
         startupProgress.setMax(1);
         startupProgress.setProgress(0);
@@ -264,7 +252,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
 
     public void showCapabilityCheckFailed() {
         if (deferToUiThread(this::showCapabilityCheckFailed)) return;
-        clearMessage();
         startupProgress.setVisibility(GONE);
         startupDetail.setVisibility(GONE);
         startupMessage.setText(R.string.camera_capabilities_recheck_failed);
@@ -280,7 +267,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
     public void showStorageWarning(String text) {
         if (deferToUiThread(() -> showStorageWarning(text))) return;
         storageWarning = text;
-        clearMessage();
         persistentNotice.accept(text);
     }
 
@@ -289,42 +275,15 @@ public final class SharedCameraPreviewView extends FrameLayout {
         if (storageWarning == null) return;
         storageWarning = null;
         clearPersistentNotice.run();
-        showCurrentStorageWarning();
-    }
-
-    public void showLowStorageWarning(String text) {
-        if (deferToUiThread(() -> showLowStorageWarning(text))) return;
-        lowStorageWarning = text;
-        showCurrentStorageWarning();
-    }
-
-    public void clearLowStorageWarning() {
-        if (deferToUiThread(this::clearLowStorageWarning)) return;
-        lowStorageWarning = null;
-        showCurrentStorageWarning();
     }
 
     public void showTransientError(String text) {
         if (deferToUiThread(() -> showTransientError(text))) return;
-        clearMessage();
         CharSequence message = text == null ? "Camera failed" : text;
         transientNotice.accept(message);
     }
 
-    public void clearMessage() {
-        if (deferToUiThread(this::clearMessage)) return;
-        messageView.setText("");
-        messageView.setVisibility(GONE);
-    }
 
-    private void showCurrentStorageWarning() {
-        if (storageWarning != null) {
-            clearMessage();
-            return;
-        }
-        if (lowStorageWarning == null || lowStorageWarning.isEmpty()) clearMessage();
-        else showMessage(lowStorageWarning, Color.rgb(255, 196, 0));
-    }
     private boolean deferToUiThread(Runnable action) {
         if (Looper.myLooper() == Looper.getMainLooper()) return false;
         post(action);
@@ -507,11 +466,6 @@ public final class SharedCameraPreviewView extends FrameLayout {
         logger.info("Camera preview received its first frame and hid the startup cover.");
     }
 
-    private void showMessage(String text, int color) {
-        messageView.setTextColor(color);
-        messageView.setText(text);
-        messageView.setVisibility(text == null || text.isEmpty() ? GONE : VISIBLE);
-    }
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);

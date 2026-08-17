@@ -16,6 +16,8 @@ public interface DcamMediaOutput {
     long mediaReservationDelayMillis(DcamFileType type);
     boolean hasPublishedFile(String fileName);
     CaptureStorageCheck checkCaptureReady();
+    CaptureStorageCheck checkRecordingReady(long bitrateBitsPerSecond);
+    long minimumRecordingStartFreeBytes(long bitrateBitsPerSecond);
     default CaptureStorageCheck checkCaptureWritable() { return checkCaptureReady(); }
     default boolean isExternalStorageRequested() { return false; }
     long availableBytesForNextCapture();
@@ -23,8 +25,12 @@ public interface DcamMediaOutput {
     void prepareVideoFile(DcamMediaFile mediaFile);
     DcamRecordingOutput openVideoOutput(DcamMediaFile mediaFile) throws IOException;
     void prepareImageFile(DcamMediaFile mediaFile);
+    SegmentedAesGcmJpegOutput openSegmentedAesGcmJpegOutput(DcamMediaFile mediaFile)
+            throws IOException;
     File audioFile(DcamMediaFile mediaFile);
     DcamRecordingOutput openAudioOutput(DcamMediaFile mediaFile) throws IOException;
+    File finalizeOpenAudioM4aNow(Context context, DcamMediaFile mediaFile,
+            DcamRecordingOutput recordingOutput, long durationUs) throws IOException;
     void releaseMediaReservation(DcamMediaFile mediaFile);
     void encryptSaved(Context context, DcamMediaFile mediaFile, String password) throws IOException;
     File finalizeSavedNow(Context context, DcamMediaFile mediaFile) throws IOException;

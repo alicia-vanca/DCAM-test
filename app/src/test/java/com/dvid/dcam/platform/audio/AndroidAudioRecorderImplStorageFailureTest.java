@@ -43,7 +43,7 @@ final class AndroidAudioRecorderImplStorageFailureTest {
     }
 
     @Test void readyExternalOperationNotPermittedRetries() {
-        FileSystemException cause = new FileSystemException("/storage/sd/audio.aac", null,
+        FileSystemException cause = new FileSystemException("/storage/sd/audio.m4a", null,
                 "Operation not permitted");
 
         AudioRecorder.PreparationException error =

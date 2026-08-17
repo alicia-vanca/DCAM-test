@@ -41,7 +41,7 @@ final class CameraCutoverSourceTest {
     }
 
     @Test void recordingBlocksOnlyActiveCameraPipelineSelection() throws IOException {
-        String composition = source("app/AppComposition.java");
+        String composition = source("app/AppComposition.java").replaceAll("\\s+", " ");
         int publicGuardStart = composition.indexOf(
                 "public boolean canSelectCameraPipelineMode(String cameraId)");
         int publicGuardEnd = composition.indexOf(
@@ -68,7 +68,7 @@ final class CameraCutoverSourceTest {
     }
 
     @Test void inactivePipelineChangeUsesQuickScanWithoutRuntimeBinding() throws IOException {
-        String composition = source("app/AppComposition.java");
+        String composition = source("app/AppComposition.java").replaceAll("\\s+", " ");
         String service = source("platform/device/capability/CameraCapabilityService.java");
         int prepareStart = composition.indexOf(
                 "@Override public void prepare(String cameraId, DeveloperSettingsStore.Mode mode,");
@@ -179,17 +179,25 @@ final class CameraCutoverSourceTest {
         assertTrue(composition.contains("return cameraRecordingActive();"));
     }
 
-    @Test void capabilityRecheckUsesRuntimeRecordingPolicy() throws IOException {
-        String composition = source("app/AppComposition.java");
-        String activity = source("app/MainActivity.java");
+    @Test void capabilityRecheckKeepsControlsInteractiveWhileRuntimeRejectsBusyActions()
+            throws IOException {
+        String composition = source("app/AppComposition.java").replaceAll("\\s+", " ");
+        String activity = source("app/MainActivity.java").replaceAll("\\s+", " ");
 
-        String controller = source("app/CameraPipelineModeController.java");
         assertTrue(composition.contains(
                 "public boolean cameraCapabilityRecheckControlEnabled()"));
         assertTrue(composition.contains(
                 "if (!cameraCapabilityRecheckControlEnabled()) return false;"));
         assertTrue(activity.contains(
-                "!composition.cameraCapabilityRecheckControlEnabled()"));
+                "boolean recheckBlocked = !composition.cameraCapabilityRecheckControlEnabled()"
+                        + " && !composition.cameraCapabilityRecheckInFlight();"));
+        assertTrue(activity.contains(
+                "!fullyVerified || composition.cameraCapabilityRecheckInFlight()"
+                        + " || composition.cameraPipelineModeControlEnabled(cameraId)"));
+        assertTrue(activity.contains(
+                "FloatingNotice.show(this, R.string.camera_capabilities_recheck_busy);"));
+        assertTrue(activity.contains(
+                "FloatingNotice.show(this, R.string.camera_pipeline_busy);"));
     }
 
     @Test void autoPipelineDescriptionUsesAutoDecisionInsteadOfCurrentSelection()

@@ -2,7 +2,7 @@ package com.dvid.dcam.platform.logging.loggly;
 
 import android.content.Context;
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -66,7 +66,7 @@ public final class LogglyCrashSpool {
     }
 
     static Long uploadPending(Context context, BooleanSupplier uploadStopped) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return null;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return null;
         synchronized (UPLOAD_LOCK) {
             try {
                 return uploadPending(directory(context), uploadStopped, LogglyHttpClient::send);

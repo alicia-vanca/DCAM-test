@@ -2,7 +2,7 @@ package com.dvid.dcam.platform.logging.loggly;
 
 import android.content.Context;
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 import com.dvid.dcam.platform.database.AppDatabase;
 import com.dvid.dcam.platform.database.dao.PendingLogDao;
 import com.dvid.dcam.platform.database.entities.PendingLogEntity;
@@ -22,7 +22,7 @@ final class RoomLogUploader {
     private RoomLogUploader() { }
 
     static synchronized Long uploadPending(Context context, BooleanSupplier uploadStopped) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return null;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return null;
         PendingLogDao pendingLogs;
         try {
             pendingLogs = AppDatabase.get(context).pendingLogs();

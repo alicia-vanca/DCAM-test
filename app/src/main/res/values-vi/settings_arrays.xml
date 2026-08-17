@@ -49,7 +49,7 @@
 
     <string-array name="gps_settings_items">
         <item>Lưu vị trí</item>
-        <item>Tự động, Vệ tinh hoặc Vị trí mạng</item>
+        <item>Google Fused hoặc Vệ tinh GNSS</item>
         <item>Tần suất cập nhật vị trí</item>
         <item>Tần suất upload vị trí</item>
     </string-array>

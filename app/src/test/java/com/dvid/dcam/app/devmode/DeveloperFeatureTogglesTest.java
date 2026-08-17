@@ -53,17 +53,52 @@ final class DeveloperFeatureTogglesTest {
                 () -> { throw new AssertionError("Disabled action ran"); }));
     }
 
-    @Test void settingGatePolicyLivesWithDeveloperFeatureToggles() {
+    @Test void mediaEncryptionSettingRequiresSecurityAndEncryptionGates() {
         FeatureGates gates = disabledGates();
         DeveloperFeatureToggles toggles = DeveloperFeatureToggles.createDefault(gates);
         SettingItem encryption = SettingItem.checkbox(
                 SettingId.ENCRYPT_VIDEO_FILES, "Encryption", false);
 
-        assertFalse(toggles.isSettingEnabled(com.dvid.dcam.app.ui.MainScreen.RECORD_SETTINGS,
-                encryption));
         gates.setEnabled(FeatureGate.MEDIA_ENCRYPTION, true);
-        assertTrue(toggles.isSettingEnabled(com.dvid.dcam.app.ui.MainScreen.RECORD_SETTINGS,
+        assertFalse(toggles.isSettingEnabled(com.dvid.dcam.app.ui.MainScreen.USER_SETTINGS,
                 encryption));
+        assertFalse(toggles.isEffectivelyEnabled(FeatureGate.MEDIA_ENCRYPTION));
+
+        gates.setEnabled(FeatureGate.SECURITY_SETTINGS, true);
+        assertTrue(toggles.isSettingEnabled(com.dvid.dcam.app.ui.MainScreen.USER_SETTINGS,
+                encryption));
+        assertTrue(toggles.isEffectivelyEnabled(FeatureGate.MEDIA_ENCRYPTION));
+    }
+
+    @Test void mediaEncryptionIsDisabledChildDirectlyBelowSecuritySettings() {
+        FeatureGates gates = disabledGates();
+        gates.setEnabled(FeatureGate.MEDIA_ENCRYPTION, true);
+        DeveloperFeatureToggles toggles = DeveloperFeatureToggles.createDefault(gates);
+
+        SettingsSection section = toggles.developerSettings().getSections().stream()
+                .filter(candidate -> candidate.getItems().stream()
+                        .anyMatch(item -> item.getId() == SettingId.FEATURE_SECURITY_SETTINGS))
+                .findFirst()
+                .orElseThrow();
+        int securityIndex = java.util.stream.IntStream.range(0, section.getItems().size())
+                .filter(index -> section.getItems().get(index).getId()
+                        == SettingId.FEATURE_SECURITY_SETTINGS)
+                .findFirst()
+                .orElseThrow();
+        SettingItem encryption = section.getItems().get(securityIndex + 1);
+
+        assertEquals(SettingId.FEATURE_MEDIA_ENCRYPTION, encryption.getId());
+        assertEquals(1, encryption.getIndentLevel());
+        assertTrue(encryption.isChecked());
+        assertFalse(encryption.isEnabled());
+
+        gates.setEnabled(FeatureGate.SECURITY_SETTINGS, true);
+        SettingItem enabledEncryption = toggles.developerSettings().getSections().stream()
+                .flatMap(candidate -> candidate.getItems().stream())
+                .filter(item -> item.getId() == SettingId.FEATURE_MEDIA_ENCRYPTION)
+                .findFirst()
+                .orElseThrow();
+        assertTrue(enabledEncryption.isEnabled());
     }
 
     @Test void nonFeatureSettingsAreLeftForTheirOwningSettingsModel() {

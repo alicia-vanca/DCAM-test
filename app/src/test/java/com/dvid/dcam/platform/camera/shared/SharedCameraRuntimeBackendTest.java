@@ -2,6 +2,7 @@ package com.dvid.dcam.platform.camera.shared;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,7 +38,10 @@ import com.dvid.dcam.platform.camera.shared.verification.SharedCameraVerificatio
 import com.dvid.dcam.platform.camera.shared.runtime.ProcessCameraRuntimeBackend;
 import com.dvid.dcam.platform.storage.DcamFileType;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
+import com.dvid.dcam.platform.storage.DcamMediaOutputImpl;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import com.dvid.dcam.platform.storage.DcamStorage;
+import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -47,7 +51,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 final class SharedCameraRuntimeBackendTest {
     @Test void cancelledTransitionStopsBeforePipelineCreation() {
@@ -117,6 +124,26 @@ final class SharedCameraRuntimeBackendTest {
         assertTrue(pipeline.previewExpected);
     }
 
+    @Test void verifiedTransitionStartsOrientationTrackingBeforeCameraBind() {
+        CameraRuntimeSelection selection = selection();
+        FakePipeline pipeline = new FakePipeline();
+        FakeProvider provider = new FakeProvider(pipeline);
+        pipeline.beforeBind = () -> assertTrue(provider.orientationTracking);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(),
+                new FakeCapabilityAccess(capabilitySnapshot(
+                        selection, VerificationOutcome.VERIFIED_PASS)),
+                new FakeEvents(), new NoOpLogger());
+
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE,
+                selection, 1L, Optional.empty()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.READY, ready.outcome());
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(0, provider.stopOrientationTrackingCount);
+    }
+
     @Test void verifiedTransitionRetainsSinglePipelineForRuntimeCapture() {
         CameraRuntimeSelection selection = selection();
         FakePipeline pipeline = new FakePipeline();
@@ -139,6 +166,8 @@ final class SharedCameraRuntimeBackendTest {
         assertEquals(1, provider.createCount);
         assertFalse(pipeline.operations.contains(CameraPipelineOperation.RELEASE));
         assertSame(media.recording.outputFile(), pipeline.recordingFile);
+        assertEquals(pipeline.recordingBitrateBitsPerSecond(),
+                media.preparedRecordingBitrateBitsPerSecond);
     }
 
     @Test void runtimePassesPreparedRecordingOutputHandle() throws Exception {
@@ -148,8 +177,10 @@ final class SharedCameraRuntimeBackendTest {
         Files.deleteIfExists(staged.toPath());
         try (DcamRecordingOutput recordingOutput = DcamRecordingOutput.openPlain(staged)) {
             media.recordingOutput = recordingOutput;
+            FakeProvider provider = new FakeProvider(pipeline);
+            provider.mediaRotationDegrees = 270;
             SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
-                    new FakeProvider(pipeline), new FakePreviewOutput(), media,
+                    provider, new FakePreviewOutput(), media,
                     new FakeEvents(), new NoOpLogger());
             ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                     ProcessCameraRuntimeBackend.Operation.INITIALIZE,
@@ -161,6 +192,7 @@ final class SharedCameraRuntimeBackendTest {
 
             assertSame(recordingOutput, pipeline.recordingOutput);
             assertSame(staged, pipeline.recordingFile);
+            assertEquals(270, pipeline.encoderRotationDegrees);
         } finally {
             Files.deleteIfExists(staged.toPath());
         }
@@ -412,6 +444,141 @@ final class SharedCameraRuntimeBackendTest {
         assertEquals(1, provider.createCount);
     }
 
+    @Test void recordingPhotoUsesLiveRotationWithoutChangingRecordingRotation() {
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.setRotation(90);
+        FakeProvider provider = new FakeProvider(pipeline);
+        provider.mediaRotationDegrees = 270;
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+        CameraRuntimeSelection selection = selection();
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection, 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 3L, ready.activeBinding()));
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 4L, ready.activeBinding()));
+
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(0, provider.stopOrientationTrackingCount);
+        assertSame(selection, provider.mediaRotationSelection);
+        assertEquals(90, provider.mediaRotationFallbackDegrees);
+        assertEquals(270, pipeline.jpegRotationDegrees);
+        assertEquals(90, pipeline.outputRotationDegrees());
+    }
+
+    @Test void releaseStopsMediaOrientationTracking() {
+        FakePipeline pipeline = new FakePipeline();
+        FakeProvider provider = new FakeProvider(pipeline);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.RELEASE,
+                null, 3L, ready.activeBinding()));
+
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(1, provider.stopOrientationTrackingCount);
+        assertEquals(provider.estimatedRecordingBitrateBitsPerSecond,
+                backend.recordingBitrateBitsPerSecond(selection()));
+    }
+
+    @Test void failedPipelineCreationStopsMediaOrientationTracking() {
+        FakeProvider provider = new FakeProvider(new FakePipeline());
+        provider.createException = new IllegalStateException("create failed");
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                Optional.empty()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.TARGET_FAILED, result.outcome());
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(1, provider.stopOrientationTrackingCount);
+        assertFalse(provider.orientationTracking);
+    }
+
+    @Test void failedPipelineBindStopsMediaOrientationTracking() {
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.bindOutcome = CameraOperationOutcome.CANDIDATE_SUSPECT;
+        FakeProvider provider = new FakeProvider(pipeline);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                Optional.empty()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.TARGET_FAILED, result.outcome());
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(1, provider.stopOrientationTrackingCount);
+        assertFalse(provider.orientationTracking);
+    }
+
+    @Test void standalonePhotoUsesPhysicalRotationWithoutChangingPreviewRotation() {
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.setRotation(180);
+        FakeProvider provider = new FakeProvider(pipeline);
+        provider.mediaRotationDegrees = 270;
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+        CameraRuntimeSelection selection = selection();
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection, 1L,
+                Optional.empty()));
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 2L, ready.activeBinding()));
+
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(1, provider.mediaRotationRequestCount);
+        assertSame(selection, provider.mediaRotationSelection);
+        assertEquals(180, provider.mediaRotationFallbackDegrees);
+        assertEquals(270, pipeline.jpegRotationDegrees);
+        assertEquals(180, pipeline.outputRotationDegrees());
+    }
+
+    @Test void recordingStartUsesPhysicalRotationWithoutChangingPreviewRotation() {
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.setRotation(90);
+        FakeProvider provider = new FakeProvider(pipeline);
+        provider.mediaRotationDegrees = 270;
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), new FakeEvents(),
+                new NoOpLogger());
+        CameraRuntimeSelection selection = selection();
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection, 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+
+        assertEquals(1, provider.startOrientationTrackingCount);
+        assertEquals(1, provider.mediaRotationRequestCount);
+        assertSame(selection, provider.mediaRotationSelection);
+        assertEquals(90, provider.mediaRotationFallbackDegrees);
+        assertEquals(270, pipeline.encoderRotationDegrees);
+        assertEquals(90, pipeline.outputRotationDegrees());
+    }
+
     @Test void encryptedRecordingUsesCleanContainerFinalization() {
         FakePipeline pipeline = new FakePipeline();
         FakeMedia media = new FakeMedia(true);
@@ -548,31 +715,36 @@ final class SharedCameraRuntimeBackendTest {
         assertTrue(pipeline.operations.contains(CameraPipelineOperation.CAPTURE_JPEG));
     }
 
-    @Test void preparingRecordingPressEndsWithoutStartingEncoder() {
-        FakePipeline pipeline = new FakePipeline();
-        FakeMedia media = new FakeMedia();
-        media.alwaysRetryPreparation = true;
-        FakeEvents events = new FakeEvents();
-        FakePreparationListener preparation = new FakePreparationListener();
-        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
-                new FakeProvider(pipeline), new FakePreviewOutput(), media, events,
-                new NoOpLogger());
-        backend.setRecordingPreparationListener(preparation);
-        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
-                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
-                Optional.empty()));
-        backend.requestRecording(RecordingMode.VIDEO);
+    @Test void recordingPreparationGateAppliesToVideoAndImp() {
+        for (RecordingMode mode : List.of(RecordingMode.VIDEO, RecordingMode.IMP)) {
+            FakePipeline pipeline = new FakePipeline();
+            FakeMedia media = new FakeMedia();
+            media.alwaysRetryPreparation = true;
+            FakeEvents events = new FakeEvents();
+            FakePreparationListener preparation = new FakePreparationListener();
+            SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                    new FakeProvider(pipeline), new FakePreviewOutput(), media, events,
+                    new NoOpLogger());
+            backend.setRecordingPreparationListener(preparation);
+            ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                    ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                    Optional.empty()));
+            backend.requestRecording(mode);
 
-        ProcessCameraRuntimeBackend.Result blocked = execute(backend, command(
-                ProcessCameraRuntimeBackend.Operation.START_RECORDING, null, 2L,
-                ready.activeBinding()));
+            ProcessCameraRuntimeBackend.Result blocked = execute(backend, command(
+                    ProcessCameraRuntimeBackend.Operation.START_RECORDING, null, 2L,
+                    ready.activeBinding()));
 
-        assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, blocked.outcome());
-        assertEquals(List.of("preparing:SD card is being prepared. Please wait."),
-                preparation.events);
-        assertEquals(1, events.blockedStarts);
-        assertTrue(events.failures.isEmpty());
-        assertFalse(pipeline.operations.contains(CameraPipelineOperation.START_ENCODER));
+            assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, blocked.outcome());
+            assertEquals(mode, media.preparedRecordingMode);
+            assertEquals(pipeline.recordingBitrateBitsPerSecond(),
+                    media.preparedRecordingBitrateBitsPerSecond);
+            assertEquals(List.of("preparing:SD card is being prepared. Please wait."),
+                    preparation.events);
+            assertEquals(1, events.blockedStarts);
+            assertTrue(events.failures.isEmpty());
+            assertFalse(pipeline.operations.contains(CameraPipelineOperation.START_ENCODER));
+        }
     }
 
     @Test void terminalSdCardStateFailsImmediatelyWithoutCameraRecovery() {
@@ -697,6 +869,41 @@ final class SharedCameraRuntimeBackendTest {
                 events.photoEvents);
         assertEquals(0, media.photoStoragePreflightCount);
         assertEquals(1, media.photoPreparationCount);
+        assertSame(media.photo.outputFile(), pipeline.photoFile);
+        assertNull(pipeline.photoOutput);
+        assertEquals(List.of(CameraPipelineOperation.BIND_SESSION,
+                CameraPipelineOperation.CAPTURE_JPEG), pipeline.operations);
+    }
+
+    @Test void encryptedPhotoUsesSegmentedOutputInsteadOfPlainFile(@TempDir Path root)
+            throws Exception {
+        String password = "123456";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> password, new NoOpLogger());
+        DcamMediaFile mediaFile = storage.mediaFile(
+                DcamFileType.IMAGE, "0", "operator",
+                LocalDateTime.of(2026, 8, 12, 10, 30), true);
+        SegmentedAesGcmJpegOutput encryptedOutput =
+                output.openSegmentedAesGcmJpegOutput(mediaFile);
+        FakePipeline pipeline = new FakePipeline();
+        FakeMedia media = new FakeMedia(
+                new SharedCameraMediaLifecycle.PhotoCapture(
+                        mediaFile, true, encryptedOutput));
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(pipeline), new FakePreviewOutput(), media, events,
+                new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                Optional.empty()));
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 2L, ready.activeBinding()));
+
+        assertSame(encryptedOutput, pipeline.photoOutput);
+        assertNull(pipeline.photoFile);
+        assertTrue(events.photos.contains(media.photo.mediaFile().getFileName()));
         assertEquals(List.of(CameraPipelineOperation.BIND_SESSION,
                 CameraPipelineOperation.CAPTURE_JPEG), pipeline.operations);
     }
@@ -1330,6 +1537,16 @@ final class SharedCameraRuntimeBackendTest {
         private SharedCameraPreviewOutput refreshedPreview;
         private SharedCameraCapturePipeline refreshedPipeline;
         private Runnable refreshAction = () -> {};
+        private RuntimeException createException;
+        private int startOrientationTrackingCount;
+        private int stopOrientationTrackingCount;
+        private boolean orientationTracking;
+        private int mediaRotationRequestCount;
+        private Integer mediaRotationDegrees;
+        private int mediaRotationFallbackDegrees;
+        private CameraRuntimeSelection mediaRotationSelection;
+        private long estimatedRecordingBitrateBitsPerSecond = 8_000_000L;
+        private CameraRuntimeSelection bitrateSelection;
 
         private FakeProvider(FakePipeline... pipelines) {
             if (pipelines.length == 0) throw new IllegalArgumentException("pipelines required");
@@ -1340,7 +1557,14 @@ final class SharedCameraRuntimeBackendTest {
                 CameraRuntimeSelection selection, SharedCameraPreviewOutput previewOutput) {
             int index = Math.min(createCount, pipelines.length - 1);
             createCount++;
+            if (createException != null) throw createException;
             return pipelines[index];
+        }
+
+        @Override public long recordingBitrateBitsPerSecond(
+                CameraRuntimeSelection selection) {
+            bitrateSelection = selection;
+            return estimatedRecordingBitrateBitsPerSecond;
         }
 
         @Override public void refreshRotation(
@@ -1352,6 +1576,26 @@ final class SharedCameraRuntimeBackendTest {
             refreshedPreview = previewSurface;
             refreshedPipeline = pipeline;
             refreshAction.run();
+        }
+
+        @Override public void startMediaOrientationTracking() {
+            orientationTracking = true;
+            startOrientationTrackingCount++;
+        }
+
+        @Override public void stopMediaOrientationTracking() {
+            if (!orientationTracking) return;
+            orientationTracking = false;
+            stopOrientationTrackingCount++;
+        }
+
+        @Override public int mediaRotationDegrees(
+                CameraRuntimeSelection selection, int fallbackRotationDegrees) {
+            mediaRotationRequestCount++;
+            mediaRotationSelection = selection;
+            mediaRotationFallbackDegrees = fallbackRotationDegrees;
+            return mediaRotationDegrees == null
+                    ? fallbackRotationDegrees : mediaRotationDegrees;
         }
 
         @Override public SharedCameraCapturePipeline createVerification(
@@ -1376,6 +1620,7 @@ final class SharedCameraRuntimeBackendTest {
         private RuntimeException releaseException;
         private CameraOperationOutcome releaseOutcome = CameraOperationOutcome.PASS;
         private File photoFile;
+        private SegmentedAesGcmJpegOutput photoOutput;
         private CameraOperationOutcome bindOutcome = CameraOperationOutcome.PASS;
         private SharedCameraCapturePipeline.HealthSnapshot health =
                 new SharedCameraCapturePipeline.HealthSnapshot(
@@ -1384,6 +1629,8 @@ final class SharedCameraRuntimeBackendTest {
         private int jpegWidth;
         private int jpegHeight;
         private int outputRotationDegrees;
+        private int jpegRotationDegrees = -1;
+        private int encoderRotationDegrees = -1;
         private boolean previewExpected = true;
         private boolean previewExpectedAtBind = true;
         private com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome stopOutcome =
@@ -1392,6 +1639,11 @@ final class SharedCameraRuntimeBackendTest {
                 com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome.PASS;
         private long finalizedDurationUs = 12_345_678L;
         private boolean cleanFinalizationRequested;
+        private long recordingBitrateBitsPerSecond = 12_000_000L;
+
+        @Override public long recordingBitrateBitsPerSecond() {
+            return recordingBitrateBitsPerSecond;
+        }
 
         @Override public VerificationPipelineId pipelineId() {
             return new VerificationPipelineId("a-camera2-native-surface-sharing-v1");
@@ -1455,6 +1707,12 @@ final class SharedCameraRuntimeBackendTest {
             afterStartEncoder.run();
             return result;
         }
+        @Override public CameraOperationResult startEncoder(
+                CameraOperationContext context, File outputFile, long fileSizeLimitBytes,
+                RecordingLimitListener listener, int rotationDegrees) {
+            encoderRotationDegrees = rotationDegrees;
+            return startEncoder(context, outputFile, fileSizeLimitBytes, listener);
+        }
 
         @Override public CameraOperationResult startEncoder(
                 CameraOperationContext context, DcamRecordingOutput output,
@@ -1466,6 +1724,13 @@ final class SharedCameraRuntimeBackendTest {
             CameraOperationResult result = pass(context, CameraPipelineOperation.START_ENCODER);
             afterStartEncoder.run();
             return result;
+        }
+        @Override public CameraOperationResult startEncoder(
+                CameraOperationContext context, DcamRecordingOutput output,
+                long fileSizeLimitBytes, RecordingLimitListener listener,
+                int rotationDegrees) {
+            encoderRotationDegrees = rotationDegrees;
+            return startEncoder(context, output, fileSizeLimitBytes, listener);
         }
 
         @Override public CameraOperationResult stopEncoder(CameraOperationContext context) {
@@ -1497,6 +1762,7 @@ final class SharedCameraRuntimeBackendTest {
         @Override public CameraOperationResult captureJpeg(
                 CameraOperationContext context, File outputFile) {
             photoFile = outputFile;
+            photoOutput = null;
             if (captureOutcome != CameraOperationOutcome.PASS) {
                 operations.add(CameraPipelineOperation.CAPTURE_JPEG);
                 lastContext = context;
@@ -1513,6 +1779,32 @@ final class SharedCameraRuntimeBackendTest {
                 } catch (IOException error) {
                     throw new IllegalStateException(error);
                 }
+            }
+            return pass(context, CameraPipelineOperation.CAPTURE_JPEG);
+        }
+
+        @Override public CameraOperationResult captureJpeg(
+                CameraOperationContext context, File outputFile, int rotationDegrees) {
+            jpegRotationDegrees = rotationDegrees;
+            return captureJpeg(context, outputFile);
+        }
+
+        @Override public CameraOperationResult captureJpeg(
+                CameraOperationContext context, SegmentedAesGcmJpegOutput output) {
+            return captureJpeg(context, output, outputRotationDegrees);
+        }
+
+        @Override public CameraOperationResult captureJpeg(
+                CameraOperationContext context, SegmentedAesGcmJpegOutput output,
+                int rotationDegrees) {
+            photoFile = null;
+            photoOutput = output;
+            jpegRotationDegrees = rotationDegrees;
+            if (captureOutcome != CameraOperationOutcome.PASS) {
+                operations.add(CameraPipelineOperation.CAPTURE_JPEG);
+                lastContext = context;
+                return new CameraOperationResult(context, CameraPipelineOperation.CAPTURE_JPEG,
+                        captureOutcome, 1L, "capture");
             }
             return pass(context, CameraPipelineOperation.CAPTURE_JPEG);
         }
@@ -1574,6 +1866,8 @@ final class SharedCameraRuntimeBackendTest {
         private boolean alwaysRetryPreparation;
         private boolean storageUnavailable;
         private DcamRecordingOutput recordingOutput;
+        private RecordingMode preparedRecordingMode;
+        private long preparedRecordingBitrateBitsPerSecond;
         private Completion pendingRecordingCompletion;
 
         private FakeMedia() {
@@ -1581,14 +1875,25 @@ final class SharedCameraRuntimeBackendTest {
         }
 
         private FakeMedia(boolean encrypted) {
-            recording = new RecordingCapture(RecordingMode.VIDEO,
-                    file(DcamFileType.VIDEO, "video.mp4"), encrypted, 1024L);
-            photo = new PhotoCapture(file(DcamFileType.IMAGE, "photo.jpg"), false);
-            photo.outputFile().delete();
+            this(encrypted, new PhotoCapture(file(DcamFileType.IMAGE, "photo.jpg"), false));
         }
 
-        @Override public RecordingCapture prepareRecording(RecordingMode mode)
+        private FakeMedia(PhotoCapture photo) {
+            this(false, photo);
+        }
+
+        private FakeMedia(boolean encrypted, PhotoCapture photo) {
+            recording = new RecordingCapture(RecordingMode.VIDEO,
+                    file(DcamFileType.VIDEO, "video.mp4"), encrypted, 1024L);
+            this.photo = photo;
+            photo.discard();
+        }
+
+        @Override public RecordingCapture prepareRecording(
+                RecordingMode mode, long bitrateBitsPerSecond)
                 throws PreparationException {
+            preparedRecordingMode = mode;
+            preparedRecordingBitrateBitsPerSecond = bitrateBitsPerSecond;
             requireStorage();
             if (mode == RecordingMode.VIDEO && recordingOutput == null) return recording;
             return new RecordingCapture(mode, recording.mediaFile(),

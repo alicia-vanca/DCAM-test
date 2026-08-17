@@ -47,6 +47,7 @@ public final class SerializedRecordingCoordinator
     private volatile boolean photoSaving;
     private boolean audioStateInitialized;
     private boolean audioRecording;
+    private boolean audioSaving;
     private String audioFileName;
     private long audioStartedAtMillis = -1L;
     private CaptureEvent lastAudioTerminalEvent;
@@ -246,6 +247,7 @@ public final class SerializedRecordingCoordinator
         queue.execute(() -> {
             audioStateInitialized = true;
             audioRecording = true;
+            audioSaving = false;
             audioFileName = fileName;
             audioStartedAtMillis = startedAtMillis;
             lastAudioTerminalEvent = null;
@@ -253,10 +255,31 @@ public final class SerializedRecordingCoordinator
         });
     }
 
+    @Override public void audioRecordingStopping() {
+        queue.execute(() -> {
+            if (!audioRecording) return;
+            audioStateInitialized = true;
+            audioRecording = false;
+            audioSaving = true;
+            lastAudioTerminalEvent = null;
+            emit(CaptureEvent.audioRecordingStopping());
+        });
+    }
+
+    @Override public void audioRecordingStopCancelled() {
+        queue.execute(() -> {
+            if (!audioSaving) return;
+            audioSaving = false;
+            audioRecording = true;
+            emit(CaptureEvent.audioRecordingStarted(audioFileName, audioStartedAtMillis));
+        });
+    }
+
     @Override public void audioRecordingStopped(String fileName) {
         queue.execute(() -> {
             audioStateInitialized = true;
             audioRecording = false;
+            audioSaving = false;
             audioFileName = null;
             audioStartedAtMillis = -1L;
             lastAudioTerminalEvent = CaptureEvent.audioRecordingStopped(fileName);
@@ -390,7 +413,9 @@ public final class SerializedRecordingCoordinator
         }
         if (photoSaving) emitReplay(CaptureEvent.photoSaving());
         if (audioStateInitialized) {
-            if (audioRecording) {
+            if (audioSaving) {
+                emitReplay(CaptureEvent.audioRecordingStopping());
+            } else if (audioRecording) {
                 emitReplay(CaptureEvent.audioRecordingStarted(audioFileName, audioStartedAtMillis));
             } else if (lastAudioTerminalEvent != null) {
                 emitReplay(lastAudioTerminalEvent);

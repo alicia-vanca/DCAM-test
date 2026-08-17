@@ -13,12 +13,14 @@ import android.view.Surface;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
+import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.platform.camera.shared.AbstractSharedCameraPipeline;
 import com.dvid.dcam.platform.camera.shared.CameraPipelineFailureClassifier;
 import com.dvid.dcam.platform.camera.shared.CameraPipelineIds;
 import com.dvid.dcam.platform.camera.shared.SharedCameraPipelineSupport;
 import com.dvid.dcam.platform.camera.shared.outputsharing.NativePreviewFrameSignal;
 import java.io.File;
+import java.util.function.Supplier;
 
 public final class EglFanOutPipeline extends AbstractSharedCameraPipeline {
     private final NativePreviewFrameSignal externalPreviewFrameSignal;
@@ -32,9 +34,10 @@ public final class EglFanOutPipeline extends AbstractSharedCameraPipeline {
     EglFanOutPipeline(Context context, Logger logger,
             File outputDirectory, Surface externalPreviewSurface,
             NativePreviewFrameSignal externalPreviewFrameSignal, boolean recycleEncoder,
-            int rotationDegrees, long preRecordGopDurationMillis) {
+            int rotationDegrees, long preRecordGopDurationMillis,
+            Supplier<GpsCoordinate> captureLocation) {
         super(context, logger, outputDirectory, externalPreviewSurface, recycleEncoder,
-                rotationDegrees, preRecordGopDurationMillis,
+                rotationDegrees, preRecordGopDurationMillis, captureLocation,
                 CameraPipelineIds.EGL_FAN_OUT, "dcam-egl-camera",
                 "dcam-egl-avc", "downstreamSurfaces");
         this.externalPreviewFrameSignal = externalPreviewFrameSignal;

@@ -1,6 +1,7 @@
 package com.dvid.dcam.platform.camera.shared;
 
 import android.content.Context;
+import android.text.format.Formatter;
 import com.dvid.dcam.R;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
@@ -9,6 +10,7 @@ import com.dvid.dcam.platform.storage.DcamFileType;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.IOException;
 import java.nio.file.FileSystemException;
 import java.util.Objects;
@@ -21,17 +23,13 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
     private final Supplier<String> deviceSerialNumber;
     private final Supplier<String> operatorFileUserId;
     private final BooleanSupplier mediaEncryptionEnabled;
-    private final Supplier<String> mediaEncryptionPassword;
-    private final BooleanSupplier storageWarningActive;
 
     public AndroidSharedCameraMediaLifecycle(
             Context context,
             DcamMediaOutput mediaOutput,
             Supplier<String> deviceSerialNumber,
             Supplier<String> operatorFileUserId,
-            BooleanSupplier mediaEncryptionEnabled,
-            Supplier<String> mediaEncryptionPassword,
-            BooleanSupplier storageWarningActive) {
+            BooleanSupplier mediaEncryptionEnabled) {
         Context applicationContext = Objects.requireNonNull(context, "context")
                 .getApplicationContext();
         this.context = applicationContext == null ? context : applicationContext;
@@ -42,21 +40,17 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
                 operatorFileUserId, "operatorFileUserId");
         this.mediaEncryptionEnabled = Objects.requireNonNull(
                 mediaEncryptionEnabled, "mediaEncryptionEnabled");
-        this.mediaEncryptionPassword = Objects.requireNonNull(
-                mediaEncryptionPassword, "mediaEncryptionPassword");
-        this.storageWarningActive = Objects.requireNonNull(
-                storageWarningActive, "storageWarningActive");
     }
 
-    @Override public RecordingCapture prepareRecording(RecordingMode mode)
+    @Override public RecordingCapture prepareRecording(
+            RecordingMode mode, long bitrateBitsPerSecond)
             throws PreparationException {
         Objects.requireNonNull(mode, "mode");
-        if (storageWarningActive.getAsBoolean()) {
-            throw new PreparationException("Storage",
-                    context.getString(R.string.low_storage_recording_blocked));
+        if (bitrateBitsPerSecond <= 0L) {
+            throw new PreparationException("Recording", "Recording bitrate is unavailable");
         }
         Identity identity = identity("Recording");
-        requireStorage("Recording");
+        requireRecordingStorage(bitrateBitsPerSecond);
         long fileSizeLimitBytes = mediaOutput.recordingFileSizeLimit();
         boolean encrypted = mediaEncryptionEnabled.getAsBoolean();
         DcamFileType type = recordingFileType(mode);
@@ -73,8 +67,12 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
                 mediaFile.getFile().delete();
                 mediaOutput.releaseMediaReservation(mediaFile);
             }
-            PreparationException reservationPreparation = externalStoragePreparationException(
-                    mediaOutput.checkCaptureReady(), mediaOutput.isExternalStorageRequested(),
+            CaptureStorageCheck reservationCheck =
+                    mediaOutput.checkRecordingReady(bitrateBitsPerSecond);
+            PreparationException reservationPreparation = recordingStoragePreparationException(
+                    reservationCheck,
+                    mediaOutput.isExternalStorageRequested(),
+                    lowStorageRecordingBlockedMessage(reservationCheck),
                     context.getString(R.string.sd_card_preparing),
                     context.getString(R.string.sd_card_unavailable), error);
             if (reservationPreparation != null) throw reservationPreparation;
@@ -92,6 +90,20 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         return new RecordingCapture(
                 mode, mediaFile, encrypted, fileSizeLimitBytes, recordingOutput);
     }
+    static PreparationException recordingStoragePreparationException(
+            CaptureStorageCheck storageCheck,
+            boolean externalStorageRequested,
+            String lowStorageMessage,
+            String preparingMessage,
+            String unavailableMessage,
+            Throwable cause) {
+        if (storageCheck.isLowCapacity()) {
+            return new PreparationException("Storage", lowStorageMessage, cause);
+        }
+        return externalStoragePreparationException(storageCheck, externalStorageRequested,
+                preparingMessage, unavailableMessage, cause);
+    }
+
     static PreparationException externalStoragePreparationException(
             CaptureStorageCheck storageCheck,
             boolean externalStorageRequested,
@@ -132,12 +144,19 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         Identity identity = identity("Photo");
         requireStorage("Photo");
         boolean encrypted = mediaEncryptionEnabled.getAsBoolean();
+        DcamMediaFile mediaFile = null;
         try {
-            DcamMediaFile mediaFile = mediaOutput.mediaFile(DcamFileType.IMAGE,
+            mediaFile = mediaOutput.mediaFile(DcamFileType.IMAGE,
                     identity.deviceSerial, identity.operatorId, encrypted);
             mediaOutput.prepareImageFile(mediaFile);
-            return new PhotoCapture(mediaFile, encrypted);
-        } catch (RuntimeException error) {
+            SegmentedAesGcmJpegOutput encryptedOutput = encrypted
+                    ? mediaOutput.openSegmentedAesGcmJpegOutput(mediaFile) : null;
+            return new PhotoCapture(mediaFile, encrypted, encryptedOutput);
+        } catch (IOException | RuntimeException error) {
+            if (mediaFile != null) {
+                mediaFile.getFile().delete();
+                mediaOutput.releaseMediaReservation(mediaFile);
+            }
             PreparationException reservationPreparation = externalStoragePreparationException(
                     mediaOutput.checkCaptureReady(), mediaOutput.isExternalStorageRequested(),
                     context.getString(R.string.sd_card_preparing),
@@ -188,13 +207,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
     @Override public void finalizePhoto(PhotoCapture capture, Completion completion) {
         Objects.requireNonNull(capture, "capture");
         Objects.requireNonNull(completion, "completion");
-        finalizeMedia(capture.mediaFile(), capture.encrypted(), completion);
-    }
-
-    private void finalizeMedia(
-            DcamMediaFile mediaFile, boolean encrypted, Completion completion) {
-        String password = encrypted ? mediaEncryptionPassword.get() : null;
-        mediaOutput.finalizeSaved(context, mediaFile, password,
+        mediaOutput.finalizeSaved(context, capture.mediaFile(), null,
                 new DcamMediaOutput.FinalizationCallback() {
             @Override public void onSuccess(java.io.File finalFile) {
                 completion.onSuccess(finalFile);
@@ -229,10 +242,31 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         return new Identity(serial, operatorId);
     }
 
+    private String lowStorageRecordingBlockedMessage(CaptureStorageCheck check) {
+        return context.getString(R.string.low_storage_recording_blocked,
+                Formatter.formatFileSize(context, check.getRequiredBytes()));
+    }
+
+    private void requireRecordingStorage(long bitrateBitsPerSecond)
+            throws PreparationException {
+        CaptureStorageCheck check = mediaOutput.checkRecordingReady(bitrateBitsPerSecond);
+        if (check.isLowCapacity()) {
+            throw new PreparationException("Storage",
+                    lowStorageRecordingBlockedMessage(check));
+        }
+        requireStorage(check);
+    }
+
     private CaptureStorageCheck requireStorage(String operation)
             throws PreparationException {
         CaptureStorageCheck check = mediaOutput.checkCaptureReady();
-        if (check.isReady()) return check;
+        requireStorage(check);
+        return check;
+    }
+
+    private void requireStorage(CaptureStorageCheck check)
+            throws PreparationException {
+        if (check.isReady()) return;
         if (check.isPreparing()) {
             throw PreparationException.retryable("Storage",
                     context.getString(R.string.sd_card_preparing),

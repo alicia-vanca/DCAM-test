@@ -60,7 +60,7 @@ public final class DcamMediaFinalizer {
         DcamMediaPublisher.validate(staging, "staging");
         File target = storage.finalFile(mediaFile);
         try {
-            boolean writeMd5 = createMd5 && "mp4".equals(mediaFile.getType().getExtension());
+            boolean writeMd5 = createMd5 && mediaFile.getType().isVideo();
             DcamMediaPublisher.Publication publication = publisher.publish(staging, target, writeMd5);
             File published = publication.file;
             if (writeMd5) {

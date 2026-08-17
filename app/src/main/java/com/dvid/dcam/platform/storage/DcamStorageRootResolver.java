@@ -16,7 +16,8 @@ public final class DcamStorageRootResolver {
     public DcamStorageResolution resolve(
             MediaPartitionLocation requestedMode,
             DcamStorageCandidate internal,
-            List<DcamStorageCandidate> externalCandidates) {
+            List<DcamStorageCandidate> externalCandidates,
+            long requiredBytes) {
         MediaPartitionLocation requested = requestedMode == null ? MediaPartitionLocation.AUTO : requestedMode;
         if (requested == MediaPartitionLocation.INTERNAL) {
             return new DcamStorageResolution(requested, MediaPartitionLocation.INTERNAL, internal.getRoot(), false);
@@ -24,7 +25,7 @@ public final class DcamStorageRootResolver {
 
         for (DcamStorageCandidate external : externalCandidates) {
             if (external.getMode() == MediaPartitionLocation.EXTERNAL
-                    && external.check(capacityPolicy).isReady()) {
+                    && external.check(capacityPolicy, requiredBytes).isReady()) {
                 return new DcamStorageResolution(requested, MediaPartitionLocation.EXTERNAL,
                         external.getRoot(), false);
             }

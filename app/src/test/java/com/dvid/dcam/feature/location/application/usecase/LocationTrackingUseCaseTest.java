@@ -1,6 +1,7 @@
 package com.dvid.dcam.feature.location.application.usecase;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import com.dvid.dcam.feature.location.application.port.GpsSettingsStore;
@@ -19,11 +20,14 @@ final class LocationTrackingUseCaseTest {
     @Test void startAndRestartExposeProviderStateAndKeepCallback() {
         FakeSource source = new FakeSource();
         LocationTrackingUseCase tracking = new LocationTrackingUseCase(
-                new LocationSettingsUseCase(new FakeSettingsStore()), source);
-        Consumer<GpsCoordinate> callback = ignored -> { };
+                new LocationSettingsUseCase(new FakeSettingsStore(), ignored -> true), source);
+        List<GpsCoordinate> coordinates = new ArrayList<>();
+        Consumer<GpsCoordinate> callback = coordinates::add;
+        GpsCoordinate coordinate = new GpsCoordinate(21.034918, 105.767322);
 
         assertEquals(LocationTrackingState.WAITING_FOR_LOCATION_INFO, tracking.start(callback));
-        assertSame(callback, source.callback);
+        source.emitCoordinate(coordinate);
+        assertEquals(List.of(coordinate), coordinates);
         source.nextState = LocationTrackingState.NO_PROVIDER;
         assertEquals(LocationTrackingState.NO_PROVIDER, tracking.restart());
     }
@@ -31,25 +35,47 @@ final class LocationTrackingUseCaseTest {
     @Test void stopClearsStateAndStopsTheSource() {
         FakeSource source = new FakeSource();
         LocationTrackingUseCase tracking = new LocationTrackingUseCase(
-                new LocationSettingsUseCase(new FakeSettingsStore()), source);
+                new LocationSettingsUseCase(new FakeSettingsStore(), ignored -> true), source);
         tracking.start(ignored -> { });
 
         tracking.stop();
 
         assertEquals(LocationTrackingState.STOPPED, tracking.currentState());
+        assertNull(tracking.latestCoordinate());
         assertEquals(1, source.stopCount);
+    }
+
+    @Test void restartClearsCoordinateAndRejectsPreviousSessionCallback() {
+        FakeSource source = new FakeSource();
+        LocationTrackingUseCase tracking = new LocationTrackingUseCase(
+                new LocationSettingsUseCase(new FakeSettingsStore(), ignored -> true), source);
+        GpsCoordinate first = new GpsCoordinate(21.034918, 105.767322);
+        GpsCoordinate second = new GpsCoordinate(10.776889, 106.700806);
+        tracking.start(ignored -> { });
+        Consumer<GpsCoordinate> previousSession = source.callback;
+        source.emitCoordinate(first);
+        assertSame(first, tracking.latestCoordinate());
+
+        tracking.restart();
+        previousSession.accept(first);
+
+        assertNull(tracking.latestCoordinate());
+        source.emitCoordinate(second);
+        assertSame(second, tracking.latestCoordinate());
     }
 
     @Test void asynchronousProviderFailureIsExposedToTheCaller() {
         FakeSource source = new FakeSource();
         LocationTrackingUseCase tracking = new LocationTrackingUseCase(
-                new LocationSettingsUseCase(new FakeSettingsStore()), source);
+                new LocationSettingsUseCase(new FakeSettingsStore(), ignored -> true), source);
         List<LocationTrackingState> states = new ArrayList<>();
         tracking.start(ignored -> { }, states::add);
+        source.emitCoordinate(new GpsCoordinate(21.034918, 105.767322));
 
         source.emitState(LocationTrackingState.ERROR);
 
         assertEquals(LocationTrackingState.ERROR, tracking.currentState());
+        assertNull(tracking.latestCoordinate());
         assertEquals(List.of(LocationTrackingState.ERROR), states);
     }
 
@@ -85,6 +111,7 @@ final class LocationTrackingUseCaseTest {
         @Override public void stop() { stopCount++; }
         @Override public void requestCurrentLocation(GpsSettings settings) { }
         @Override public GpsCoordinate latestCoordinate() { return null; }
+        private void emitCoordinate(GpsCoordinate coordinate) { callback.accept(coordinate); }
         private void emitState(LocationTrackingState state) { stateCallback.accept(state); }
     }
 }

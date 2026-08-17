@@ -571,6 +571,32 @@ final class SerializedRecordingCoordinatorTest {
         executor.runAll();
         assertEquals(List.of("start-video", "stop"), camera.calls);
     }
+    @Test void listenerRebindReplaysAudioSavingAndCancellationRestoresStart() {
+        SerializedRecordingCoordinator coordinator =
+                new SerializedRecordingCoordinator(Runnable::run);
+        List<CaptureEvent> events = new ArrayList<>();
+        coordinator.setListener(events::add);
+        events.clear();
+        coordinator.audioRecordingStarted("audio.aac", 123L);
+        events.clear();
+
+        coordinator.audioRecordingStopping();
+
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPING, events.get(0).getType());
+        coordinator.clearListener();
+        events.clear();
+        coordinator.setListener(events::add);
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPING, events.get(0).getType());
+        assertTrue(events.get(0).isReplay());
+        events.clear();
+
+        coordinator.audioRecordingStopCancelled();
+
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STARTED, events.get(0).getType());
+        assertEquals("audio.aac", events.get(0).getFileName());
+        assertEquals(123L, events.get(0).getStartedAtMillis());
+    }
+
     @Test void listenerRebindReplaysLatestAudioState() {
         SerializedRecordingCoordinator coordinator =
                 new SerializedRecordingCoordinator(Runnable::run);

@@ -7,11 +7,26 @@ def roomVersion = '2.8.4'
 def appProperties = new Properties()
 def appPropertiesFile = rootProject.file('application.properties')
 def appLocalPropertiesFile = rootProject.file('application-local.properties')
-if (appPropertiesFile.exists()) appPropertiesFile.withInputStream { appProperties.load(it) }
-if (appLocalPropertiesFile.exists()) appLocalPropertiesFile.withInputStream { appProperties.load(it) }
+if (appPropertiesFile.exists()) appPropertiesFile.withReader('UTF-8') { appProperties.load(it) }
 
 def buildConfigValue = { value -> "\"${String.valueOf(value).replace('\\', '\\\\').replace('"', '\\"')}\"" }
-def propertyValue = { key -> System.getenv(key) ?: appProperties.getProperty(key, '') }
+def localPropertyValue = { key ->
+    if (!appLocalPropertiesFile.isFile()) return null
+    def pattern = ~/^\s*${java.util.regex.Pattern.quote(key)}\s*=\s*(.*)$/
+    appLocalPropertiesFile.withReader('UTF-8') { reader ->
+        String line
+        while ((line = reader.readLine()) != null) {
+            def match = pattern.matcher(line)
+            if (match.matches()) return match.group(1)
+        }
+        null
+    }
+}
+def propertyValue = { key ->
+    System.getenv(key) ?: localPropertyValue(key) ?: appProperties.getProperty(key, '')
+}
+
+apply from: rootProject.file('gradle/build-secrets.gradle')
 
 def releaseSigning = [
         DCAM_RELEASE_KEYSTORE_FILE    : System.getenv('DCAM_RELEASE_KEYSTORE_FILE'),
@@ -22,20 +37,18 @@ def releaseSigning = [
 def releaseSigningConfigured = releaseSigning.values().every { value ->
     value != null && !value.isBlank()
 }
+def releaseSigningInputPresent = releaseSigning.values().any { value ->
+    value != null && !value.isBlank()
+}
+if (releaseSigningInputPresent && gradle.startParameter.configurationCacheRequested) {
+    throw new GradleException('Release signing requires --no-configuration-cache')
+}
 def missingReleaseSigningVariables = releaseSigning.findAll { name, value ->
     value == null || value.isBlank()
 }.keySet().toList()
 def releaseKeystoreFile = releaseSigningConfigured
         ? rootProject.file(releaseSigning['DCAM_RELEASE_KEYSTORE_FILE'])
         : null
-def releaseBodycamCryptoPassword = System.getenv('GITHUB_ACTIONS') == 'true'
-        ? System.getenv('BODYCAM_CRYPTO_PASSWORD')
-        : propertyValue('BODYCAM_CRYPTO_PASSWORD')
-def missingRequiredReleaseBuildConfig = [
-        BODYCAM_CRYPTO_PASSWORD: releaseBodycamCryptoPassword
-].findAll { name, value ->
-    value == null || value.isBlank()
-}.keySet().toList()
 
 android {
     namespace = 'com.dvid.dcam'
@@ -101,10 +114,6 @@ android {
 
 def validateReleaseBuildInputs = tasks.register('validateReleaseBuildInputs') {
     doLast {
-        if (!missingRequiredReleaseBuildConfig.isEmpty()) {
-            throw new GradleException("Missing required release BuildConfig values: ${missingRequiredReleaseBuildConfig.join(', ')}")
-        }
-
         if (!missingReleaseSigningVariables.isEmpty()) {
             throw new GradleException("Missing release signing environment variables: ${missingReleaseSigningVariables.join(', ')}")
         }

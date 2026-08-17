@@ -82,6 +82,7 @@ public final class LocationTrackingCoordinator {
         tracking.stop();
         synchronized (this) {
             state = stoppedState;
+            if (stoppedState != LocationTrackingState.STOPPED) coordinate = null;
         }
         onStateChanged.run();
         return stoppedState;

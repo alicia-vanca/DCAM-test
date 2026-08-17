@@ -188,6 +188,128 @@ final class DcamMediaOutputImplTest {
             }));
         }
     }
+    @Test void openPlainAudioM4aFinalizationPublishesGpsRoute(@TempDir Path root)
+            throws Exception {
+        verifyOpenAudioM4aFinalization(root, false, 2_000_000L);
+    }
+
+    @Test void openLiveEncryptedAudioM4aFinalizationPublishesGpsRoute(@TempDir Path root)
+            throws Exception {
+        verifyOpenAudioM4aFinalization(root, true, 2_000_000L);
+    }
+
+    @Test void openAudioM4aFinalizationFallsBackWhenDurationUnavailable(
+            @TempDir Path root) throws Exception {
+        verifyOpenAudioM4aFinalization(root, false, 0L);
+    }
+    @Test void encryptedPhotoPublishesByMoveWithoutPlaintextOrCopy(@TempDir Path root)
+            throws Exception {
+        String password = "123456";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> password, new NoOpLogger());
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.IMAGE, "0", "operator",
+                LocalDateTime.of(2026, 8, 12, 10, 30), true);
+        byte[] plaintext = jpeg(1920, 1080);
+        output.prepareImageFile(media);
+        output.openSegmentedAesGcmJpegOutput(media).write(plaintext);
+        Files.setLastModifiedTime(media.getFile().toPath(),
+                java.nio.file.attribute.FileTime.fromMillis(1_600_000_000_000L));
+        java.nio.file.attribute.FileTime stagedTime =
+                Files.getLastModifiedTime(media.getFile().toPath());
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<File> published = new AtomicReference<>();
+        AtomicReference<Exception> failure = new AtomicReference<>();
+
+        output.finalizeSaved(null, media, null, new DcamMediaOutput.FinalizationCallback() {
+            @Override public void onSuccess(File finalFile) {
+                published.set(finalFile);
+                completed.countDown();
+            }
+
+            @Override public void onFailure(Exception error) {
+                failure.set(error);
+                completed.countDown();
+            }
+        });
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS));
+        assertTrue(failure.get() == null, String.valueOf(failure.get()));
+        assertTrue(published.get() != null && published.get().isFile());
+        assertEquals(stagedTime, Files.getLastModifiedTime(published.get().toPath()));
+        assertFalse(media.getFile().exists());
+        assertTrue(SegmentedAesGcmMediaStore.hasFamilyMagic(published.get()));
+        try (SegmentedAesGcmMediaStore decrypted =
+                     SegmentedAesGcmMediaStore.openPublished(published.get(), password)) {
+            assertArrayEquals(plaintext, readAll(decrypted));
+        }
+        try (var files = Files.walk(root)) {
+            assertTrue(files.noneMatch(path -> {
+                String name = path.getFileName().toString();
+                return name.contains(".publishing-") || name.endsWith(".enc-complete")
+                        || name.equals(media.getFileName().replace("_enc.jpg", ".jpg"));
+            }));
+        }
+    }
+
+    @Test void encryptedPhotoWithoutSegmentedMagicNeverPublishes(@TempDir Path root)
+            throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> "123456", new NoOpLogger());
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.IMAGE, "0", "operator",
+                LocalDateTime.of(2026, 8, 12, 10, 31), true);
+        output.prepareImageFile(media);
+        Files.write(media.getFile().toPath(), jpeg(640, 480));
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<File> published = new AtomicReference<>();
+        AtomicReference<Exception> failure = new AtomicReference<>();
+
+        output.finalizeSaved(null, media, null, new DcamMediaOutput.FinalizationCallback() {
+            @Override public void onSuccess(File finalFile) {
+                published.set(finalFile);
+                completed.countDown();
+            }
+
+            @Override public void onFailure(Exception error) {
+                failure.set(error);
+                completed.countDown();
+            }
+        });
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS));
+        assertTrue(failure.get() != null);
+        assertTrue(failure.get().getMessage().contains("no Segmented AES-GCM envelope"));
+        assertTrue(media.getFile().isFile());
+        assertFalse(storage.finalFile(media).exists());
+        assertTrue(published.get() == null);
+    }
+
+    @Test void completedLegacyAesCtrPhotoStillPublishes(@TempDir Path root)
+            throws Exception {
+        String password = "123456";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> password, new NoOpLogger());
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.IMAGE, "0", "operator",
+                LocalDateTime.of(2026, 8, 12, 10, 32), true);
+        byte[] plaintext = jpeg(640, 480);
+        output.prepareImageFile(media);
+        Files.write(media.getFile().toPath(), plaintext);
+
+        output.encryptSaved(null, media, password);
+        File published = output.finalizeSavedNow(null, media);
+        File decrypted = root.resolve("legacy-photo.jpg").toFile();
+        BodycamMediaCrypto.decryptFile(published, decrypted, password);
+
+        assertTrue(published.isFile());
+        assertFalse(media.getFile().exists());
+        assertArrayEquals(plaintext, Files.readAllBytes(decrypted.toPath()));
+    }
+
     @Test void encryptedAudioCheckpointsStayBelowDoubleStorage(@TempDir Path root)
             throws Exception {
         String password = "123456";
@@ -214,6 +336,7 @@ final class DcamMediaOutputImplTest {
                 java.util.Arrays.copyOf(physical, DcamSegmentedGcmFormat.FILE_HEADER_BYTES));
         assertEquals(SegmentedAesGcmMediaStore.AUDIO_RECORDING_BLOCK_BYTES,
                 header.blockBytes);
+        assertEquals(1_000, header.kdfIterations);
         assertTrue(media.getFile().length() < logicalBytes * 3L / 2L);
     }
 
@@ -381,6 +504,62 @@ final class DcamMediaOutputImplTest {
         assertSame(expected, report);
     }
 
+    private static void verifyOpenAudioM4aFinalization(
+            Path root, boolean encrypted, long durationUs) throws Exception {
+        String password = "audio-m4a-live-encryption";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> password, new NoOpLogger());
+        DcamMediaFile media = output.durableAudioMediaFile(
+                "CAM001", "000001", encrypted);
+        DcamRecordingOutput recordingOutput = output.openAudioOutput(media);
+        writeFully(recordingOutput,
+                DcamInterruptedMp4FinalizerTest.interruptedAudioM4aWithGpsRoute());
+
+        File published = output.finalizeOpenAudioM4aNow(
+                null, media, recordingOutput, durationUs);
+
+        assertTrue(published.isFile());
+        assertFalse(media.getFile().exists());
+        assertEquals(encrypted, SegmentedAesGcmMediaStore.hasFamilyMagic(published));
+        byte[] logicalBytes;
+        if (encrypted) {
+            try (SegmentedAesGcmMediaStore decrypted =
+                         SegmentedAesGcmMediaStore.openPublished(published, password)) {
+                logicalBytes = readAll(decrypted);
+            }
+        } else {
+            logicalBytes = Files.readAllBytes(published.toPath());
+        }
+        assertTrue(DcamInterruptedMp4FinalizerTest.movieDuration(logicalBytes) > 0L);
+        assertEquals(2, gpsRoutePointCount(logicalBytes));
+        File[] sidecars = published.getParentFile().listFiles(
+                file -> file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".md5"));
+        assertTrue(sidecars == null || sidecars.length == 0);
+    }
+
+    private static int gpsRoutePointCount(byte[] data) {
+        ByteBuffer bytes = ByteBuffer.wrap(data);
+        int count = 0;
+        int offset = 0;
+        while (offset <= data.length - 8) {
+            long boxBytes = Integer.toUnsignedLong(bytes.getInt(offset));
+            if (boxBytes < 8L || boxBytes > data.length - offset) break;
+            if (bytes.getInt(offset + 4) == DcamFragmentedMp4Layout.BOX_UUID
+                    && boxBytes == DcamFragmentedMp4Layout.GPS_ROUTE_BOX_BYTES) {
+                int content = offset + 8;
+                if (bytes.getLong(content)
+                                == DcamFragmentedMp4Layout.GPS_ROUTE_UUID_MOST_SIGNIFICANT_BITS
+                        && bytes.getLong(content + 8)
+                                == DcamFragmentedMp4Layout.GPS_ROUTE_UUID_LEAST_SIGNIFICANT_BITS
+                        && bytes.getInt(content + 16) == 1) {
+                    count++;
+                }
+            }
+            offset += (int) boxBytes;
+        }
+        return count;
+    }
     private static void writeFully(DcamRecordingOutput output, byte[] bytes) throws Exception {
         ByteBuffer source = ByteBuffer.wrap(bytes);
         while (source.hasRemaining()) assertTrue(output.write(source) > 0);
@@ -394,6 +573,23 @@ final class DcamMediaOutputImplTest {
             if (read < 0) break;
         }
         return target.array();
+    }
+
+    private static byte[] jpeg(int width, int height) {
+        return new byte[] {
+                (byte) 0xff, (byte) 0xd8,
+                (byte) 0xff, (byte) 0xe0, 0x00, 0x04, 0x01, 0x02,
+                (byte) 0xff, (byte) 0xc0, 0x00, 0x11, 0x08,
+                (byte) (height >>> 8), (byte) height,
+                (byte) (width >>> 8), (byte) width,
+                0x03,
+                0x01, 0x11, 0x00,
+                0x02, 0x11, 0x00,
+                0x03, 0x11, 0x00,
+                (byte) 0xff, (byte) 0xda, 0x00, 0x08,
+                0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+                0x00, (byte) 0xff, (byte) 0xd9
+        };
     }
     private static final class CapturingLogger implements Logger {
         private final List<String> infoMessages = new ArrayList<>();

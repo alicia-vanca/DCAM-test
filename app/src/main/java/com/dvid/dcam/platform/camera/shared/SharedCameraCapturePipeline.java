@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.camera.shared;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationResult;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import com.dvid.dcam.platform.camera.shared.api.SharedCameraPipeline;
 import java.io.File;
 
@@ -20,6 +21,8 @@ public interface SharedCameraCapturePipeline extends SharedCameraPipeline {
         void onLimitReached();
     }
 
+    long recordingBitrateBitsPerSecond();
+
     CameraOperationResult startEncoder(CameraOperationContext context, File outputFile);
 
     CameraOperationResult startEncoder(
@@ -27,6 +30,12 @@ public interface SharedCameraCapturePipeline extends SharedCameraPipeline {
             File outputFile,
             long fileSizeLimitBytes,
             RecordingLimitListener listener);
+    CameraOperationResult startEncoder(
+            CameraOperationContext context,
+            File outputFile,
+            long fileSizeLimitBytes,
+            RecordingLimitListener listener,
+            int rotationDegrees);
     default CameraOperationResult startEncoder(
             CameraOperationContext context,
             DcamRecordingOutput recordingOutput,
@@ -34,6 +43,12 @@ public interface SharedCameraCapturePipeline extends SharedCameraPipeline {
             RecordingLimitListener listener) {
         return startEncoder(context, recordingOutput.file(), fileSizeLimitBytes, listener);
     }
+    CameraOperationResult startEncoder(
+            CameraOperationContext context,
+            DcamRecordingOutput recordingOutput,
+            long fileSizeLimitBytes,
+            RecordingLimitListener listener,
+            int rotationDegrees);
 
     HealthSnapshot healthSnapshot(CameraOperationContext context);
 
@@ -51,4 +66,15 @@ public interface SharedCameraCapturePipeline extends SharedCameraPipeline {
     int outputRotationDegrees();
 
     CameraOperationResult captureJpeg(CameraOperationContext context, File outputFile);
+
+    CameraOperationResult captureJpeg(
+            CameraOperationContext context, File outputFile, int rotationDegrees);
+
+    CameraOperationResult captureJpeg(
+            CameraOperationContext context, SegmentedAesGcmJpegOutput output);
+
+    CameraOperationResult captureJpeg(
+            CameraOperationContext context,
+            SegmentedAesGcmJpegOutput output,
+            int rotationDegrees);
 }

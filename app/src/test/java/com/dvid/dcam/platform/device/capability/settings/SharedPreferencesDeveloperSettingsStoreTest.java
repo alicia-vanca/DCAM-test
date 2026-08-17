@@ -84,6 +84,20 @@ final class SharedPreferencesDeveloperSettingsStoreTest {
         assertEquals("true", preferences.get("release_camera_when_screen_off"));
     }
 
+    @Test void resourceMonitorDefaultsOffAndRoundTrips() {
+        MemoryPreferences preferences = new MemoryPreferences();
+        SharedPreferencesDeveloperSettingsStore store =
+                new SharedPreferencesDeveloperSettingsStore(preferences);
+
+        assertFalse(store.resourceMonitorEnabled());
+        preferences.put("resource_monitor_enabled", "not-a-boolean");
+        assertFalse(store.resourceMonitorEnabled());
+
+        store.setResourceMonitorEnabled(true);
+        assertTrue(store.resourceMonitorEnabled());
+        assertEquals("true", preferences.get("resource_monitor_enabled"));
+    }
+
     @Test void failedWriteKeepsSessionModeUntilDurableRetrySucceeds() {
         MemoryPreferences preferences = new MemoryPreferences();
         SharedPreferencesDeveloperSettingsStore store =

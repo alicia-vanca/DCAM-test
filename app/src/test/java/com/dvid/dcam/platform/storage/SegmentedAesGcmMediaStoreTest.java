@@ -124,6 +124,28 @@ final class SegmentedAesGcmMediaStoreTest {
         }
     }
 
+    @Test void recoversThreeCheckpointVersionsWithinSameBlock(@TempDir Path root)
+            throws Exception {
+        File encrypted = root.resolve("repeated-tail_enc.m4a").toFile();
+        byte[] expected = pattern(4 * 1024, 0x52);
+
+        try (DcamRecordingOutput output =
+                     DcamRecordingOutput.openSegmentedAesGcm(
+                             encrypted, PASSWORD, 4 * 1024)) {
+            writeFully(output, ByteBuffer.wrap(expected, 0, 142));
+            output.checkpoint();
+            writeFully(output, ByteBuffer.wrap(expected, 142, 3_081));
+            output.checkpoint();
+            writeFully(output, ByteBuffer.wrap(expected, 3_223, 873));
+            output.checkpoint();
+        }
+
+        try (SegmentedAesGcmMediaStore recovered =
+                     SegmentedAesGcmMediaStore.openForRecovery(encrypted, PASSWORD)) {
+            assertArrayEquals(expected, readAll(recovered));
+        }
+    }
+
     @Test void autocommitCannotRewriteCommittedTailPrefix(@TempDir Path root)
             throws Exception {
         File encrypted = root.resolve("prefix_enc.mp4").toFile();

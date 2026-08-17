@@ -20,6 +20,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.OutputConfiguration;
+import android.location.Location;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Build;
@@ -29,6 +30,7 @@ import android.os.SystemClock;
 import android.util.Range;
 import android.view.Surface;
 import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationResult;
@@ -39,12 +41,15 @@ import com.dvid.dcam.feature.device.domain.camera.VerificationPipelineId;
 import com.dvid.dcam.feature.device.domain.camera.VideoCodec;
 import com.dvid.dcam.platform.camera.shared.SharedCameraPipelineSupport.VideoInspection;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +73,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private final String cameraThreadName;
     private final String encoderThreadName;
     private final String surfaceMetricName;
+    private final Supplier<GpsCoordinate> captureLocation;
     private volatile int rotationDegrees;
     private volatile boolean previewExpected = true;
     private final AtomicLong sourceFrameCount = new AtomicLong();
@@ -115,6 +121,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     protected AbstractSharedCameraPipeline(Context context, Logger logger,
             File outputDirectory, Surface externalPreviewSurface, boolean recycleEncoder,
             int rotationDegrees, long preRecordGopDurationMillis,
+            Supplier<GpsCoordinate> captureLocation,
             VerificationPipelineId pipelineId, String cameraThreadName,
             String encoderThreadName, String surfaceMetricName) {
         this.context = Objects.requireNonNull(context, "context");
@@ -131,11 +138,31 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                     "Pre-record requires a disk-backed GOP store; only 0 ms is supported");
         }
         this.preRecordGopDurationMillis = preRecordGopDurationMillis;
+        this.captureLocation = Objects.requireNonNull(captureLocation, "captureLocation");
         this.rotationDegrees = CameraOrientation.normalize(rotationDegrees);
         this.pipelineId = Objects.requireNonNull(pipelineId, "pipelineId");
         this.cameraThreadName = Objects.requireNonNull(cameraThreadName, "cameraThreadName");
         this.encoderThreadName = Objects.requireNonNull(encoderThreadName, "encoderThreadName");
         this.surfaceMetricName = Objects.requireNonNull(surfaceMetricName, "surfaceMetricName");
+    }
+
+
+    private GpsCoordinate currentCaptureLocation(String mediaType) {
+        try {
+            return captureLocation.get();
+        } catch (RuntimeException error) {
+            logger.warn("Capture " + mediaType
+                    + " without GPS metadata because current location lookup failed.", error);
+            return null;
+        }
+    }
+
+    private static Location jpegLocation(GpsCoordinate coordinate) {
+        Location location = new Location("dcam");
+        location.setLatitude(coordinate.getLatitude());
+        location.setLongitude(coordinate.getLongitude());
+        location.setTime(System.currentTimeMillis());
+        return location;
     }
 
     @Override public final VerificationPipelineId pipelineId() {
@@ -408,6 +435,14 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     }
 
 
+    @Override public final long recordingBitrateBitsPerSecond() {
+        SharedAvcEncoder current = encoder;
+        if (current == null) return 0L;
+        boolean includeAudio = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+        return current.recordingBitrateBitsPerSecond(includeAudio);
+    }
+
     @Override public final CameraOperationResult startEncoder(CameraOperationContext value) {
         return startEncoder(value, artifact(value, ".mp4"));
     }
@@ -422,8 +457,18 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             File outputFile,
             long fileSizeLimitBytes,
             RecordingLimitListener limitListener) {
+        return startEncoder(value, outputFile, fileSizeLimitBytes,
+                limitListener, rotationDegrees);
+    }
+
+    @Override public final CameraOperationResult startEncoder(
+            CameraOperationContext value,
+            File outputFile,
+            long fileSizeLimitBytes,
+            RecordingLimitListener limitListener,
+            int rotationDegrees) {
         return startEncoder(value, Objects.requireNonNull(outputFile, "outputFile"), null,
-                fileSizeLimitBytes, limitListener);
+                fileSizeLimitBytes, limitListener, rotationDegrees);
     }
 
     @Override public final CameraOperationResult startEncoder(
@@ -431,9 +476,20 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             DcamRecordingOutput recordingOutput,
             long fileSizeLimitBytes,
             RecordingLimitListener limitListener) {
+        return startEncoder(value, recordingOutput, fileSizeLimitBytes,
+                limitListener, rotationDegrees);
+    }
+
+    @Override public final CameraOperationResult startEncoder(
+            CameraOperationContext value,
+            DcamRecordingOutput recordingOutput,
+            long fileSizeLimitBytes,
+            RecordingLimitListener limitListener,
+            int rotationDegrees) {
         DcamRecordingOutput output = Objects.requireNonNull(
                 recordingOutput, "recordingOutput");
-        return startEncoder(value, output.file(), output, fileSizeLimitBytes, limitListener);
+        return startEncoder(value, output.file(), output, fileSizeLimitBytes,
+                limitListener, rotationDegrees);
     }
 
     private CameraOperationResult startEncoder(
@@ -441,7 +497,8 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             File outputFile,
             DcamRecordingOutput recordingOutput,
             long fileSizeLimitBytes,
-            RecordingLimitListener limitListener) {
+            RecordingLimitListener limitListener,
+            int requestedRotationDegrees) {
         synchronized (operationLock) {
             long started = SystemClock.elapsedRealtime();
             CameraOperationResult invalid = validateBound(value,
@@ -457,7 +514,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                 capturedJpegResolution = null;
                 jpegCapturedWhileEncoderActive = false;
                 videoArtifact = Objects.requireNonNull(outputFile, "outputFile");
-                int encoderRotation = rotationDegrees;
+                int encoderRotation = CameraOrientation.normalize(requestedRotationDegrees);
                 if (!encoder.setRotation(encoderRotation)) {
                     return result(value, CameraPipelineOperation.START_ENCODER,
                             CameraOperationOutcome.GLOBAL_FAILURE, started,
@@ -600,78 +657,145 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     }
 
     @Override public final CameraOperationResult captureJpeg(CameraOperationContext value) {
-        return captureJpeg(value, artifact(value, ".jpg"));
+        synchronized (operationLock) {
+            return captureJpeg(value, artifact(value, ".jpg"), null,
+                    rotationDegrees, true);
+        }
     }
 
     @Override public final CameraOperationResult captureJpeg(
             CameraOperationContext value, File outputFile) {
+        return captureJpeg(value, outputFile, rotationDegrees);
+    }
+
+    @Override public final CameraOperationResult captureJpeg(
+            CameraOperationContext value, File outputFile, int jpegRotationDegrees) {
         synchronized (operationLock) {
-            long started = SystemClock.elapsedRealtime();
-            CameraOperationResult invalid = validateBound(value,
-                    CameraPipelineOperation.CAPTURE_JPEG, started);
-            if (invalid != null) return invalid;
-            File output = Objects.requireNonNull(outputFile, "outputFile");
-            long requestId = jpegRequestSequence.incrementAndGet();
-            boolean encoderWasActive = encoderActive;
-            PendingJpeg request = new PendingJpeg(value, output, encoderWasActive, requestId);
-            pendingJpeg = request;
-            try {
-                CaptureRequest.Builder builder = camera.createCaptureRequest(
-                        encoderWasActive
-                                ? CameraDevice.TEMPLATE_VIDEO_SNAPSHOT
-                                : CameraDevice.TEMPLATE_STILL_CAPTURE);
-                SharedCameraPipelineSupport.applyFps(builder, configuredFpsRange);
-                int jpegRotation = rotationDegrees;
-                builder.set(CaptureRequest.JPEG_ORIENTATION, jpegRotation);
-                builder.setTag(new CaptureTag(value, requestId, true));
-                addJpegTargets(builder, encoderWasActive);
-                builder.addTarget(jpegReader.getSurface());
-                session.capture(builder.build(), captureCallback, cameraHandler);
-                boolean complete = request.completed.await(
-                        waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
-                if (complete) {
-                    pendingJpeg = null;
-                } else {
-                    cancelPendingJpeg(request);
+            return captureJpeg(value, Objects.requireNonNull(outputFile, "outputFile"), null,
+                    jpegRotationDegrees, false);
+        }
+    }
+
+    @Override public final CameraOperationResult captureJpeg(
+            CameraOperationContext value, SegmentedAesGcmJpegOutput output) {
+        return captureJpeg(value, output, rotationDegrees);
+    }
+
+    @Override public final CameraOperationResult captureJpeg(
+            CameraOperationContext value,
+            SegmentedAesGcmJpegOutput output,
+            int jpegRotationDegrees) {
+        synchronized (operationLock) {
+            SegmentedAesGcmJpegOutput encryptedOutput =
+                    Objects.requireNonNull(output, "output");
+            return captureJpeg(value, encryptedOutput.file(), encryptedOutput,
+                    jpegRotationDegrees, false);
+        }
+    }
+
+    private CameraOperationResult captureJpeg(
+            CameraOperationContext value,
+            File output,
+            SegmentedAesGcmJpegOutput encryptedOutput,
+            int jpegRotationDegrees,
+            boolean pipelineOwnedOutput) {
+        long started = SystemClock.elapsedRealtime();
+        CameraOperationResult invalid = validateBound(value,
+                CameraPipelineOperation.CAPTURE_JPEG, started);
+        if (invalid != null) return invalid;
+        long requestId = jpegRequestSequence.incrementAndGet();
+        boolean encoderWasActive = encoderActive;
+        int requestedJpegRotation = CameraOrientation.normalize(jpegRotationDegrees);
+        PendingJpeg request = new PendingJpeg(value, output, encryptedOutput,
+                encoderWasActive, requestedJpegRotation, requestId);
+        pendingJpeg = request;
+        try {
+            CaptureRequest.Builder builder = camera.createCaptureRequest(
+                    encoderWasActive
+                            ? CameraDevice.TEMPLATE_VIDEO_SNAPSHOT
+                            : CameraDevice.TEMPLATE_STILL_CAPTURE);
+            SharedCameraPipelineSupport.applyFps(builder, configuredFpsRange);
+            int cameraJpegRotation = encoderWasActive ? 0 : requestedJpegRotation;
+            builder.set(CaptureRequest.JPEG_ORIENTATION, cameraJpegRotation);
+            GpsCoordinate location = currentCaptureLocation("photo");
+            if (location != null) {
+                try {
+                    builder.set(CaptureRequest.JPEG_GPS_LOCATION, jpegLocation(location));
+                } catch (RuntimeException error) {
+                    logger.warn("Capture photo without GPS metadata because camera request "
+                            + "rejected current location.", error);
                 }
-                if (!complete) {
-                    CameraOperationOutcome outcome = deadlineExpired(value)
-                            ? CameraOperationOutcome.TIMEOUT_UNKNOWN
-                            : CameraOperationOutcome.CANDIDATE_SUSPECT;
-                    return result(value, CameraPipelineOperation.CAPTURE_JPEG, outcome, started,
-                            "jpeg_callback_missing");
-                }
-                if (request.error != null) {
-                    deleteQuietly(output);
-                    return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                            request.outcome, started, request.error);
-                }
-                CameraResolution decodedResolution = JpegDimensions.read(output)
-                        .map(size -> new CameraResolution(size.width(), size.height()))
-                        .orElse(null);
-                capturedJpegResolution = decodedResolution;
-                jpegArtifact = output;
-                jpegCapturedWhileEncoderActive = request.encoderWasActive;
-                return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                        CameraOperationOutcome.PASS, started,
-                        "jpeg_captured:resolution=" + capturedJpegResolution
-                                + ",encoderActive=" + jpegCapturedWhileEncoderActive
-                                + ",artifact=" + output.getAbsolutePath());
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                cancelPendingJpeg(request);
-                return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                        CameraOperationOutcome.CANCELLED_UNKNOWN, started, "jpeg_interrupted");
-            } catch (CameraAccessException error) {
-                cancelPendingJpeg(request);
-                return cameraAccessFailure(value, CameraPipelineOperation.CAPTURE_JPEG,
-                        started, "jpeg_capture", error);
-            } catch (RuntimeException error) {
-                cancelPendingJpeg(request);
-                return failure(value, CameraPipelineOperation.CAPTURE_JPEG,
-                        CameraPipelineFailureClassifier.Signal.UNKNOWN_GLOBAL,
-                        started, "jpeg_runtime", error);
             }
+            if (encoderWasActive) {
+                logger.info("Capture recording photo with stable camera orientation. "
+                        + "Requested output rotation: " + requestedJpegRotation
+                        + " degrees. Camera request rotation: 0 degrees.");
+            }
+            builder.setTag(new CaptureTag(value, requestId, true));
+            addJpegTargets(builder, encoderWasActive);
+            builder.addTarget(jpegReader.getSurface());
+            session.capture(builder.build(), captureCallback, cameraHandler);
+            boolean complete = request.completed.await(
+                    waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
+            if (complete) {
+                pendingJpeg = null;
+            } else {
+                cancelPendingJpeg(request);
+            }
+            if (!complete) {
+                CameraOperationOutcome outcome = deadlineExpired(value)
+                        ? CameraOperationOutcome.TIMEOUT_UNKNOWN
+                        : CameraOperationOutcome.CANDIDATE_SUSPECT;
+                return result(value, CameraPipelineOperation.CAPTURE_JPEG, outcome, started,
+                        "jpeg_callback_missing");
+            }
+            if (request.error != null) {
+                request.discardOutput();
+                return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                        request.outcome, started, request.error);
+            }
+            if (encoderWasActive && encryptedOutput == null) {
+                try {
+                    CameraOrientation.applyJpegOrientationMetadata(
+                            output, requestedJpegRotation);
+                } catch (IOException error) {
+                    request.discardOutput();
+                    logger.warn("Write recording photo orientation metadata failed. "
+                            + "Requested rotation: " + requestedJpegRotation
+                            + " degrees. Staged JPEG removed.", error);
+                    return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                            CameraOperationOutcome.BLOCKED_EXTERNAL, started,
+                            "jpeg_orientation_metadata:"
+                                    + error.getClass().getSimpleName());
+                }
+            }
+            CameraResolution decodedResolution = encryptedOutput == null
+                    ? JpegDimensions.read(output)
+                            .map(size -> new CameraResolution(size.width(), size.height()))
+                            .orElse(null)
+                    : request.resolution;
+            capturedJpegResolution = decodedResolution;
+            jpegArtifact = pipelineOwnedOutput ? output : null;
+            jpegCapturedWhileEncoderActive = request.encoderWasActive;
+            return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                    CameraOperationOutcome.PASS, started,
+                    "jpeg_captured:resolution=" + capturedJpegResolution
+                            + ",encoderActive=" + jpegCapturedWhileEncoderActive
+                            + ",artifact=" + output.getAbsolutePath());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            cancelPendingJpeg(request);
+            return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                    CameraOperationOutcome.CANCELLED_UNKNOWN, started, "jpeg_interrupted");
+        } catch (CameraAccessException error) {
+            cancelPendingJpeg(request);
+            return cameraAccessFailure(value, CameraPipelineOperation.CAPTURE_JPEG,
+                    started, "jpeg_capture", error);
+        } catch (RuntimeException error) {
+            cancelPendingJpeg(request);
+            return failure(value, CameraPipelineOperation.CAPTURE_JPEG,
+                    CameraPipelineFailureClassifier.Signal.UNKNOWN_GLOBAL,
+                    started, "jpeg_runtime", error);
         }
     }
 
@@ -800,7 +924,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         try {
             encoder = SharedAvcEncoder.open(width, height, framesPerSecond, logger,
                     pipelineId().value(), encoderThreadName, recycleEncoder, encoderRotation,
-                    preRecordGopDurationMillis);
+                    preRecordGopDurationMillis, captureLocation);
         } catch (IOException error) {
             throw new PipelineFailure(CameraOperationOutcome.CANDIDATE_SUSPECT,
                     "encoder_prepare:" + error.getMessage());
@@ -1046,7 +1170,13 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                     PendingJpeg jpeg = pendingJpeg;
                     if (tag != null && tag.jpeg && jpeg != null
                             && jpeg.requestId == tag.requestId) {
-                        jpeg.markStarted(timestamp);
+                        JpegPayload early = jpeg.markStarted(timestamp);
+                        if (early != null) {
+                            logger.info("Recover JPEG capture callback order for request "
+                                    + tag.requestId + ". Buffered image timestamp matched "
+                                    + "shutter timestamp: " + timestamp + " ns.");
+                            writeJpeg(jpeg, early);
+                        }
                     }
                 }
 
@@ -1082,43 +1212,60 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private void cancelPendingJpeg(PendingJpeg request) {
         if (pendingJpeg == request) pendingJpeg = null;
         request.cancel();
-        deleteQuietly(request.file);
+        request.discardOutput();
     }
 
     private void onJpegAvailable(ImageReader reader) {
         PendingJpeg request = pendingJpeg;
-        boolean writing = false;
         try (Image image = reader.acquireNextImage()) {
-            if (image == null) return;
-            if (request == null || !isCurrent(request.context)
-                    || !request.accepts(image.getTimestamp())) return;
-            writing = request.tryBeginWrite();
-            if (!writing) return;
+            if (image == null || request == null || !isCurrent(request.context)) return;
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
-            try (FileOutputStream output = new FileOutputStream(request.file)) {
-                output.write(bytes);
-                output.getFD().sync();
-            }
-            if (!request.isCancelled()) {
-                request.complete(new CameraResolution(image.getWidth(), image.getHeight()));
-            }
-        } catch (IOException error) {
-            if (request != null) request.fail(CameraOperationOutcome.BLOCKED_EXTERNAL,
-                    "jpeg_write:" + error.getClass().getSimpleName());
-            logger.warn(activeContext == null
-                    ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_write"
-                    : prefix(activeContext, "jpeg_write"), error);
+            JpegPayload ready = request.accept(new JpegPayload(
+                    image.getTimestamp(), bytes,
+                    new CameraResolution(image.getWidth(), image.getHeight())));
+            if (ready != null) writeJpeg(request, ready);
         } catch (RuntimeException error) {
             if (request != null) request.fail(CameraOperationOutcome.GLOBAL_FAILURE,
                     "jpeg_reader:" + error.getClass().getSimpleName());
             logger.warn(activeContext == null
                     ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_reader"
                     : prefix(activeContext, "jpeg_reader"), error);
+        }
+    }
+
+    private void writeJpeg(PendingJpeg request, JpegPayload payload) {
+        try {
+            if (request.encryptedOutput == null) {
+                try (FileOutputStream output = new FileOutputStream(request.file)) {
+                    output.write(payload.bytes());
+                    output.getFD().sync();
+                }
+            } else {
+                byte[] jpeg = request.encoderWasActive
+                        ? JpegExifOrientation.apply(payload.bytes(),
+                                CameraOrientation.exifOrientation(
+                                        request.requestedJpegRotation))
+                        : payload.bytes();
+                request.encryptedOutput.write(jpeg);
+            }
+            if (!request.isCancelled()) request.complete(payload.resolution());
+        } catch (IOException error) {
+            request.fail(CameraOperationOutcome.BLOCKED_EXTERNAL,
+                    "jpeg_write:" + error.getClass().getSimpleName());
+            logger.warn(activeContext == null
+                    ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_write"
+                    : prefix(activeContext, "jpeg_write"), error);
+        } catch (RuntimeException error) {
+            request.fail(CameraOperationOutcome.GLOBAL_FAILURE,
+                    "jpeg_write:" + error.getClass().getSimpleName());
+            logger.warn(activeContext == null
+                    ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_write"
+                    : prefix(activeContext, "jpeg_write"), error);
         } finally {
-            if (writing) request.finishWrite();
-            if (request != null && request.isCancelled()) deleteQuietly(request.file);
+            request.finishWrite();
+            if (request.isCancelled()) request.discardOutput();
         }
     }
 
@@ -1458,45 +1605,78 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private record CaptureTag(
             CameraOperationContext context, long requestId, boolean jpeg) {}
 
-    private static final class PendingJpeg {
+    static record JpegPayload(
+            long timestamp, byte[] bytes, CameraResolution resolution) {}
+
+    static final class PendingJpeg {
         private final CameraOperationContext context;
         private final File file;
+        private final SegmentedAesGcmJpegOutput encryptedOutput;
         private final boolean encoderWasActive;
+        private final int requestedJpegRotation;
         private final long requestId;
         private final CountDownLatch completed = new CountDownLatch(1);
+        private final List<JpegPayload> earlyPayloads = new ArrayList<>();
         private volatile long expectedTimestamp = Long.MIN_VALUE;
         private volatile CameraResolution resolution;
         private volatile CameraOperationOutcome outcome = CameraOperationOutcome.PASS;
         private volatile String error;
 
-        private PendingJpeg(CameraOperationContext context,
-                File file, boolean encoderWasActive, long requestId) {
+        PendingJpeg(
+                CameraOperationContext context,
+                File file,
+                SegmentedAesGcmJpegOutput encryptedOutput,
+                boolean encoderWasActive,
+                int requestedJpegRotation,
+                long requestId) {
             this.context = context;
             this.file = file;
+            this.encryptedOutput = encryptedOutput;
             this.encoderWasActive = encoderWasActive;
+            this.requestedJpegRotation = requestedJpegRotation;
             this.requestId = requestId;
         }
 
         private boolean cancelled;
         private boolean writing;
 
-        private synchronized void markStarted(long timestamp) {
+        synchronized JpegPayload markStarted(long timestamp) {
+            if (cancelled || completed.getCount() == 0) {
+                earlyPayloads.clear();
+                return null;
+            }
             expectedTimestamp = timestamp;
-        }
-
-        private synchronized boolean accepts(long timestamp) {
-            return !cancelled
-                    && expectedTimestamp != Long.MIN_VALUE && expectedTimestamp == timestamp;
-        }
-
-        private synchronized boolean tryBeginWrite() {
-            if (cancelled || writing) return false;
+            JpegPayload matching = null;
+            for (JpegPayload payload : earlyPayloads) {
+                if (payload.timestamp() == timestamp) {
+                    matching = payload;
+                    break;
+                }
+            }
+            earlyPayloads.clear();
+            if (writing || matching == null) return null;
             writing = true;
-            return true;
+            return matching;
+        }
+
+        synchronized JpegPayload accept(JpegPayload payload) {
+            if (cancelled || writing || completed.getCount() == 0) return null;
+            if (expectedTimestamp == Long.MIN_VALUE) {
+                earlyPayloads.add(payload);
+                return null;
+            }
+            if (expectedTimestamp != payload.timestamp()) return null;
+            writing = true;
+            return payload;
         }
 
         private synchronized void finishWrite() {
             writing = false;
+        }
+
+        private void discardOutput() {
+            if (encryptedOutput == null) deleteQuietly(file);
+            else encryptedOutput.discard();
         }
 
         private synchronized boolean isCancelled() {
@@ -1505,19 +1685,22 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
         private synchronized void cancel() {
             cancelled = true;
+            earlyPayloads.clear();
             outcome = CameraOperationOutcome.CANCELLED_UNKNOWN;
             error = "jpeg_cancelled";
             completed.countDown();
         }
 
         private synchronized void complete(CameraResolution value) {
-            if (cancelled) return;
+            if (cancelled || completed.getCount() == 0) return;
+            earlyPayloads.clear();
             resolution = value;
             completed.countDown();
         }
 
         private synchronized void fail(CameraOperationOutcome value, String detail) {
-            if (cancelled) return;
+            if (cancelled || completed.getCount() == 0) return;
+            earlyPayloads.clear();
             outcome = value;
             error = detail;
             completed.countDown();

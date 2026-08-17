@@ -12,7 +12,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 
 /** Main-process supervisor that keeps the separate :loggly uploader running. */
 public final class LogglyProcessSupervisor implements Application.ActivityLifecycleCallbacks {
@@ -86,7 +86,7 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
     }
 
     public void start() {
-        if (started || BuildConfig.LOGGLY_TOKEN.isBlank()) return;
+        if (started || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return;
         started = true;
         application.registerActivityLifecycleCallbacks(this);
         ensureAlive("application start");
@@ -94,7 +94,7 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
     }
 
     private void ensureAlive(String reason) {
-        if (!started || BuildConfig.LOGGLY_TOKEN.isBlank() || isConnected()) return;
+        if (!started || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED() || isConnected()) return;
         LogglyUploadService.logLaunchEvent("supervisor ensure alive reason=" + reason);
         LogglyUploadService.start(application);
         LogglyUploadScheduler.scheduleJobNow(application);

@@ -1,7 +1,7 @@
 package com.dvid.dcam.platform.logging.loggly;
 
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -34,12 +34,12 @@ final class LogglyHttpClient {
 
     private static String send(
             String endpoint, String payload, String contentType, String failureMessage) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return null;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return null;
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(
                     "https://logs-01.loggly.com/" + endpoint + "/"
-                            + BuildConfig.LOGGLY_TOKEN + "/tag/dcam/")
+                            + BuildSecrets.LOGGLY_TOKEN() + "/tag/dcam/")
                     .openConnection();
             connection.setConnectTimeout(10_000);
             connection.setReadTimeout(10_000);

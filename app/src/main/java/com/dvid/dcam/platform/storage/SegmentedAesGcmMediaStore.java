@@ -35,6 +35,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
     private final TreeMap<Long, TransactionBlock> transactionBlocks = new TreeMap<>();
 
     private long logicalLength;
+    private long coveredLength;
     private long logicalPosition;
     private long nextSequence = 1L;
     private boolean finalized;
@@ -237,7 +238,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
                                 throw new IOException(
                                         "Segmented AES-GCM CHECKPOINT length is invalid.");
                             }
-                            validateCoverage(blocks, logicalLength);
+                            requireCompleteCoverage();
                             retainedNextSequence = metadata.sequence + 1L;
                         }
                         case DcamSegmentedGcmFormat.TYPE_FINAL -> {
@@ -245,7 +246,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
                             if (metadata.logicalLength != logicalLength || logicalLength <= 0L) {
                                 throw new IOException("Segmented AES-GCM FINAL length is invalid.");
                             }
-                            validateCoverage(blocks, logicalLength);
+                            requireCompleteCoverage();
                             finalized = true;
                             retainedNextSequence = metadata.sequence + 1L;
                         }
@@ -288,6 +289,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
     }
 
     private void acceptAutocommit(BlockRef ref, byte[] plaintext) throws IOException {
+        requireCompleteCoverage();
         DcamSegmentedGcmFormat.RecordMetadata record = ref.record;
         long expectedBlockIndex = logicalLength / header.blockBytes;
         int existingTailBytes = (int) (logicalLength % header.blockBytes);
@@ -315,7 +317,10 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             }
         }
         blocks.put(record.blockIndex, ref);
+        invalidateCache(record.blockIndex);
         logicalLength = record.logicalLength;
+        coveredLength = logicalLength;
+        requireCompleteCoverage();
     }
 
     private void acceptCommit(
@@ -332,13 +337,45 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             throw new IOException("Segmented AES-GCM COMMIT does not match pending DATA.");
         }
 
-        Map<Long, BlockRef> next = new HashMap<>(blocks);
-        for (BlockRef block : pending) next.put(block.record.blockIndex, block);
-        trimBlocks(next, record.logicalLength);
-        validateCoverage(next, record.logicalLength);
-        blocks.clear();
-        blocks.putAll(next);
+        Map<Long, BlockRef> changed = new HashMap<>();
+        for (BlockRef block : pending) changed.put(block.record.blockIndex, block);
+        validateCommittedTransaction(changed, record.logicalLength);
+        long nextBlockCount = blockCount(record.logicalLength);
+        for (Map.Entry<Long, BlockRef> entry : changed.entrySet()) {
+            if (entry.getKey() < nextBlockCount) blocks.put(entry.getKey(), entry.getValue());
+        }
+        if (record.logicalLength < logicalLength) trimBlocks(blocks, record.logicalLength);
         logicalLength = record.logicalLength;
+        coveredLength = logicalLength;
+        requireCompleteCoverage();
+    }
+
+    private void validateCommittedTransaction(
+            Map<Long, BlockRef> changed, long nextLength) throws IOException {
+        requireCompleteCoverage();
+        long nextBlockCount = blockCount(nextLength);
+        for (Map.Entry<Long, BlockRef> entry : changed.entrySet()) {
+            if (entry.getKey() >= nextBlockCount) continue;
+            int expected = expectedBlockBytes(nextLength, entry.getKey());
+            if (entry.getValue().record.plaintextBytes < expected) {
+                throw new IOException(
+                        "Segmented AES-GCM transaction block coverage is invalid: "
+                                + entry.getKey());
+            }
+        }
+        if (nextLength <= logicalLength) return;
+        long firstExtendedBlock = logicalLength / header.blockBytes;
+        for (long blockIndex = firstExtendedBlock;
+                blockIndex < nextBlockCount; blockIndex++) {
+            BlockRef block = changed.get(blockIndex);
+            if (block == null) block = blocks.get(blockIndex);
+            int expected = expectedBlockBytes(nextLength, blockIndex);
+            if (block == null || block.record.plaintextBytes < expected) {
+                throw new IOException(
+                        "Segmented AES-GCM transaction block coverage is invalid: "
+                                + blockIndex);
+            }
+        }
     }
 
     private static void requireNoPending(List<BlockRef> pending, long pendingTransactionId)
@@ -444,6 +481,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             BlockRef ref = appendData(0L, tailBlockIndex, plaintext, logicalLength);
             blocks.put(tailBlockIndex, ref);
             invalidateCache(tailBlockIndex);
+            coveredLength = logicalLength;
         } finally {
             Arrays.fill(plaintext, (byte) 0);
             clearTail();
@@ -533,6 +571,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             throw new IOException("Cannot checkpoint Segmented AES-GCM media during a transaction.");
         }
         flushTail();
+        requireCompleteCoverage();
         appendControl(DcamSegmentedGcmFormat.TYPE_CHECKPOINT, 0L, 0, logicalLength);
         physicalChannel.force(false);
     }
@@ -548,7 +587,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         if (logicalLength <= 0L) {
             throw new IOException("Cannot finalize empty Segmented AES-GCM media.");
         }
-        validateCoverage(blocks, logicalLength);
+        requireCompleteCoverage();
         appendControl(DcamSegmentedGcmFormat.TYPE_FINAL, 0L, 0, logicalLength);
         physicalChannel.force(true);
         finalized = true;
@@ -567,6 +606,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
 
     private void beginTransactionInternal() throws IOException {
         flushTail();
+        requireCompleteCoverage();
         transactionActive = true;
         transactionLength = logicalLength;
         transactionPhysicalStart = physicalChannel.size();
@@ -617,11 +657,13 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         }
 
         for (BlockRef block : committed) blocks.put(block.record.blockIndex, block);
-        trimBlocks(blocks, transactionLength);
+        if (transactionLength < logicalLength) trimBlocks(blocks, transactionLength);
         logicalLength = transactionLength;
+        coveredLength = logicalLength;
         if (logicalPosition > logicalLength) logicalPosition = logicalLength;
         invalidateCache(-1L);
         clearTransaction();
+        requireCompleteCoverage();
     }
 
     @Override public void rollbackTransaction() throws IOException {
@@ -716,13 +758,24 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
     }
 
     private void validateTransactionCoverage(long length) throws IOException {
+        requireCompleteCoverage();
         long count = blockCount(length);
-        for (long blockIndex = 0L; blockIndex < count; blockIndex++) {
-            int expected = expectedBlockBytes(length, blockIndex);
+        for (Map.Entry<Long, TransactionBlock> entry : transactionBlocks.entrySet()) {
+            if (entry.getKey() >= count) continue;
+            if (entry.getValue().data.length < expectedBlockBytes(length, entry.getKey())) {
+                throw new IOException(
+                        "Segmented AES-GCM transaction block coverage is invalid: "
+                                + entry.getKey());
+            }
+        }
+        if (length <= logicalLength) return;
+        long firstExtendedBlock = logicalLength / header.blockBytes;
+        for (long blockIndex = firstExtendedBlock; blockIndex < count; blockIndex++) {
             TransactionBlock changed = transactionBlocks.get(blockIndex);
-            if (changed != null) continue;
-            BlockRef committed = blocks.get(blockIndex);
-            if (committed == null || committed.record.plaintextBytes < expected) {
+            BlockRef committed = changed == null ? blocks.get(blockIndex) : null;
+            int expected = expectedBlockBytes(length, blockIndex);
+            if (changed == null
+                    && (committed == null || committed.record.plaintextBytes < expected)) {
                 throw new IOException(
                         "Segmented AES-GCM transaction block coverage is invalid: " + blockIndex);
             }
@@ -794,15 +847,21 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         return cachedBlock;
     }
 
-    private void validateCoverage(Map<Long, BlockRef> blockMap, long length) throws IOException {
-        long count = blockCount(length);
-        for (long blockIndex = 0L; blockIndex < count; blockIndex++) {
-            BlockRef block = blockMap.get(blockIndex);
-            int expected = expectedBlockBytes(length, blockIndex);
-            if (block == null || block.record.plaintextBytes < expected) {
-                throw new IOException(
-                        "Segmented AES-GCM logical block coverage is invalid: " + blockIndex);
-            }
+    private void requireCompleteCoverage() throws IOException {
+        if (coveredLength != logicalLength) {
+            throw new IOException("Segmented AES-GCM logical coverage is not committed.");
+        }
+        long count = blockCount(logicalLength);
+        if ((long) blocks.size() != count) {
+            throw new IOException("Segmented AES-GCM logical block coverage is incomplete.");
+        }
+        if (count == 0L) return;
+        long lastBlockIndex = count - 1L;
+        BlockRef last = blocks.get(lastBlockIndex);
+        int expected = expectedBlockBytes(logicalLength, lastBlockIndex);
+        if (last == null || last.record.plaintextBytes < expected) {
+            throw new IOException(
+                    "Segmented AES-GCM logical block coverage is invalid: " + lastBlockIndex);
         }
     }
 

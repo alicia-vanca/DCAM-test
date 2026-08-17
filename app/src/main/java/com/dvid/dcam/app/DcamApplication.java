@@ -9,6 +9,7 @@ import androidx.work.Configuration;
 import com.dvid.dcam.core.device.domain.DeviceInfo;
 import com.dvid.dcam.platform.device.AndroidDeviceRepositoryImpl;
 import com.dvid.dcam.platform.logging.app.AppLogger;
+import com.dvid.dcam.app.resourcemonitor.ResourceMonitorProcessReporter;
 import com.dvid.dcam.platform.logging.loggly.LogglyProcessSupervisor;
 import com.dvid.dcam.platform.recording.RecordingForegroundService;
 
@@ -19,6 +20,7 @@ public final class DcamApplication extends Application implements Configuration.
 
     @Override public void onCreate() {
         super.onCreate();
+        ResourceMonitorProcessReporter.install(this, AppLogger.get());
         if (processName().endsWith(":loggly")) return;
         AppLogger.bootstrap(this);
         DeviceInfo deviceInfo = new AndroidDeviceRepositoryImpl(this, getFilesDir()).readInfo();

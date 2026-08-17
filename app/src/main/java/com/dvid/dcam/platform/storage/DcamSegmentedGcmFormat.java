@@ -24,9 +24,9 @@ final class DcamSegmentedGcmFormat {
     static final int MIN_BLOCK_BYTES = 4 * 1024;
     static final int MAX_BLOCK_BYTES = 1024 * 1024;
     static final int DEFAULT_BLOCK_BYTES = 256 * 1024;
-    static final int MIN_KDF_ITERATIONS = 100_000;
+    static final int MIN_KDF_ITERATIONS = 1_000;
     static final int MAX_KDF_ITERATIONS = 2_000_000;
-    static final int DEFAULT_KDF_ITERATIONS = 200_000;
+    static final int DEFAULT_KDF_ITERATIONS = 1_000;
     static final int TYPE_DATA = 1;
     static final int TYPE_COMMIT = 2;
     static final int TYPE_CHECKPOINT = 3;

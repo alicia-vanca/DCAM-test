@@ -180,10 +180,10 @@ public final class ProductionCameraCapabilityRecheck {
                 frozen, plan.cameras().get(0).cameraId());
         var pipeline = pipelineA
                 ? new NativeSurfaceSharingPipelineFactory(
-                        context, logger, workingDirectory).createBenchmark(
+                        context, logger, workingDirectory, () -> null).createBenchmark(
                                 initialRotationDegrees)
                 : new EglFanOutPipelineFactory(
-                        context, logger, workingDirectory).createBenchmark(
+                        context, logger, workingDirectory, () -> null).createBenchmark(
                                 initialRotationDegrees);
         CameraVerificationClock clock = CameraVerificationClock.system();
         var runtime = new SharedCameraVerificationRuntime(pipeline, logger, clock,

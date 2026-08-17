@@ -23,11 +23,10 @@ public final class AndroidLocationProviderCapabilities {
 
     public LocationProviderAvailability availability() {
         return LocationProviderCapabilityPolicy.availability(
+                Build.VERSION.SDK_INT,
                 hasProvider(LocationManager.GPS_PROVIDER),
-                isGoogleFusedAvailable(),
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                        && hasProvider(LocationManager.FUSED_PROVIDER),
-                hasProvider(LocationManager.NETWORK_PROVIDER));
+                enabled(LocationManager.GPS_PROVIDER),
+                isGoogleFusedAvailable());
     }
 
     public boolean isGoogleFusedAvailable() {
@@ -39,17 +38,9 @@ public final class AndroidLocationProviderCapabilities {
         return enabled(LocationManager.GPS_PROVIDER) ? LocationManager.GPS_PROVIDER : null;
     }
 
-    public String systemNetworkProvider() {
-        LocationProviderCapabilityPolicy.SystemNetworkBackend backend =
-                LocationProviderCapabilityPolicy.systemNetworkBackend(
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                                && enabled(LocationManager.FUSED_PROVIDER),
-                        enabled(LocationManager.NETWORK_PROVIDER));
-        switch (backend) {
-            case FUSED: return LocationManager.FUSED_PROVIDER;
-            case NETWORK: return LocationManager.NETWORK_PROVIDER;
-            default: return null;
-        }
+
+    public boolean hasAnySource() {
+        return hasProvider(LocationManager.GPS_PROVIDER) || isGoogleFusedAvailable();
     }
 
     public boolean anyProviderEnabled() {

@@ -48,9 +48,9 @@ final class DcamMediaReservationTest {
                 secondImp.getFileName());
         assertEquals("DCAM_CAM001_000001_20260804_100001.mp4",
                 secondVideo.getFileName());
-        assertEquals("DCAM_CAM001_000001_20260804_100001.aac",
+        assertEquals("DCAM_CAM001_000001_20260804_100001.m4a",
                 firstAudio.getFileName());
-        assertEquals("DCAM_CAM001_000001_20260804_100002.aac",
+        assertEquals("DCAM_CAM001_000001_20260804_100002.m4a",
                 secondAudio.getFileName());
         assertEquals(List.of(750L, 1000L), clock.sleeps);
     }

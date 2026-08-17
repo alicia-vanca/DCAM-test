@@ -21,12 +21,26 @@ class LogglyUploadServiceLifecycleTest {
         assertTrue(service.contains("IMPORTANCE_LOW"));
         assertTrue(service.contains("isSystemExemptedEligible"));
         assertTrue(service.contains("isAdminActive"));
-        assertTrue(service.contains("networkCallback == null"));
+        assertTrue(service.contains("registerDefaultNetworkCallback"));
         assertFalse(service.contains("LogglyUploadScheduler.cancel"));
         String timeout = service.substring(service.indexOf("onTimeout"),
                 service.indexOf("private int foregroundServiceType"));
         assertTrue(timeout.contains("stopSelf();"));
         assertFalse(timeout.contains("stopSelf(startId)"));
+    }
+
+    @Test
+    void connectivityEventsOwnOnlineStateWithoutPolling() throws IOException {
+        String service = read("app/src/main/java/com/dvid/dcam/platform/logging/loggly/LogglyUploadService.java");
+        String offline = service.substring(service.indexOf("if (!networkAvailable)"),
+                service.indexOf("Long nextRetryAtMillis;"));
+        String callbacks = service.substring(service.indexOf("networkCallback = new"),
+                service.indexOf("private void ensureObserver"));
+        assertTrue(offline.contains("waitForWake(observedWake, 0L);"));
+        assertTrue(callbacks.contains("networkAvailable = hasValidatedNetwork(capabilities);"));
+        assertTrue(callbacks.contains("if (!network.equals(activeNetwork)) return;"));
+        assertFalse(callbacks.contains("getActiveNetwork()"));
+        assertFalse(service.contains("NETWORK_RECHECK_MS"));
     }
 
     @Test

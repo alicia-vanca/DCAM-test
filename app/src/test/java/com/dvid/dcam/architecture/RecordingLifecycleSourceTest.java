@@ -45,8 +45,11 @@ final class RecordingLifecycleSourceTest {
         String media = source("platform/camera/shared/AndroidSharedCameraMediaLifecycle.java");
 
         assertTrue(media.contains("RecordingForegroundService.startVideo("));
+        assertTrue(media.contains("mediaOutput.checkRecordingReady(bitrateBitsPerSecond)"));
+        assertFalse(media.contains("storageWarningActive"));
         assertTrue(media.contains("RecordingForegroundService.markVideoFinalizing(context)"));
-        assertTrue(media.contains("mediaOutput.finalizeSaved(context, mediaFile, password"));
+        assertTrue(media.contains("mediaOutput.openSegmentedAesGcmJpegOutput(mediaFile)"));
+        assertTrue(media.contains("mediaOutput.finalizeSaved(context, capture.mediaFile(), null"));
         assertTrue(media.contains("RecordingForegroundService.completeVideoFinalization(context)"));
         assertFalse(media.contains("mediaOutput.encryptSaved("));
     }
@@ -63,13 +66,38 @@ final class RecordingLifecycleSourceTest {
         assertTrue(audio.contains("AudioRecorder.PreparationException.retryable("));
         assertTrue(audio.contains("AudioRecorder.PreparationException.unavailable("));
         assertTrue(composition.contains("new CaptureStorageNoticeMonitor("));
-        assertTrue(composition.contains("audioPreparationNotifier.bind("));
+        assertTrue(composition.contains("audioPreparationNotifier")
+                && composition.contains(".bind(new AudioPreparationEvents()"));
         assertTrue(composition.contains("FloatingNotice.showPersistent(owner, message)"));
         assertTrue(composition.contains("cameraPreview.showStorageWarning(message)"));
         assertTrue(preview.contains("persistentNotice.accept(text)"));
         assertTrue(preview.contains("clearPersistentNotice.run()"));
         assertTrue(notice.contains("showPersistent(Context context, CharSequence message)"));
         assertTrue(gateway.contains("storagePreparationEvents.onPreparing(message)"));
+    }
+    @Test void standaloneAudioUsesRecoverableM4aWithGpsRoute() throws IOException {
+        String composition = source("app/AppComposition.java");
+        String audio = source("platform/audio/AndroidAudioRecorderImpl.java");
+        String writer = source("platform/storage/DcamAudioM4aWriter.java");
+        String output = source("platform/storage/DcamMediaOutputImpl.java");
+
+        assertTrue(composition.contains("locationTracking::latestCoordinate"));
+        assertTrue(audio.contains(
+                "new DcamAudioM4aWriter(recordingOutput, captureLocation, log)"));
+        assertTrue(audio.contains("MediaFormatUtil.createFormatFromMediaFormat(format)"));
+        assertTrue(audio.contains("mediaOutput.finalizeOpenAudioM4aNow("));
+        assertTrue(audio.contains("recordingDurationUs = durationUs;"));
+        assertFalse(audio.contains("writeAdtsFrame"));
+        assertFalse(audio.contains("startDurabilitySync"));
+        assertTrue(writer.contains("new FragmentedMp4Muxer.Builder(outputChannel)"));
+        assertTrue(writer.contains("outputChannel.queueGpsRoutePoint("));
+        assertTrue(output.contains("claimMediaFile(DcamFileType.AUDIO_M4A"));
+        int cleanPatch = output.indexOf(
+                "mp4Finalizer.finalizeCleanTimed(recordingOutput.media(), durationUs)");
+        int recoveryPatch = output.indexOf(
+                "mp4Finalizer.finalizeInterrupted(recordingOutput.media())", cleanPatch);
+        int seal = output.indexOf("recordingOutput.finish();", recoveryPatch);
+        assertTrue(cleanPatch >= 0 && recoveryPatch > cleanPatch && seal > recoveryPatch);
     }
     @Test void previewSurfaceAvailabilityOwnsPreviewHealthPolicy() throws IOException {
         String activity = source("app/MainActivity.java");
@@ -98,6 +126,20 @@ final class RecordingLifecycleSourceTest {
                 "while (previewExpected && hasPreviewEvidence()"));
         assertTrue(pipeline.contains(
                 "boolean previewSignalAvailable = !previewExpected || hasPreviewEvidence()"));
+    }
+
+    @Test void satelliteCurrentLocationRequestKeepsContinuousRouteListener()
+            throws IOException {
+        String location = source("platform/location/AndroidLocationSourceImpl.java");
+        int request = location.indexOf(
+                "@Override public synchronized void requestCurrentLocation");
+        int stop = location.indexOf("@Override public synchronized void stop()", request);
+        String requestBody = location.substring(request, stop);
+
+        assertTrue(requestBody.contains("activeMode == GpsMode.FUSED"));
+        assertTrue(requestBody.contains("fusedSource.requestCurrentLocation(settings)"));
+        assertFalse(requestBody.contains("requestSingleUpdate"));
+        assertFalse(location.contains("private void requestSingleUpdate"));
     }
 
     @Test void finalActivityDestroyReleasesSharedOwnerButRecreationOnlyDetachesPreview()

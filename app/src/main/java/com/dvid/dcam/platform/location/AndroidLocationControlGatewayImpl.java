@@ -32,7 +32,7 @@ public final class AndroidLocationControlGatewayImpl implements LocationControlG
 
     @Override public LocationSystemState currentState() {
         if (locationManager == null
-                || !capabilities.availability().isModeAvailable(GpsMode.AUTOMATIC)) {
+                || !capabilities.hasAnySource()) {
             return LocationSystemState.UNAVAILABLE;
         }
         try {

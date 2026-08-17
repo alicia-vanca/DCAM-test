@@ -20,9 +20,9 @@ public record CameraResolution(int width, int height)
             throw new IllegalArgumentException(
                     "orientationDegrees must be a multiple of 90");
         }
-        return normalizedOrientation % 180 == 0
-                ? equals(other)
-                : width == other.height && height == other.width;
+        return equals(other)
+                || normalizedOrientation % 180 != 0
+                && width == other.height && height == other.width;
     }
 
     @Override public int compareTo(CameraResolution other) {

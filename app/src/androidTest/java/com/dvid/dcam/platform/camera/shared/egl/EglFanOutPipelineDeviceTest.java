@@ -29,6 +29,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.platform.camera.shared.JpegDimensions;
+import com.dvid.dcam.platform.camera.shared.outputsharing.NativePreviewFrameSignal;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationDeadline;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -62,7 +64,7 @@ public final class EglFanOutPipelineDeviceTest {
         Assume.assumeTrue("No H.264 Camera2 tuple available", selection != null);
         File outputDirectory = new File(context.getCacheDir(), "egl-fanout-runtime-test");
         EglFanOutPipeline pipeline = new EglFanOutPipelineFactory(
-                context, new NoOpLogger(), outputDirectory).createHeadless(0);
+                context, new NoOpLogger(), outputDirectory, () -> null).createHeadless(0);
         CameraOperationContext operation = operation(selection);
         String videoPath = null;
         String jpegPath = null;
@@ -136,7 +138,7 @@ public final class EglFanOutPipelineDeviceTest {
         File outputDirectory = new File(context.getCacheDir(),
                 "egl-fanout-retry-cleanup-test");
         EglFanOutPipeline pipeline = new EglFanOutPipelineFactory(
-                context, new NoOpLogger(), outputDirectory).createHeadless(0);
+                context, new NoOpLogger(), outputDirectory, () -> null).createHeadless(0);
         CameraOperationContext operation = operation(selection);
         try {
             CameraOperationOutcome bind = pipeline.bindSession(operation).outcome();
@@ -192,8 +194,10 @@ public final class EglFanOutPipelineDeviceTest {
         previewConsumerThread.start();
         AtomicBoolean consumePreview = new AtomicBoolean(true);
         AtomicLong consumedPreviewFrames = new AtomicLong();
+        AtomicReference<Runnable> previewFrameCallback = new AtomicReference<>(() -> {});
         List<Image> heldPreviewImages = new CopyOnWriteArrayList<>();
         previewReader.setOnImageAvailableListener(reader -> {
+            previewFrameCallback.get().run();
             if (!consumePreview.get()) {
                 if (heldPreviewImages.size() < previewMaxImages) {
                     Image image = reader.acquireNextImage();
@@ -205,8 +209,18 @@ public final class EglFanOutPipelineDeviceTest {
                 if (image != null) consumedPreviewFrames.incrementAndGet();
             }
         }, new Handler(previewConsumerThread.getLooper()));
+        NativePreviewFrameSignal frameSignal = new NativePreviewFrameSignal() {
+            @Override public void start(Handler handler, Runnable onFrame) {
+                previewFrameCallback.set(onFrame);
+            }
+
+            @Override public void stop() {
+                previewFrameCallback.set(() -> {});
+            }
+        };
         EglFanOutPipeline pipeline = new EglFanOutPipelineFactory(
-                context, new NoOpLogger(), outputDirectory).create(previewReader.getSurface(), 0);
+                context, new NoOpLogger(), outputDirectory, () -> null).create(
+                        previewReader.getSurface(), frameSignal, 0, 0L);
         CameraOperationContext operation = operation(selection);
         try {
             assertEquals(CameraOperationOutcome.PASS,

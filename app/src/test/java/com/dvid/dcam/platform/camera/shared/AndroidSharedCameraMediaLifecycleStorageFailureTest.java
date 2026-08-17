@@ -11,6 +11,21 @@ import java.nio.file.FileSystemException;
 import org.junit.jupiter.api.Test;
 
 final class AndroidSharedCameraMediaLifecycleStorageFailureTest {
+    @Test void lowCapacityReservationFailureReportsLowStorageForAnyMode() {
+        IOException cause = new IOException("no space left");
+
+        SharedCameraMediaLifecycle.PreparationException error =
+                AndroidSharedCameraMediaLifecycle.recordingStoragePreparationException(
+                        CaptureStorageCheck.lowCapacity(500L, 501L,
+                                "Not enough free storage"), false,
+                        "low storage", "preparing", "unavailable", cause);
+
+        assertFalse(error.retryable());
+        assertFalse(error.unavailable());
+        assertEquals("low storage", error.getMessage());
+        assertEquals(cause, error.getCause());
+    }
+
     @Test void externalPreparingReservationFailureRetries() {
         IOException cause = new IOException("not mounted");
 

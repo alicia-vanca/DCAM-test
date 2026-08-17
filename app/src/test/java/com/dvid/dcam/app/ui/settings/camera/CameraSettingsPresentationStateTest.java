@@ -263,7 +263,7 @@ final class CameraSettingsPresentationStateTest {
                         .cameraId("developer:pipeline-mode"));
     }
 
-    @Test void developerExtensionKeepsNormalActionDisabledDuringCapabilityRecheck() {
+    @Test void developerExtensionDisablesActionWhenCallerBlocksIt() {
         SettingsScreenModel screen = CameraDeveloperSettingsPresentation.screen(
                 "Developer", "Pipeline", List.of(
                         new DescribedRadioOptionUiState("Auto", "Recommended"),

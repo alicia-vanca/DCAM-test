@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 /** Conservative startup recovery. Invalid, encrypted or ambiguous artifacts remain in Temp. */
 final class DcamStagedMediaRecovery {
     private static final Pattern CONTRACT_NAME = Pattern.compile(
-            "^DCAM_[^_]+_[^_]+_[0-9]{8}_[0-9]{6}(_IMP)?(_enc)?\\.(mp4|jpg|aac)$",
+            "^DCAM_[^_]+_[^_]+_[0-9]{8}_[0-9]{6}(_IMP)?(_enc)?\\.(mp4|jpg|aac|m4a)$",
             Pattern.CASE_INSENSITIVE);
 
     private final DcamStorage storage;
@@ -216,7 +216,7 @@ final class DcamStagedMediaRecovery {
                             continue;
                         }
                         if (!store.isFinalized()) {
-                            if (isMp4(type)) {
+                            if (usesFragmentedMp4Container(type)) {
                                 logger.info("Found staged segmented-GCM " + mediaKind(type)
                                         + " file " + fileDescription(candidate)
                                         + ". Starting interrupted recording finalization.");
@@ -262,7 +262,7 @@ final class DcamStagedMediaRecovery {
                             "Legacy encryption journal confirms transformation completed.");
                 } else {
                     DcamInterruptedMp4Finalizer.Result mp4Finalization = null;
-                    if (isMp4(type)) {
+                    if (usesFragmentedMp4Container(type)) {
                         logger.info("Found staged " + mediaKind(type) + " file "
                                 + fileDescription(candidate)
                                 + ". Starting interrupted recording finalization.");
@@ -385,7 +385,7 @@ final class DcamStagedMediaRecovery {
         File staged = mediaFile.getFile();
         try {
             boolean empty = staged.length() == 0L;
-            if (!empty && (type != DcamFileType.AUDIO || !sameContent(staged, target))) {
+            if (!empty && (!type.isAudio() || !sameContent(staged, target))) {
                 return false;
             }
             if (!Files.deleteIfExists(staged.toPath()) && staged.exists()) return false;
@@ -470,14 +470,12 @@ final class DcamStagedMediaRecovery {
                 + " File remains in Temp for support or later recovery.", null);
     }
 
-    private static boolean isMp4(DcamFileType type) {
-        return "mp4".equals(type.getExtension());
+    private static boolean usesFragmentedMp4Container(DcamFileType type) {
+        return type.usesFragmentedMp4Container();
     }
 
     private boolean shouldCreateMd5(DcamFileType type) {
-        return isMp4(type)
-                && createVideoMd5 != null
-                && createVideoMd5.getAsBoolean();
+        return type.isVideo() && createVideoMd5 != null && createVideoMd5.getAsBoolean();
     }
 
     private static String mediaKind(DcamFileType type) {
@@ -508,6 +506,7 @@ final class DcamStagedMediaRecovery {
         String extension = matcher.group(3).toLowerCase(Locale.ROOT);
         if ("jpg".equals(extension)) return DcamFileType.IMAGE;
         if ("aac".equals(extension)) return DcamFileType.AUDIO;
+        if ("m4a".equals(extension)) return DcamFileType.AUDIO_M4A;
         return matcher.group(1) == null ? DcamFileType.VIDEO : DcamFileType.IMP;
     }
 

@@ -1,9 +1,16 @@
 package com.dvid.dcam.platform.camera.shared;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import androidx.media3.container.Mp4LocationData;
+import androidx.media3.muxer.AnnexBToAvccConverter;
+import com.dvid.dcam.feature.location.domain.GpsCoordinate;
+import java.nio.ByteBuffer;
 import org.junit.jupiter.api.Test;
 
 final class SharedAvcEncoderTimelineTest {
@@ -65,5 +72,73 @@ final class SharedAvcEncoderTimelineTest {
         assertEquals(0L,
                 SharedAvcEncoder.segmentDurationUs(0L, -1L, -1L, 33_333L));
     }
+
+    @Test void partialVideoOutputIsJoinedBeforeMuxing() {
+        SharedAvcEncoder.VideoSampleAssembler assembler =
+                new SharedAvcEncoder.VideoSampleAssembler(32);
+
+        assertNull(assembler.append(ByteBuffer.wrap(new byte[] {0, 0}), 1_000L,
+                android.media.MediaCodec.BUFFER_FLAG_KEY_FRAME
+                        | android.media.MediaCodec.BUFFER_FLAG_PARTIAL_FRAME));
+        SharedAvcEncoder.AssembledVideoSample sample = assembler.append(
+                ByteBuffer.wrap(new byte[] {0, 1, 0x65, 0x12}), 1_001L, 0);
+
+        assertArrayEquals(new byte[] {0, 0, 0, 1, 0x65, 0x12}, sample.data());
+        assertEquals(1_000L, sample.presentationTimeUs());
+        assertEquals(android.media.MediaCodec.BUFFER_FLAG_KEY_FRAME, sample.flags());
+        assertEquals(2, sample.bufferCount());
+        assertTrue(sample.timestampChanged());
+        assertFalse(assembler.hasPending());
+    }
+
+    @Test void oversizedPartialVideoOutputClearsPendingBytes() {
+        SharedAvcEncoder.VideoSampleAssembler assembler =
+                new SharedAvcEncoder.VideoSampleAssembler(4);
+        assertNull(assembler.append(ByteBuffer.wrap(new byte[] {0, 0, 0}), 1_000L,
+                android.media.MediaCodec.BUFFER_FLAG_PARTIAL_FRAME));
+
+        assertThrows(IllegalStateException.class, () -> assembler.append(
+                ByteBuffer.wrap(new byte[] {1, 2}), 1_000L, 0));
+
+        assertFalse(assembler.hasPending());
+    }
+
+    @Test void annexBValidationRejectsInternalZeroSequence() {
+        ByteBuffer malformed = ByteBuffer.wrap(new byte[] {
+                0, 0, 0, 1, 0x65, 0x12, 0, 0, 0, 2, 0x44
+        });
+
+        assertEquals(9, SharedAvcEncoder.invalidAnnexBOffset(malformed));
+        assertThrows(IllegalStateException.class,
+                () -> AnnexBToAvccConverter.DEFAULT.process(malformed.duplicate()));
+    }
+
+    @Test void annexBValidationAcceptsMultipleNalUnitsAndTrailingZeros() {
+        ByteBuffer valid = ByteBuffer.wrap(new byte[] {
+                0, 0, 0, 1, 0x65, 0, 0, 3, 0, 0x12,
+                0, 0, 1, 0x41, 0x22, 0, 0
+        });
+
+        assertEquals(-1, SharedAvcEncoder.invalidAnnexBOffset(valid));
+    }
+    @Test void gpsCoordinateMapsToStandardMp4LocationMetadata() {
+        GpsCoordinate coordinate = new GpsCoordinate(21.034918, 105.767322);
+
+        Mp4LocationData metadata = SharedAvcEncoder.mp4LocationData(coordinate);
+
+        assertEquals((float) coordinate.getLatitude(), metadata.latitude);
+        assertEquals((float) coordinate.getLongitude(), metadata.longitude);
+    }
+    @Test void gpsRouteQueuesOnlyCoordinateChanges() {
+        GpsCoordinate first = new GpsCoordinate(21.034918, 105.767322);
+        GpsCoordinate same = new GpsCoordinate(21.034918, 105.767322);
+        GpsCoordinate moved = new GpsCoordinate(21.034919, 105.767322);
+
+        assertTrue(SharedAvcEncoder.gpsCoordinateChanged(null, first));
+        assertFalse(SharedAvcEncoder.gpsCoordinateChanged(first, same));
+        assertTrue(SharedAvcEncoder.gpsCoordinateChanged(first, moved));
+        assertFalse(SharedAvcEncoder.gpsCoordinateChanged(first, null));
+    }
+
 
 }

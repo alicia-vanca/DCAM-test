@@ -345,9 +345,9 @@ public final class DebugCameraPipelineBenchmarkEngine
         int initialRotationDegrees = sensorOrientationDegrees(
                 frozenFast, plan.cameras().get(0).cameraId());
         var pipeline = pipelineA
-                ? new NativeSurfaceSharingPipelineFactory(context, logger, workingDirectory)
+                ? new NativeSurfaceSharingPipelineFactory(context, logger, workingDirectory, () -> null)
                         .createHeadless(initialRotationDegrees)
-                : new EglFanOutPipelineFactory(context, logger, workingDirectory)
+                : new EglFanOutPipelineFactory(context, logger, workingDirectory, () -> null)
                         .createHeadless(initialRotationDegrees);
         CameraVerificationClock clock = CameraVerificationClock.system();
         var runtime = new SharedCameraVerificationRuntime(pipeline, logger, clock,

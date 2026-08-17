@@ -42,6 +42,20 @@ final class LocationTrackingCoordinatorTest {
                 fixture.coordinator().refresh());
     }
 
+    @Test void disabledSystemLocationClearsPreviousCoordinate() {
+        Fixture fixture = new Fixture();
+        fixture.finePermission = true;
+        LocationTrackingCoordinator coordinator = fixture.coordinator();
+
+        coordinator.refresh();
+        fixture.source.emit(new GpsCoordinate(10, 106));
+        fixture.controlGateway.state = LocationSystemState.DISABLED;
+
+        assertEquals(LocationTrackingState.LOCATION_DISABLED, coordinator.refresh());
+        assertEquals(null, coordinator.currentCoordinate());
+        assertEquals(false, coordinator.shouldShowOnCamera());
+    }
+
     @Test void providerFixChangesWaitingStateToAvailable() {
         Fixture fixture = new Fixture();
         fixture.finePermission = true;
@@ -87,7 +101,7 @@ final class LocationTrackingCoordinatorTest {
 
     private static final class Fixture {
         private final FakeSettingsStore settingsStore = new FakeSettingsStore();
-        private final LocationSettingsUseCase settings = new LocationSettingsUseCase(settingsStore);
+        private final LocationSettingsUseCase settings = new LocationSettingsUseCase(settingsStore, ignored -> true);
         private final FakeControlGateway controlGateway = new FakeControlGateway();
         private final LocationControlUseCase control = new LocationControlUseCase(
                 controlGateway, settingsStore);

@@ -4,7 +4,8 @@ public enum DcamFileType {
     VIDEO("Video", "mp4", "", "video/mp4"),
     IMP("IMP", "mp4", "IMP", "video/mp4"),
     IMAGE("Image", "jpg", "", "image/jpeg"),
-    AUDIO("Audio", "aac", "", "audio/aac");
+    AUDIO("Audio", "aac", "", "audio/aac"),
+    AUDIO_M4A("Audio", "m4a", "", "audio/mp4");
 
     private final String folder, extension, marker, mimeType;
 
@@ -15,4 +16,7 @@ public enum DcamFileType {
     public String getExtension() { return extension; }
     public String getMarker() { return marker; }
     public String getMimeType() { return mimeType; }
+    public boolean isAudio() { return this == AUDIO || this == AUDIO_M4A; }
+    public boolean isVideo() { return this == VIDEO || this == IMP; }
+    public boolean usesFragmentedMp4Container() { return isVideo() || this == AUDIO_M4A; }
 }

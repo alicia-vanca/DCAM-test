@@ -25,6 +25,10 @@ public interface DeveloperSettingsStore {
 
     void setReleaseCameraWhenScreenOff(boolean enabled);
 
+    boolean resourceMonitorEnabled();
+
+    void setResourceMonitorEnabled(boolean enabled);
+
     enum Mode { AUTO, A, B }
 
 }

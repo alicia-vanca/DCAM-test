@@ -30,7 +30,8 @@ public final class DcamStorageCandidate {
     public boolean isWritable() { return writable; }
     public long getAvailableBytes() { return availableBytes; }
 
-    public CaptureStorageCheck check(CaptureStorageCapacityPolicy policy) {
-        return policy.check(mounted, writable, availableBytes);
+    public CaptureStorageCheck check(
+            CaptureStorageCapacityPolicy policy, long requiredBytes) {
+        return policy.check(mounted, writable, availableBytes, requiredBytes);
     }
 }

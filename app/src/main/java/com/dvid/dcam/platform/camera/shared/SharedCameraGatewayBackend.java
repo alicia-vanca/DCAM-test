@@ -23,6 +23,9 @@ public interface SharedCameraGatewayBackend extends ProcessCameraRuntimeBackend 
 
     default void setRecordingPreparationListener(RecordingPreparationListener listener) {}
 
+    long recordingBitrateBitsPerSecond(
+            com.dvid.dcam.platform.camera.shared.runtime.CameraRuntimeSelection selection);
+
     void requestRecording(RecordingMode mode);
 
     void requestImpHandoff();

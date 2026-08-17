@@ -11,26 +11,21 @@ import com.dvid.dcam.feature.location.application.port.LocationSource;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.feature.location.domain.GpsMode;
 import com.dvid.dcam.feature.location.domain.GpsSettings;
-import com.dvid.dcam.feature.location.domain.LocationProviderAvailability;
 import com.dvid.dcam.feature.location.domain.LocationTrackingState;
 import java.util.function.Consumer;
 
-/** Foreground Activity-bound source that races available providers in automatic mode. */
+/** Foreground Activity-bound source for explicit Google Fused or satellite GNSS tracking. */
 public final class AndroidLocationSourceImpl implements LocationSource {
     private final Context context;
     private final LocationManager locationManager;
     private final AndroidFusedLocationSourceImpl fusedSource;
     private final AndroidLocationProviderCapabilities capabilities;
-    private final LocationSourceRace race = new LocationSourceRace();
+    private final LocationSessionGuard sessions = new LocationSessionGuard();
     private LocationListener satelliteListener;
-    private LocationListener networkListener;
     private volatile GpsCoordinate latest;
     private Consumer<GpsCoordinate> consumer;
-    private Consumer<LocationTrackingState> stateConsumer;
     private GpsMode activeMode;
     private boolean satelliteActive;
-    private boolean networkActive;
-    private String activeNetworkProvider;
 
     public AndroidLocationSourceImpl(
             Context context, AndroidLocationProviderCapabilities capabilities) {
@@ -59,38 +54,21 @@ public final class AndroidLocationSourceImpl implements LocationSource {
             throw new IllegalArgumentException("Location state callback is required");
         }
         stopSources();
-        long generation = race.startNewSession();
-        satelliteListener = location -> accept(generation,
-                LocationSourceRace.Source.SATELLITE, location);
-        networkListener = location -> accept(generation,
-                LocationSourceRace.Source.NETWORK, location);
+        long generation = sessions.startNewSession();
         consumer = onCoordinate;
-        stateConsumer = onStateChanged;
         activeMode = settings.getMode();
         if (!hasFinePermission()) return LocationTrackingState.PERMISSION_REQUIRED;
         switch (activeMode) {
-            case SATELLITE: return startSatellite(settings);
-            case NETWORK: return startNetwork(settings, generation);
-            case AUTOMATIC: return startAutomatic(settings, generation);
-            default: return LocationTrackingState.NO_PROVIDER;
+            case FUSED:
+                return fusedSource.start(settings,
+                        coordinate -> acceptCoordinate(generation, coordinate),
+                        state -> acceptState(generation, state, onStateChanged));
+            case SATELLITE:
+                satelliteListener = location -> accept(generation, location);
+                return startSatellite(settings);
+            default:
+                return LocationTrackingState.NO_PROVIDER;
         }
-    }
-
-    private LocationTrackingState startAutomatic(GpsSettings settings, long generation) {
-        LocationProviderAvailability availability = capabilities.availability();
-        boolean attempted = false;
-        boolean started = false;
-        if (availability.isSatelliteAvailable()) {
-            attempted = true;
-            started = startSatellite(settings) == LocationTrackingState.WAITING_FOR_LOCATION_INFO;
-        }
-        if (availability.isNetworkAvailable()) {
-            attempted = true;
-            LocationTrackingState networkState = startNetwork(settings, generation);
-            started = started || networkState == LocationTrackingState.WAITING_FOR_LOCATION_INFO;
-        }
-        if (started) return LocationTrackingState.WAITING_FOR_LOCATION_INFO;
-        return attempted ? LocationTrackingState.ERROR : LocationTrackingState.NO_PROVIDER;
     }
 
     private LocationTrackingState startSatellite(GpsSettings settings) {
@@ -98,31 +76,6 @@ public final class AndroidLocationSourceImpl implements LocationSource {
         if (provider == null || locationManager == null) return LocationTrackingState.NO_PROVIDER;
         satelliteActive = register(provider, satelliteListener, settings);
         return satelliteActive
-                ? LocationTrackingState.WAITING_FOR_LOCATION_INFO : LocationTrackingState.ERROR;
-    }
-
-    private LocationTrackingState startNetwork(GpsSettings settings, long generation) {
-        if (!capabilities.availability().isNetworkAvailable()) {
-            return LocationTrackingState.NO_PROVIDER;
-        }
-        if (capabilities.isGoogleFusedAvailable()) {
-            networkActive = true;
-            LocationTrackingState state = fusedSource.start(settings,
-                    coordinate -> acceptCoordinate(generation, LocationSourceRace.Source.NETWORK,
-                            coordinate),
-                    nextState -> acceptNetworkState(generation, nextState));
-            if (state != LocationTrackingState.WAITING_FOR_LOCATION_INFO
-                    && state != LocationTrackingState.AVAILABLE) {
-                networkActive = false;
-            }
-            return state;
-        }
-        activeNetworkProvider = capabilities.systemNetworkProvider();
-        if (activeNetworkProvider == null || locationManager == null) {
-            return LocationTrackingState.NO_PROVIDER;
-        }
-        networkActive = register(activeNetworkProvider, networkListener, settings);
-        return networkActive
                 ? LocationTrackingState.WAITING_FOR_LOCATION_INFO : LocationTrackingState.ERROR;
     }
 
@@ -138,100 +91,49 @@ public final class AndroidLocationSourceImpl implements LocationSource {
     }
 
     @Override public synchronized void requestCurrentLocation(GpsSettings settings) {
-        if (settings == null || locationManager == null || !hasFinePermission()) return;
-        LocationSourceRace.Source winner = race.winner();
-        if (satelliteActive && (winner == null
-                || winner == LocationSourceRace.Source.SATELLITE)) {
-            requestSingleUpdate(LocationManager.GPS_PROVIDER, satelliteListener);
-        }
-        if (!networkActive || (winner != null
-                && winner != LocationSourceRace.Source.NETWORK)) return;
-        if (activeNetworkProvider == null && capabilities.isGoogleFusedAvailable()) {
-            fusedSource.requestCurrentLocation(settings);
-        } else if (activeNetworkProvider != null) {
-            requestSingleUpdate(activeNetworkProvider, networkListener);
-        }
-    }
-
-    private void requestSingleUpdate(String provider, LocationListener listener) {
-        if (provider == null || listener == null) return;
-        try {
-            locationManager.requestSingleUpdate(provider, listener, Looper.getMainLooper());
-        } catch (SecurityException | IllegalArgumentException ignored) {
-        }
+        if (settings == null || !hasFinePermission()) return;
+        if (activeMode == GpsMode.FUSED) fusedSource.requestCurrentLocation(settings);
     }
 
     @Override public synchronized void stop() {
+        sessions.stopSession();
         stopSources();
-        race.stopSession();
         consumer = null;
-        stateConsumer = null;
         activeMode = null;
         latest = null;
     }
 
     @Override public GpsCoordinate latestCoordinate() { return latest; }
 
-    private void accept(long generation, LocationSourceRace.Source source, Location location) {
+    private void accept(long generation, Location location) {
         if (location == null) return;
         try {
-            acceptCoordinate(generation, source,
+            acceptCoordinate(generation,
                     new GpsCoordinate(location.getLatitude(), location.getLongitude()));
         } catch (IllegalArgumentException ignored) {
         }
     }
 
-    private synchronized void acceptCoordinate(long generation,
-            LocationSourceRace.Source source, GpsCoordinate coordinate) {
-        if (coordinate == null || !race.isCurrent(generation)) return;
-        boolean firstResult = race.tryWin(generation, source);
-        if (!firstResult && !race.accepts(generation, source)) return;
+    private synchronized void acceptCoordinate(long generation, GpsCoordinate coordinate) {
+        if (coordinate == null || !sessions.isCurrent(generation)) return;
         latest = coordinate;
-        if (firstResult) stopLosingSource(generation, source);
         if (consumer != null) consumer.accept(coordinate);
     }
 
-    private synchronized void acceptNetworkState(
-            long generation, LocationTrackingState state) {
-        if (state == null || !race.isCurrent(generation)) return;
-        if (state == LocationTrackingState.ERROR
-                || state == LocationTrackingState.LOCATION_UNAVAILABLE
-                || state == LocationTrackingState.NO_PROVIDER) {
-            networkActive = false;
-        }
-        if (activeMode == GpsMode.AUTOMATIC && satelliteActive
-                && race.winner() != LocationSourceRace.Source.NETWORK) return;
-        if (stateConsumer != null) stateConsumer.accept(state);
-    }
-
-    private synchronized void stopLosingSource(long generation,
-            LocationSourceRace.Source winner) {
-        if (!race.isCurrent(generation)) return;
-        if (winner == LocationSourceRace.Source.SATELLITE) stopNetworkSource();
-        else stopSatelliteSource();
+    private synchronized void acceptState(long generation, LocationTrackingState state,
+            Consumer<LocationTrackingState> onStateChanged) {
+        if (state == null || !sessions.isCurrent(generation)) return;
+        onStateChanged.accept(state);
     }
 
     private synchronized void stopSources() {
-        stopSatelliteSource();
-        stopNetworkSource();
-    }
-
-    private void stopSatelliteSource() {
         if (locationManager != null && satelliteListener != null) {
             try { locationManager.removeUpdates(satelliteListener); }
             catch (RuntimeException ignored) { }
         }
-        satelliteActive = false;
-    }
-
-    private void stopNetworkSource() {
-        if (locationManager != null && networkListener != null) {
-            try { locationManager.removeUpdates(networkListener); }
-            catch (RuntimeException ignored) { }
-        }
         fusedSource.stop();
-        networkActive = false;
-        activeNetworkProvider = null;
+        satelliteListener = null;
+        satelliteActive = false;
     }
 
     private boolean hasFinePermission() {

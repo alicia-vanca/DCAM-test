@@ -16,6 +16,8 @@ public interface CaptureEvents {
     void recordingCompleted(String fileName);
     void recordingStoppedForStorage(String fileName);
     void audioRecordingStarted(String fileName, long startedAtMillis);
+    default void audioRecordingStopping() {}
+    default void audioRecordingStopCancelled() {}
     void audioRecordingStopped(String fileName);
     default void photoSaving() {}
     void photoSaved(String fileName);

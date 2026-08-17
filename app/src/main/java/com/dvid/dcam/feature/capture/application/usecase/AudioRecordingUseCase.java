@@ -58,10 +58,14 @@ public final class AudioRecordingUseCase {
     public String toggleAudio() {
         boolean wasRecording = audio.isRecording();
         if (!wasRecording && !recordingStartAllowed.getAsBoolean()) return null;
-        String fileName = wasRecording ? audio.toggle() : startAudio();
+        if (wasRecording) captureEvents.audioRecordingStopping();
         try {
-            reportAudioTransition(wasRecording, fileName);
+            String fileName = wasRecording ? audio.toggle() : startAudio();
+            reportAudioTransition(wasRecording, fileName, wasRecording);
             return fileName;
+        } catch (RuntimeException error) {
+            if (wasRecording) captureEvents.audioRecordingStopCancelled();
+            throw error;
         } finally {
             publishState();
         }
@@ -71,26 +75,29 @@ public final class AudioRecordingUseCase {
         boolean starting = !audio.isRecording();
         if (starting && !recordingStartAllowed.getAsBoolean()) return false;
         if (!toggleInFlight.compareAndSet(false, true)) return false;
+        boolean stopping = !starting;
+        if (stopping) captureEvents.audioRecordingStopping();
         try {
             ioExecutor.execute(() -> {
                 boolean wasRecording = audio.isRecording();
-                String fileName = null;
                 try {
+                    String fileName = null;
                     if (wasRecording || recordingStartAllowed.getAsBoolean()) {
                         fileName = wasRecording ? audio.toggle() : startAudio();
                     }
+                    reportAudioTransition(wasRecording, fileName, stopping);
+                } catch (RuntimeException error) {
+                    if (stopping) captureEvents.audioRecordingStopCancelled();
+                    throw error;
                 } finally {
                     toggleInFlight.set(false);
-                }
-                try {
-                    reportAudioTransition(wasRecording, fileName);
-                } finally {
                     publishState();
                 }
             });
             return true;
         } catch (RuntimeException error) {
             toggleInFlight.set(false);
+            if (stopping) captureEvents.audioRecordingStopCancelled();
             publishState();
             throw error;
         }
@@ -122,9 +129,16 @@ public final class AudioRecordingUseCase {
     }
 
 
-    private void reportAudioTransition(boolean wasRecording, String fileName) {
+    private void reportAudioTransition(
+            boolean wasRecording, String fileName, boolean stoppingRequested) {
         boolean recording = audio.isRecording();
-        if (wasRecording == recording) return;
+        if (wasRecording == recording) {
+            if (stoppingRequested) {
+                if (recording) captureEvents.audioRecordingStopCancelled();
+                else captureEvents.audioRecordingStopped(null);
+            }
+            return;
+        }
         if (recording) {
             long startedAtMillis = audio.recordingStartedAtMillis();
             captureEvents.audioRecordingStarted(fileName,

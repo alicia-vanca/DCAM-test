@@ -50,7 +50,7 @@
 
     <string-array name="gps_settings_items">
         <item>Record location</item>
-        <item>Automatic, Satellite, or Network location</item>
+        <item>Google Fused or GNSS satellite</item>
         <item>Location update frequency</item>
         <item>Location upload frequency</item>
     </string-array>

@@ -24,7 +24,7 @@ public final class OperationalGpsSettingsStoreImpl implements GpsSettingsStore {
 
     @Override public GpsSettings load() {
         return new GpsSettings(
-                parseMode(preferences.getString(MODE, GpsMode.AUTOMATIC.name())),
+                parseMode(preferences.getString(MODE, GpsMode.FUSED.name())),
                 positive(preferences.getInt(UPDATE_DISTANCE, 1)),
                 positive(preferences.getInt(REPORT_INTERVAL, 1)),
                 parseState(preferences.getString(SYSTEM_STATE, LocationSystemState.UNKNOWN.name())));
@@ -47,13 +47,17 @@ public final class OperationalGpsSettingsStoreImpl implements GpsSettingsStore {
 
     private static int positive(int value) { return value > 0 ? value : 1; }
 
-    private static GpsMode parseMode(String value) {
+    static GpsMode parseMode(String value) {
         String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
-        if ("GPS".equals(normalized)) return GpsMode.SATELLITE;
-        if ("GPS_AGPS".equals(normalized)) return GpsMode.AUTOMATIC;
-        if ("GMAP".equals(normalized)) return GpsMode.NETWORK;
+        if ("GPS".equals(normalized) || "SATELLITE".equals(normalized)) {
+            return GpsMode.SATELLITE;
+        }
+        if ("GPS_AGPS".equals(normalized) || "GMAP".equals(normalized)
+                || "AUTOMATIC".equals(normalized) || "NETWORK".equals(normalized)) {
+            return GpsMode.FUSED;
+        }
         try { return GpsMode.valueOf(normalized); }
-        catch (RuntimeException ignored) { return GpsMode.AUTOMATIC; }
+        catch (RuntimeException ignored) { return GpsMode.FUSED; }
     }
 
     private static LocationSystemState parseState(String value) {

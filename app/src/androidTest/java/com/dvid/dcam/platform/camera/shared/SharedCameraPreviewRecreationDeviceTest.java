@@ -68,7 +68,11 @@ public final class SharedCameraPreviewRecreationDeviceTest {
 
         final SharedCameraPreviewView[] views = new SharedCameraPreviewView[2];
         getInstrumentation().runOnMainSync(() -> {
-            views[0] = new SharedCameraPreviewView(context, new NoOpLogger(), surfaceHandle, ignored -> {});
+            views[0] = new SharedCameraPreviewView(
+                    context, new NoOpLogger(), surfaceHandle,
+                    ignored -> {}, ignored -> {}, () -> {});
+            views[0].setPreviewExpectedChanged(
+                    expected -> gateway.setPreviewExpected(views[0], expected));
             gateway.attachPreview(views[0]);
         });
         gateway.initialize(selection());
@@ -77,7 +81,11 @@ public final class SharedCameraPreviewRecreationDeviceTest {
 
         getInstrumentation().runOnMainSync(() -> {
             gateway.detachPreview(views[0]);
-            views[1] = new SharedCameraPreviewView(context, new NoOpLogger(), surfaceHandle, ignored -> {});
+            views[1] = new SharedCameraPreviewView(
+                    context, new NoOpLogger(), surfaceHandle,
+                    ignored -> {}, ignored -> {}, () -> {});
+            views[1].setPreviewExpectedChanged(
+                    expected -> gateway.setPreviewExpected(views[1], expected));
             gateway.attachPreview(views[1]);
         });
         gateway.takePhoto();
@@ -108,14 +116,18 @@ public final class SharedCameraPreviewRecreationDeviceTest {
     private static final class FakeBackend implements SharedCameraGatewayBackend {
         private final SharedCameraPreviewOutput output;
         private final List<Operation> operations = new ArrayList<>();
-        private SosHandoff handoff = () -> {};
+
 
         private FakeBackend(SharedCameraPreviewOutput output) { this.output = output; }
         @Override public SharedCameraPreviewOutput previewOutput() { return output; }
         @Override public void refreshDisplayRotation() {}
-        @Override public void setSosHandoff(SosHandoff value) { handoff = value; }
+        @Override public void setImpHandoff(ImpHandoff value) {}
+        @Override public long recordingBitrateBitsPerSecond(
+                CameraRuntimeSelection selection) {
+            return selection.tuple().videoMode().resolution().actual().pixelCount();
+        }
         @Override public void requestRecording(RecordingMode mode) {}
-        @Override public void requestSosHandoff() {}
+        @Override public void requestImpHandoff() {}
         @Override public void setRecordingStorageLimit(Runnable listener) {}
         @Override public boolean recordingStorageLimitRequested() { return false; }
         @Override public void cancelPendingRecording() {}
@@ -145,6 +157,8 @@ public final class SharedCameraPreviewRecreationDeviceTest {
         @Override public void recordingResumed() {}
         @Override public void recordingCompleted(String fileName) {}
         @Override public void recordingStoppedForStorage(String fileName) {}
+        @Override public void audioRecordingStarted(String fileName, long startedAtMillis) {}
+        @Override public void audioRecordingStopped(String fileName) {}
         @Override public void photoSaved(String fileName) {}
         @Override public void photoFailed(String operation, String message) {}
         @Override public void captureFailed(String operation, String message) {}

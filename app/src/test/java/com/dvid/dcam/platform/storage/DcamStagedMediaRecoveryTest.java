@@ -169,6 +169,37 @@ final class DcamStagedMediaRecoveryTest {
     }
 
     @Test
+    void recoversCommittedSegmentedGcmJpegBeforeFinal() throws Exception {
+        String password = "recording-pass";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = stagedImage(storage, true);
+        byte[] plaintext = jpeg(1280, 720);
+        try (DcamRecordingOutput output =
+                     DcamRecordingOutput.openSegmentedAesGcm(media.getFile(), password)) {
+            output.beginTransaction();
+            writeFully(output, plaintext);
+            output.commitTransaction();
+        }
+
+        StagedMediaRecoveryReport report = recovery(
+                storage, new AndroidDcamMediaValidator(), null, () -> password).recover();
+
+        File published = storage.finalFile(media);
+        assertTrue(published.isFile());
+        assertFalse(media.getFile().exists());
+        assertEquals(1, report.getRecovered());
+        assertTrue(report.isResolved(media.getFileName()));
+        try (SegmentedAesGcmMediaStore decrypted =
+                     SegmentedAesGcmMediaStore.openPublished(published, password)) {
+            assertArrayEquals(plaintext, readAll(decrypted));
+        }
+        try (var files = Files.walk(root)) {
+            assertTrue(files.noneMatch(path ->
+                    path.getFileName().toString().contains(".publishing-")));
+        }
+    }
+
+    @Test
     void removesHeaderOnlySegmentedGcmCandidate() throws Exception {
         String password = "recording-pass";
         DcamStorage storage = new DcamStorage(root.toFile());
@@ -443,6 +474,68 @@ final class DcamStagedMediaRecoveryTest {
     }
 
     @Test
+    void recoversInterruptedM4aAsAudioWithoutVideoMd5() throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = stagedM4a(storage, false);
+        Path stagedPath = media.getFile().toPath();
+        String fileName = media.getFileName();
+        Files.write(stagedPath,
+                DcamInterruptedMp4FinalizerTest.interruptedAudioM4aWithGpsRoute());
+
+        StagedMediaRecoveryReport report = recovery(storage, (type, file) -> {
+            assertEquals(DcamFileType.AUDIO_M4A, type);
+            return playable();
+        }, () -> true).recover();
+
+        File published = storage.finalFile(media);
+        assertTrue(published.isFile());
+        assertFalse(stagedPath.toFile().exists());
+        assertEquals(1, report.getRecovered());
+        assertTrue(report.isResolved(fileName));
+        assertEquals(List.of(
+                new RoutePoint(0L, 21.034918, 105.767322),
+                new RoutePoint(21_333L, 21.034919, 105.767323)),
+                gpsRoutePoints(Files.readAllBytes(published.toPath())));
+        assertFalse(published.toPath().resolveSibling(
+                published.getName().replaceFirst("\\.m4a$", ".md5")).toFile().exists());
+    }
+
+    @Test
+    void recoversInterruptedSegmentedGcmM4aWithGpsRoute() throws Exception {
+        String password = "recording-pass";
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = stagedM4a(storage, true);
+        DcamMediaOutputImpl mediaOutput = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> password, logger);
+        try (DcamRecordingOutput output = mediaOutput.openAudioOutput(media)) {
+            writeFully(output,
+                    DcamInterruptedMp4FinalizerTest.interruptedAudioM4aWithGpsRoute());
+            output.checkpoint();
+        }
+
+        StagedMediaRecoveryReport report = recovery(
+                storage, logicalPlayableValidator(), () -> true, () -> password).recover();
+
+        File published = storage.finalFile(media);
+        assertTrue(published.isFile());
+        assertFalse(media.getFile().exists());
+        assertEquals(1, report.getRecovered());
+        assertTrue(report.isResolved(media.getFileName()));
+        try (SegmentedAesGcmMediaStore decrypted =
+                     SegmentedAesGcmMediaStore.openPublished(published, password)) {
+            byte[] recovered = readAll(decrypted);
+            assertTrue(DcamInterruptedMp4FinalizerTest.movieDuration(recovered) > 0L);
+            assertEquals(List.of(
+                    new RoutePoint(0L, 21.034918, 105.767322),
+                    new RoutePoint(21_333L, 21.034919, 105.767323)),
+                    gpsRoutePoints(recovered));
+        }
+        assertFalse(published.toPath().resolveSibling(
+                published.getName().replaceFirst("_enc\\.m4a$", "_enc.md5"))
+                .toFile().exists());
+    }
+
+    @Test
     void publishesPlayableAudioCandidateFoundAfterRestart() throws Exception {
         DcamStorage storage = new DcamStorage(root.toFile());
         DcamMediaFile media = storage.mediaFile(
@@ -478,6 +571,16 @@ final class DcamStagedMediaRecoveryTest {
                 mediaEncryptionPassword, logger);
     }
 
+    private DcamMediaFile stagedM4a(DcamStorage storage, boolean encrypted) throws Exception {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 8, 14, 10, 30);
+        String fileName = DcamFileName.build(
+                DcamFileType.AUDIO_M4A, "CAM001", "000001", createdAt, encrypted);
+        Path stagedPath = root.resolve("Temp/2026-08-14").resolve(fileName);
+        Files.createDirectories(stagedPath.getParent());
+        return new DcamMediaFile(
+                DcamFileType.AUDIO_M4A, fileName, stagedPath.toFile(), createdAt, encrypted);
+    }
+
     private static DcamMediaValidator logicalPlayableValidator() {
         return new DcamMediaValidator() {
             @Override public DcamMediaValidationResult validate(DcamFileType type, File file) {
@@ -505,6 +608,49 @@ final class DcamStagedMediaRecoveryTest {
             if (read < 0) break;
         }
         return target.array();
+    }
+
+    private static List<RoutePoint> gpsRoutePoints(byte[] data) {
+        List<RoutePoint> points = new ArrayList<>();
+        ByteBuffer bytes = ByteBuffer.wrap(data);
+        int offset = 0;
+        while (offset <= data.length - 8) {
+            long boxBytes = Integer.toUnsignedLong(bytes.getInt(offset));
+            if (boxBytes < 8L || boxBytes > data.length - offset) break;
+            if (bytes.getInt(offset + 4) == DcamFragmentedMp4Layout.BOX_UUID
+                    && boxBytes == DcamFragmentedMp4Layout.GPS_ROUTE_BOX_BYTES) {
+                int content = offset + 8;
+                if (bytes.getLong(content)
+                                == DcamFragmentedMp4Layout.GPS_ROUTE_UUID_MOST_SIGNIFICANT_BITS
+                        && bytes.getLong(content + 8)
+                                == DcamFragmentedMp4Layout.GPS_ROUTE_UUID_LEAST_SIGNIFICANT_BITS
+                        && bytes.getInt(content + 16) == 1) {
+                    points.add(new RoutePoint(
+                            bytes.getLong(content + 20),
+                            bytes.getDouble(content + 28),
+                            bytes.getDouble(content + 36)));
+                }
+            }
+            offset += (int) boxBytes;
+        }
+        return List.copyOf(points);
+    }
+
+    private static byte[] jpeg(int width, int height) {
+        return new byte[] {
+                (byte) 0xff, (byte) 0xd8,
+                (byte) 0xff, (byte) 0xe0, 0x00, 0x04, 0x01, 0x02,
+                (byte) 0xff, (byte) 0xc0, 0x00, 0x11, 0x08,
+                (byte) (height >>> 8), (byte) height,
+                (byte) (width >>> 8), (byte) width,
+                0x03,
+                0x01, 0x11, 0x00,
+                0x02, 0x11, 0x00,
+                0x03, 0x11, 0x00,
+                (byte) 0xff, (byte) 0xda, 0x00, 0x08,
+                0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+                0x00, (byte) 0xff, (byte) 0xd9
+        };
     }
 
     private static byte[] adtsFrame(byte[] payload) {
@@ -557,6 +703,17 @@ final class DcamStagedMediaRecoveryTest {
         Files.createDirectories(media.getFile().toPath().getParent());
         return media;
     }
+
+    private static DcamMediaFile stagedImage(DcamStorage storage, boolean encrypted)
+            throws Exception {
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.IMAGE, "CAM001", "000001",
+                LocalDateTime.of(2026, 8, 12, 10, 31), encrypted);
+        Files.createDirectories(media.getFile().toPath().getParent());
+        return media;
+    }
+
+    private record RoutePoint(long presentationTimeUs, double latitude, double longitude) {}
 
     private static final class CapturingLogger implements Logger {
         private final List<String> warningMessages = new ArrayList<>();

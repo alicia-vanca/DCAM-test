@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.camera.shared;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
+import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.File;
 import java.util.Objects;
 
@@ -31,13 +32,29 @@ public interface SharedCameraMediaLifecycle {
             return mediaFile.getFile();
         }
     }
-    record PhotoCapture(DcamMediaFile mediaFile, boolean encrypted) {
+    record PhotoCapture(
+            DcamMediaFile mediaFile,
+            boolean encrypted,
+            SegmentedAesGcmJpegOutput segmentedAesGcmOutput) {
+        public PhotoCapture(DcamMediaFile mediaFile, boolean encrypted) {
+            this(mediaFile, encrypted, null);
+        }
+
         public PhotoCapture {
             mediaFile = Objects.requireNonNull(mediaFile, "mediaFile");
+            if (encrypted != (segmentedAesGcmOutput != null)) {
+                throw new IllegalArgumentException(
+                        "Encrypted photo media requires Segmented AES-GCM JPEG output.");
+            }
         }
 
         public File outputFile() {
             return mediaFile.getFile();
+        }
+
+        public void discard() {
+            if (segmentedAesGcmOutput == null) outputFile().delete();
+            else segmentedAesGcmOutput.discard();
         }
     }
 
@@ -100,7 +117,8 @@ public interface SharedCameraMediaLifecycle {
         }
     }
 
-    RecordingCapture prepareRecording(RecordingMode mode) throws PreparationException;
+    RecordingCapture prepareRecording(
+            RecordingMode mode, long bitrateBitsPerSecond) throws PreparationException;
 
     default void requirePhotoStorage() throws PreparationException {}
 

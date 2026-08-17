@@ -199,6 +199,16 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         recordingPreparationListener = Objects.requireNonNull(listener, "listener");
     }
 
+    @Override public synchronized long recordingBitrateBitsPerSecond(
+            CameraRuntimeSelection selection) {
+        Objects.requireNonNull(selection, "selection");
+        if (pipeline != null && selection.equals(activeSelection)) {
+            long current = pipeline.recordingBitrateBitsPerSecond();
+            if (current > 0L) return current;
+        }
+        return pipelineProvider.recordingBitrateBitsPerSecond(selection);
+    }
+
     @Override public synchronized void requestRecording(RecordingMode mode) {
         requestedRecordingMode = Objects.requireNonNull(mode, "mode");
         recordingStartCancelled = false;
@@ -264,6 +274,8 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             logger.error(logPrefix(command) + " outcome=exception", error);
             completion.complete(Result.recoveryRequired(
                     "runtime_exception:" + error.getClass().getSimpleName()));
+        } finally {
+            stopMediaOrientationTrackingIfUnbound();
         }
     }
 
@@ -298,6 +310,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             complete(command, completion, Result.targetFailed("capability_snapshot_unavailable"));
             return;
         }
+        pipelineProvider.startMediaOrientationTracking();
         SharedCameraVerificationSession session = new SharedCameraVerificationSession(
                 selection -> pipelineProvider.create(selection, previewSurface), logger,
                 com.dvid.dcam.feature.device.application.port.CameraVerificationClock.system(),
@@ -371,6 +384,13 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
     private void observeBindingPipeline(SharedCameraCapturePipeline value) {
         bindingPipeline = value;
         if (value != null) value.setPreviewExpected(previewExpected);
+    }
+
+    private void stopMediaOrientationTrackingIfUnbound() {
+        synchronized (this) {
+            if (pipeline != null || bindingPipeline != null) return;
+        }
+        pipelineProvider.stopMediaOrientationTracking();
     }
 
     private Result adoptVerificationBinding(
@@ -459,6 +479,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
         SharedCameraCapturePipeline next;
         try {
+            pipelineProvider.startMediaOrientationTracking();
             next = pipelineProvider.create(selection, previewSurface);
             bindingPipeline = next;
             next.setPreviewExpected(previewExpected);
@@ -505,7 +526,12 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             Optional<CameraOperationOutcome> failureOutcome) {}
 
     private void executeRelease(Command command, Completion completion) {
-        Result result = releaseCurrent(command);
+        Result result;
+        try {
+            result = releaseCurrent(command);
+        } finally {
+            pipelineProvider.stopMediaOrientationTracking();
+        }
         complete(command, completion, result.outcome() == Outcome.RECOVERY_REQUIRED
                 ? result : Result.pass("camera_released"));
     }
@@ -551,7 +577,8 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
         SharedCameraMediaLifecycle.RecordingCapture prepared;
         try {
-            prepared = mediaLifecycle.prepareRecording(mode);
+            prepared = mediaLifecycle.prepareRecording(
+                    mode, current.recordingBitrateBitsPerSecond());
         } catch (SharedCameraMediaLifecycle.PreparationException error) {
             clearRequestedRecordingMode();
             if (error.retryable()) {
@@ -587,12 +614,18 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
         clearRequestedRecordingMode();
         clearRecordingPreparationNotice();
+        CameraRuntimeSelection selection = Objects.requireNonNull(
+                activeSelection, "activeSelection");
+        int recordingRotationDegrees = pipelineProvider.mediaRotationDegrees(
+                selection, current.outputRotationDegrees());
         long preparedAtNanos = System.nanoTime();
         CameraOperationResult start = prepared.recordingOutput() == null
                 ? current.startEncoder(runtimeContext(), prepared.outputFile(),
-                        prepared.fileSizeLimitBytes(), this::recordingStorageLimitReached)
+                        prepared.fileSizeLimitBytes(), this::recordingStorageLimitReached,
+                        recordingRotationDegrees)
                 : current.startEncoder(runtimeContext(), prepared.recordingOutput(),
-                        prepared.fileSizeLimitBytes(), this::recordingStorageLimitReached);
+                        prepared.fileSizeLimitBytes(), this::recordingStorageLimitReached,
+                        recordingRotationDegrees);
         long encoderCompletedAtNanos = System.nanoTime();
         logger.info("Complete recording startup pipeline. Mode: " + mode
                 + ". Media preparation: "
@@ -780,16 +813,26 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
         clearRecordingPreparationNotice();
 
+        int photoRotationDegrees = pipelineProvider.mediaRotationDegrees(
+                original, current.outputRotationDegrees());
         long preparedAtNanos = System.nanoTime();
-        CameraOperationResult capture = current.captureJpeg(runtimeContext(), photo.outputFile());
+        CameraOperationResult capture = photo.segmentedAesGcmOutput() == null
+                ? current.captureJpeg(
+                        runtimeContext(), photo.outputFile(), photoRotationDegrees)
+                : current.captureJpeg(
+                        runtimeContext(), photo.segmentedAesGcmOutput(), photoRotationDegrees);
         boolean captureFailureConfirmed = verifyStandaloneImage
                 && isDurableStandaloneFailure(capture.outcome());
         if (verifyStandaloneImage
                 && capture.outcome() == CameraOperationOutcome.CANDIDATE_SUSPECT) {
-            photo.outputFile().delete();
+            photo.discard();
             logger.info(logPrefix(command)
                     + " stage=standalone_photo_capture_confirmation action=retry");
-            capture = current.captureJpeg(runtimeContext(), photo.outputFile());
+            capture = photo.segmentedAesGcmOutput() == null
+                    ? current.captureJpeg(
+                            runtimeContext(), photo.outputFile(), photoRotationDegrees)
+                    : current.captureJpeg(
+                            runtimeContext(), photo.segmentedAesGcmOutput(), photoRotationDegrees);
             captureFailureConfirmed = capture.outcome().isCandidateFailure();
         }
         long capturedAtNanos = System.nanoTime();
@@ -803,7 +846,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                 recordStandaloneImageOutcome(requestedPhoto,
                         VerificationOutcome.DEFINITIVE_UNSUPPORTED);
             }
-            photo.outputFile().delete();
+            photo.discard();
             Result restored = temporaryBinding ? bindSelection(command, original, true)
                     : Result.pass("photo_binding_unchanged");
             CameraOperationResult failedCapture = capture;
@@ -825,9 +868,11 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                         + requestedPhoto.cameraId().value()
                         + " because sensor orientation is unavailable.", null);
             } else {
-                Optional<CameraResolution> actual = JpegDimensions.read(photo.outputFile())
-                        .map(size -> new CameraResolution(size.width(), size.height()));
-                int outputRotationDegrees = current.outputRotationDegrees();
+                Optional<CameraResolution> actual = photo.segmentedAesGcmOutput() == null
+                        ? JpegDimensions.read(photo.outputFile())
+                                .map(size -> new CameraResolution(size.width(), size.height()))
+                        : current.diagnostics(runtimeContext()).capturedJpegResolution();
+                int outputRotationDegrees = photoRotationDegrees;
                 boolean matches = actual.filter(value ->
                         expected.matchesConsideringRotation(value,
                                 outputRotationDegrees)).isPresent();

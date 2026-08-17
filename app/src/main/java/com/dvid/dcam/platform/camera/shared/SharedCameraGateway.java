@@ -103,6 +103,12 @@ public final class SharedCameraGateway implements CameraGateway {
         return runtimeOwner.snapshot();
     }
 
+    public long recordingBitrateBitsPerSecond() {
+        return runtimeOwner.recordingSelection()
+                .map(backend::recordingBitrateBitsPerSecond)
+                .orElse(0L);
+    }
+
     public ProcessCameraRuntimeOwner.Attachment observeRuntimeState(
             ProcessCameraRuntimeOwner.Listener listener) {
         return runtimeOwner.attach(listener);

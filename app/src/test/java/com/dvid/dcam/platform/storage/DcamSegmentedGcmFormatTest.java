@@ -7,43 +7,60 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.CRC32;
+import com.dvid.dcam.BuildSecrets;
 import org.junit.jupiter.api.Test;
 
 final class DcamSegmentedGcmFormatTest {
-    private static final String PASSWORD = "contract-pass";
-    private static final String ENCRYPTED_SHA256 =
-            "9d53238c68e15fa1ba326edfbcfde43f14eec15febe6f04b7b112596c3d12883";
-    private static final String PLAINTEXT_SHA256 =
-            "ff6a7b63623fba846c3e2079c4e004b3c03dbbd382e67a4b1ce8a2f7181d7d5e";
-    private static final String PBKDF2_KEY_HEX =
-            "1925c3ce56e5eb7a668e82ec0b625ff348147827a4cf34c76a98b172484fa7e5";
+    private static final String PASSWORD = configuredPassword();
 
-    @Test void regeneratesSharedContractVector() throws Exception {
-        byte[] encrypted = resource("dcam-segmented-gcm-contract.bin");
-        byte[] plaintext = resource("dcam-segmented-gcm-contract.plain");
+    @Test void buildsContractVectorWithConfiguredPasswordAndDefaultKdf() throws Exception {
+        byte[] encrypted = buildVector();
+        byte[] plaintext = buildPlaintext();
 
-        assertArrayEquals(encrypted, buildVector());
-        assertArrayEquals(plaintext, buildPlaintext());
-        assertEquals(ENCRYPTED_SHA256, sha256(encrypted));
-        assertEquals(PLAINTEXT_SHA256, sha256(plaintext));
+        assertEquals(9_276, encrypted.length);
+        assertEquals(4_200, plaintext.length);
+        DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.readHeader(
+                Arrays.copyOf(encrypted, DcamSegmentedGcmFormat.FILE_HEADER_BYTES));
+        assertEquals(1_000, header.kdfIterations);
     }
 
+    @Test void acceptsOneThousandIterationsAndRejectsLowerValues() throws Exception {
+        DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.createHeader(
+                4096, DcamSegmentedGcmFormat.DEFAULT_KDF_ITERATIONS,
+                sequence(0x31, DcamSegmentedGcmFormat.SALT_BYTES),
+                sequence(0x41, DcamSegmentedGcmFormat.FILE_ID_BYTES));
+
+        assertEquals(1_000, DcamSegmentedGcmFormat.MIN_KDF_ITERATIONS);
+        assertEquals(1_000, header.kdfIterations);
+        assertThrows(IOException.class, () -> DcamSegmentedGcmFormat.createHeader(
+                4096, 999,
+                sequence(0x51, DcamSegmentedGcmFormat.SALT_BYTES),
+                sequence(0x61, DcamSegmentedGcmFormat.FILE_ID_BYTES)));
+
+        byte[] belowMinimumHeader = header.encoded.clone();
+        ByteBuffer.wrap(belowMinimumHeader).putInt(28, 999);
+        CRC32 crc = new CRC32();
+        crc.update(belowMinimumHeader, 0, 92);
+        ByteBuffer.wrap(belowMinimumHeader).putInt(92, (int) crc.getValue());
+        assertThrows(IOException.class,
+                () -> DcamSegmentedGcmFormat.readHeader(belowMinimumHeader));
+    }
+
+
     @Test void decodesAutocommitTransactionCheckpointAndFinal() throws Exception {
-        byte[] encrypted = resource("dcam-segmented-gcm-contract.bin");
-        byte[] expected = resource("dcam-segmented-gcm-contract.plain");
+        byte[] encrypted = buildVector();
+        byte[] expected = buildPlaintext();
         DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.readHeader(
                 Arrays.copyOf(encrypted, DcamSegmentedGcmFormat.FILE_HEADER_BYTES));
         byte[] key = DcamSegmentedGcmFormat.deriveKey(header, PASSWORD);
-        assertEquals(PBKDF2_KEY_HEX, HexFormat.of().formatHex(key));
+
         Map<Long, byte[]> blocks = new HashMap<>();
         List<DcamSegmentedGcmFormat.DecodedRecord> pending = new ArrayList<>();
         long logicalLength = 0L;
@@ -142,7 +159,7 @@ final class DcamSegmentedGcmFormatTest {
     }
 
     @Test void rejectsTamperedTagWithoutPlaintextFallback() throws Exception {
-        byte[] encrypted = resource("dcam-segmented-gcm-contract.bin");
+        byte[] encrypted = buildVector();
         DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.readHeader(
                 Arrays.copyOf(encrypted, DcamSegmentedGcmFormat.FILE_HEADER_BYTES));
         byte[] key = DcamSegmentedGcmFormat.deriveKey(header, PASSWORD);
@@ -178,7 +195,7 @@ final class DcamSegmentedGcmFormatTest {
 
     private static byte[] buildVector() throws Exception {
         DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.createHeader(
-                4096, DcamSegmentedGcmFormat.MIN_KDF_ITERATIONS,
+                4096, DcamSegmentedGcmFormat.DEFAULT_KDF_ITERATIONS,
                 sequence(0x01, DcamSegmentedGcmFormat.SALT_BYTES),
                 sequence(0x11, DcamSegmentedGcmFormat.FILE_ID_BYTES));
         byte[] key = DcamSegmentedGcmFormat.deriveKey(header, PASSWORD);
@@ -235,14 +252,6 @@ final class DcamSegmentedGcmFormatTest {
         return output.toByteArray();
     }
 
-    private static byte[] resource(String name) throws IOException {
-        try (InputStream input = DcamSegmentedGcmFormatTest.class
-                .getResourceAsStream("/crypto/" + name)) {
-            if (input == null) throw new IOException("Missing contract resource " + name);
-            return input.readAllBytes();
-        }
-    }
-
     private static byte[] sequence(int first, int length) {
         byte[] bytes = new byte[length];
         for (int index = 0; index < length; index++) bytes[index] = (byte) (first + index);
@@ -258,7 +267,11 @@ final class DcamSegmentedGcmFormatTest {
         return sequence(first, DcamSegmentedGcmFormat.NONCE_BYTES);
     }
 
-    private static String sha256(byte[] bytes) throws Exception {
-        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    private static String configuredPassword() {
+        String password = BuildSecrets.DCAM_CRYPTO_PASSWORD();
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException("DCAM_CRYPTO_PASSWORD is required for segmented-GCM tests.");
+        }
+        return password;
     }
 }

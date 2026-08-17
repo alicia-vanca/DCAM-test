@@ -180,6 +180,14 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         return () -> listeners.remove(listener);
     }
 
+    public synchronized Optional<CameraRuntimeSelection> recordingSelection() {
+        if (pendingTransition != null) return Optional.of(pendingTransition.target());
+        if (transitionTarget != null) return Optional.of(transitionTarget);
+        if (activeSelection != null) return Optional.of(activeSelection);
+        if (committedSelection != null) return Optional.of(committedSelection);
+        return Optional.ofNullable(recoverySelection);
+    }
+
     public synchronized RuntimeSnapshot snapshot() {
         boolean transition = inFlight != null && isTransition(inFlight.operation());
         boolean recording = state == CameraRuntimeState.RECORDING;

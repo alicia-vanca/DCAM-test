@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import android.os.Environment;
 import com.dvid.dcam.feature.media.domain.MediaEntry;
 import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import java.nio.file.Files;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 final class LocalMediaRepositoryTest {
@@ -52,6 +54,37 @@ final class LocalMediaRepositoryTest {
         assertEquals(List.of("clip.mp4"), files.stream().map(MediaEntry::getName).toList());
         assertEquals("clip.mp4", files.get(0).getName());
         assertEquals("video/mp4", files.get(0).getMimeType());
+    }
+
+    @Test void reportsM4aAsAudioMp4() throws Exception {
+        Path root = Files.createTempDirectory("dcam-media-m4a");
+        Path audio = Files.createDirectories(root.resolve("Media/Audio/2026-08-14"));
+        Files.write(audio.resolve("recording.m4a"), new byte[] {1});
+        LocalMediaRepository browser = new LocalMediaRepository(new DcamStorage(root.toFile()));
+
+        List<MediaEntry> files = browser.list("Internal/Audio/2026-08-14");
+
+        assertEquals(1, files.size());
+        assertEquals("audio/mp4", files.get(0).getMimeType());
+    }
+
+    @Test void hidesUnavailableExternalRootUntilMounted() throws Exception {
+        Path root = Files.createTempDirectory("dcam-media-roots");
+        Path internal = Files.createDirectories(root.resolve("internal"));
+        Path external = Files.createDirectories(root.resolve("external"));
+        AtomicReference<String> externalState = new AtomicReference<>(Environment.MEDIA_SHARED);
+        DcamStorage storage = new DcamStorage(
+                MediaPartitionLocation.AUTO, internal.toFile(), List.of(external.toFile()),
+                () -> false, ignored -> externalState.get(), ignored -> 0L);
+        LocalMediaRepository browser = new LocalMediaRepository(storage);
+
+        assertEquals(List.of("Internal"), browser.listWithoutCounts("").stream()
+                .map(MediaEntry::getName).toList());
+
+        externalState.set(Environment.MEDIA_MOUNTED);
+
+        assertEquals(List.of("Internal", "External"), browser.listWithoutCounts("").stream()
+                .map(MediaEntry::getName).toList());
     }
 
     @Test void invalidatesCachedLeafCountWhenDirectoryChanges() throws Exception {

@@ -8,6 +8,7 @@ import android.view.Surface;
 import android.view.WindowManager;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.usecase.CaptureEvents;
+import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.platform.camera.shared.runtime.ProcessCameraRuntimeOwner;
 import com.dvid.dcam.platform.device.capability.CameraCapabilityService;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
@@ -53,8 +54,7 @@ public final class SharedCameraGatewayFactory {
             Supplier<String> deviceSerialNumber,
             Supplier<String> operatorFileUserId,
             BooleanSupplier mediaEncryptionEnabled,
-            Supplier<String> mediaEncryptionPassword,
-            BooleanSupplier storageWarningActive,
+            Supplier<GpsCoordinate> captureLocation,
             long preRecordGopDurationMillis,
             Logger logger) {
         Objects.requireNonNull(context, "context");
@@ -62,6 +62,7 @@ public final class SharedCameraGatewayFactory {
         Objects.requireNonNull(capabilities, "capabilities");
         Objects.requireNonNull(captureEvents, "captureEvents");
         Objects.requireNonNull(mediaOutput, "mediaOutput");
+        Objects.requireNonNull(captureLocation, "captureLocation");
         Objects.requireNonNull(logger, "logger");
         runtimeOwner.installMediaReservation(mediaOutput::mediaReservationDelayMillis);
         SharedCameraPreviewView.SurfaceHandle previewSurface =
@@ -70,12 +71,12 @@ public final class SharedCameraGatewayFactory {
         CameraManager cameraManager = context.getSystemService(CameraManager.class);
         SharedCameraPipelineProvider pipelines = new DefaultSharedCameraPipelineProvider(
                 context, logger, diagnosticOutput, preRecordGopDurationMillis,
-                capabilities::cameraOrientationDegrees,
+                captureLocation, capabilities::cameraOrientationDegrees,
                 () -> displayRotationDegrees(context),
                 cameraId -> isFrontFacing(cameraManager, cameraId));
         SharedCameraMediaLifecycle mediaLifecycle = new AndroidSharedCameraMediaLifecycle(
                 context, mediaOutput, deviceSerialNumber, operatorFileUserId,
-                mediaEncryptionEnabled, mediaEncryptionPassword, storageWarningActive);
+                mediaEncryptionEnabled);
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                 pipelines, previewSurface, mediaLifecycle, capabilities, captureEvents, logger);
         SharedCameraGateway gateway = new SharedCameraGateway(

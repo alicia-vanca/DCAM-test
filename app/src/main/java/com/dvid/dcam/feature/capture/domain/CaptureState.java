@@ -10,6 +10,7 @@ public final class CaptureState {
     private final Long interruptedAtMillis;
     private final boolean audioRecording;
     private final Long audioStartedAtMillis;
+    private final boolean audioSaving;
 
     public CaptureState() {
         this(RecordingMode.IDLE, null, null, false, null);
@@ -27,13 +28,14 @@ public final class CaptureState {
     public CaptureState(
             RecordingMode mode, String currentFileName, Long startedAtMillis, boolean saving,
             Long interruptedAtMillis) {
-        this(mode, currentFileName, startedAtMillis, saving, false, interruptedAtMillis, false, null);
+        this(mode, currentFileName, startedAtMillis, saving, false, interruptedAtMillis,
+                false, null, false);
     }
 
     private CaptureState(
             RecordingMode mode, String currentFileName, Long startedAtMillis, boolean saving,
             boolean photoSaving, Long interruptedAtMillis, boolean audioRecording,
-            Long audioStartedAtMillis) {
+            Long audioStartedAtMillis, boolean audioSaving) {
         this.mode = mode;
         this.currentFileName = currentFileName;
         this.startedAtMillis = startedAtMillis;
@@ -42,6 +44,7 @@ public final class CaptureState {
         this.interruptedAtMillis = interruptedAtMillis;
         this.audioRecording = audioRecording;
         this.audioStartedAtMillis = audioStartedAtMillis;
+        this.audioSaving = audioSaving;
     }
 
     public RecordingMode getMode() { return mode; }
@@ -54,12 +57,13 @@ public final class CaptureState {
     public boolean isInterrupted() { return interruptedAtMillis != null; }
     public boolean isAudioRecording() { return audioRecording; }
     public Long getAudioStartedAtMillis() { return audioStartedAtMillis; }
+    public boolean isAudioSaving() { return audioSaving; }
 
     public CaptureState withVideo(
             RecordingMode mode, String fileName, Long startedAtMillis, boolean saving,
             Long interruptedAtMillis) {
         return new CaptureState(mode, fileName, startedAtMillis, saving, photoSaving,
-                interruptedAtMillis, audioRecording, audioStartedAtMillis);
+                interruptedAtMillis, audioRecording, audioStartedAtMillis, audioSaving);
     }
 
     public CaptureState withoutVideo() {
@@ -68,11 +72,17 @@ public final class CaptureState {
 
     public CaptureState withPhotoSaving(boolean saving) {
         return new CaptureState(mode, currentFileName, startedAtMillis, this.saving, saving,
-                interruptedAtMillis, audioRecording, audioStartedAtMillis);
+                interruptedAtMillis, audioRecording, audioStartedAtMillis, audioSaving);
     }
 
     public CaptureState withAudio(boolean recording, Long startedAtMillis) {
+        return withAudio(recording, startedAtMillis, false);
+    }
+
+    public CaptureState withAudio(
+            boolean recording, Long startedAtMillis, boolean audioSaving) {
         return new CaptureState(mode, currentFileName, this.startedAtMillis, saving, photoSaving,
-                interruptedAtMillis, recording, recording ? startedAtMillis : null);
+                interruptedAtMillis, recording, recording ? startedAtMillis : null,
+                !recording && audioSaving);
     }
 }

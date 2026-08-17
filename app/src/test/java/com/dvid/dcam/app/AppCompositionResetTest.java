@@ -27,8 +27,21 @@ final class AppCompositionResetTest {
                 snapshot(CameraRuntimeState.READY, Optional.empty())));
     }
 
+    @Test void recordingMinimumRefreshesOncePerReadyCameraGeneration() {
+        assertFalse(AppComposition.recordingMinimumRefreshRequired(
+                snapshot(CameraRuntimeState.CLOSED, Optional.empty(), 0L), -1L));
+        assertTrue(AppComposition.recordingMinimumRefreshRequired(
+                snapshot(CameraRuntimeState.READY, Optional.empty(), 1L), -1L));
+        assertFalse(AppComposition.recordingMinimumRefreshRequired(
+                snapshot(CameraRuntimeState.READY, Optional.empty(), 1L), 1L));
+        assertFalse(AppComposition.recordingMinimumRefreshRequired(
+                snapshot(CameraRuntimeState.RECOVERING, Optional.empty(), 2L), 1L));
+        assertTrue(AppComposition.recordingMinimumRefreshRequired(
+                snapshot(CameraRuntimeState.READY, Optional.empty(), 2L), 1L));
+    }
+
     @Test void storageNoticeKeepsLowCapacityInLowStorageFlow() {
-        var lowCapacity = CaptureStorageCheck.rejected(1L, 2L, "Not enough free storage");
+        var lowCapacity = CaptureStorageCheck.lowCapacity(1L, 2L, "Not enough free storage");
         var notWritable = CaptureStorageCheck.rejected(1L, 2L, "Storage is not writable");
         var preparing = CaptureStorageCheck.preparing(0L, 2L, "preparing");
         var unavailable = CaptureStorageCheck.unavailable(0L, 2L, "unavailable");
@@ -50,9 +63,16 @@ final class AppCompositionResetTest {
     private static ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot(
             CameraRuntimeState state,
             Optional<ProcessCameraRuntimeBackend.Operation> inFlight) {
+        return snapshot(state, inFlight, 0L);
+    }
+
+    private static ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot(
+            CameraRuntimeState state,
+            Optional<ProcessCameraRuntimeBackend.Operation> inFlight,
+            long transitionGeneration) {
         return new ProcessCameraRuntimeOwner.RuntimeSnapshot(state, Optional.empty(),
-                Optional.empty(), 0, 0, inFlight, false, false, false,
-                false, false, false);
+                Optional.empty(), transitionGeneration, 0L, inFlight,
+                false, false, false, false, false, false);
     }
 
     @Test void finalOnlyMediaCompletesInterruptedFinalizationState() {

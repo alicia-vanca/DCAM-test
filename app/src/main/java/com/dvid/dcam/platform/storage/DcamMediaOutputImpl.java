@@ -105,7 +105,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
     @Override public DcamMediaFile durableAudioMediaFile(
             String cameraId, String fileUserId, boolean encrypted)
             throws IOException {
-        return claimMediaFile(DcamFileType.AUDIO, cameraId, fileUserId, encrypted);
+        return claimMediaFile(DcamFileType.AUDIO_M4A, cameraId, fileUserId, encrypted);
     }
 
     private DcamMediaFile claimMediaFile(
@@ -188,6 +188,14 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         return check;
     }
 
+    @Override public CaptureStorageCheck checkRecordingReady(long bitrateBitsPerSecond) {
+        return storage.checkRecordingReady(bitrateBitsPerSecond);
+    }
+
+    @Override public long minimumRecordingStartFreeBytes(long bitrateBitsPerSecond) {
+        return storage.minimumRecordingStartFreeBytes(bitrateBitsPerSecond);
+    }
+
     @Override public CaptureStorageCheck checkCaptureWritable() {
         return storage.checkCaptureWritable();
     }
@@ -218,6 +226,16 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         storage.prepareFile(mediaFile);
     }
 
+    @Override public SegmentedAesGcmJpegOutput openSegmentedAesGcmJpegOutput(
+            DcamMediaFile mediaFile) throws IOException {
+        Objects.requireNonNull(mediaFile, "mediaFile");
+        if (mediaFile.getType() != DcamFileType.IMAGE || !mediaFile.isEncrypted()) {
+            throw new IOException("Segmented AES-GCM JPEG output requires encrypted image media.");
+        }
+        return new SegmentedAesGcmJpegOutput(
+                storage.prepareFile(mediaFile), mediaEncryptionPassword.get());
+    }
+
     @Override public File audioFile(DcamMediaFile mediaFile) {
         File staged = storage.prepareFile(mediaFile);
         logger.info("media_stage type=audio file=" + staged.getName());
@@ -233,7 +251,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         Objects.requireNonNull(mediaFile, "mediaFile");
         File staged = storage.prepareFile(mediaFile);
         if (mediaFile.isEncrypted()) {
-            int blockBytes = mediaFile.getType() == DcamFileType.AUDIO
+            int blockBytes = mediaFile.getType().isAudio()
                     ? SegmentedAesGcmMediaStore.AUDIO_RECORDING_BLOCK_BYTES
                     : SegmentedAesGcmMediaStore.RECORDING_BLOCK_BYTES;
             return DcamRecordingOutput.openSegmentedAesGcm(
@@ -266,7 +284,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
             FinalizationCallback callback) {
         finalizationExecutor.execute(() -> {
             String stagedDescription = stagedDescription(mediaFile);
-            String stage = encryptionPassword == null && isMp4(mediaFile)
+            String stage = encryptionPassword == null && usesFragmentedMp4Container(mediaFile)
                     ? "container finalization"
                     : encryptionPassword == null ? "publication" : "encryption";
             if (!"publication".equals(stage)) {
@@ -274,15 +292,22 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
                         + ". First stage: " + stage + ".");
             }
             File finalFile;
+            boolean segmentedAesGcm = false;
             try {
+                segmentedAesGcm = encryptionPassword == null
+                        && SegmentedAesGcmMediaStore.hasFamilyMagic(mediaFile.getFile());
                 if (encryptionPassword != null) {
                     encryptSaved(context, mediaFile, encryptionPassword);
                     logger.info("Encryption completed for staged media " + stagedDescription + ".");
-                } else {
+                } else if (!segmentedAesGcm) {
                     finalizeMp4(mediaFile);
                 }
+                requireEncryptedImageReadyForPublication(mediaFile, segmentedAesGcm);
                 stage = "publication";
-                finalFile = publishSavedNow(context, mediaFile);
+                finalFile = segmentedAesGcm
+                        ? publishCleanSavedNow(context, mediaFile, true)
+                        : publishSavedNow(context, mediaFile);
+                if (segmentedAesGcm) finalizer.cleanupCleanMedia(mediaFile);
             } catch (Exception failure) {
                 logger.error("Finalization failed for staged media " + stagedDescription
                         + ". Failed stage: " + stage + ". Staged file remains in Temp. Reason: "
@@ -296,7 +321,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
             mediaReservation.releaseActiveStaging(mediaFile.getFile());
             callback.onSuccess(finalFile);
             if (createVideoMd5 != null && createVideoMd5.getAsBoolean()
-                    && "mp4".equals(mediaFile.getType().getExtension())) {
+                    && mediaFile.getType().isVideo()) {
                 createMd5WithRetry(finalFile);
             }
         });
@@ -380,11 +405,100 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
             }
         });
     }
+    @Override public File finalizeOpenAudioM4aNow(
+            Context context, DcamMediaFile mediaFile, DcamRecordingOutput recordingOutput,
+            long durationUs) throws IOException {
+        Objects.requireNonNull(mediaFile, "mediaFile");
+        Objects.requireNonNull(recordingOutput, "recordingOutput");
+        if (mediaFile.getType() != DcamFileType.AUDIO_M4A) {
+            throw new IOException("Open audio M4A finalization requires AUDIO_M4A media.");
+        }
+        long started = System.nanoTime();
+        long durationMillis;
+        String containerPath;
+        String containerDetail;
+        String stage = "container finalization";
+        try {
+            if (!recordingOutput.isOpen()) {
+                throw new IOException("Recording output closed before audio M4A finalization.");
+            }
+            try {
+                if (durationUs <= 0L) {
+                    throw new IOException("Audio M4A duration is unavailable.");
+                }
+                DcamInterruptedMp4Finalizer.CleanResult cleanResult =
+                        mp4Finalizer.finalizeCleanTimed(recordingOutput.media(), durationUs);
+                durationMillis = cleanResult.durationMillis();
+                containerPath = cleanResult.writerSeekIndexUsed()
+                        ? "writer metadata" : "final scan";
+                containerDetail = "Metadata patch: " + cleanResult.metadataPatchMillis()
+                        + " ms. Durability sync: " + cleanResult.durabilitySyncMillis() + " ms.";
+            } catch (IOException cleanFailure) {
+                logger.warn("Fast audio M4A finalization could not complete for staged media '"
+                        + mediaFile.getFileName()
+                        + "'. Retrying with recovery scan.", cleanFailure);
+                DcamInterruptedMp4Finalizer.Result recoveryResult;
+                try {
+                    recoveryResult = mp4Finalizer.finalizeInterrupted(recordingOutput.media());
+                } catch (IOException recoveryFailure) {
+                    recoveryFailure.addSuppressed(cleanFailure);
+                    throw recoveryFailure;
+                }
+                if (recoveryResult.durationMillis() <= 0L) {
+                    IOException recoveryFailure = new IOException(
+                            "Audio M4A duration finalization failed. "
+                                    + recoveryResult.detail());
+                    recoveryFailure.addSuppressed(cleanFailure);
+                    throw recoveryFailure;
+                }
+                durationMillis = recoveryResult.durationMillis();
+                containerPath = "recovery scan";
+                containerDetail = recoveryResult.detail();
+            }
+            long containerFinalized = System.nanoTime();
+            stage = "recording output finalization";
+            recordingOutput.finish();
+            recordingOutput.close();
+            long outputFinalized = System.nanoTime();
+            stage = "publication";
+            File finalFile = publishCleanSavedNow(context, mediaFile, false);
+            long published = System.nanoTime();
+            finalizer.cleanupCleanMedia(mediaFile);
+            logger.info("Audio M4A finalization completed for staged media '"
+                    + mediaFile.getFileName() + "'. Duration: " + durationMillis
+                    + " ms. Container path: " + containerPath + ". Container finalization: "
+                    + elapsedMillis(started, containerFinalized) + " ms. " + containerDetail
+                    + " Recording output finalization: "
+                    + elapsedMillis(containerFinalized, outputFinalized)
+                    + " ms. Publication rename: " + elapsedMillis(outputFinalized, published)
+                    + " ms. Total: " + elapsedMillis(started, published) + " ms.");
+            return finalFile;
+        } catch (Exception failure) {
+            if (recordingOutput.isOpen()) {
+                try {
+                    recordingOutput.close();
+                } catch (IOException closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            logger.error("Audio M4A finalization failed for staged media '"
+                    + mediaFile.getFileName() + "'. Failed stage: " + stage + ". "
+                    + (mediaFile.getFile().isFile()
+                            ? "File remains in Temp for startup recovery. "
+                            : "Staged file is no longer in Temp. ")
+                    + "Reason: " + message(failure) + ".", failure);
+            if (failure instanceof IOException ioFailure) throw ioFailure;
+            throw new IOException("Audio M4A finalization failed: " + message(failure), failure);
+        } finally {
+            mediaReservation.releaseActiveStaging(mediaFile.getFile());
+        }
+    }
     @Override public File finalizeSavedNow(Context context, DcamMediaFile mediaFile)
             throws IOException {
         try {
             boolean segmentedAesGcm =
                     SegmentedAesGcmMediaStore.hasFamilyMagic(mediaFile.getFile());
+            requireEncryptedImageReadyForPublication(mediaFile, segmentedAesGcm);
             if (!DcamEncryptionJournal.isComplete(mediaFile) && !segmentedAesGcm) {
                 finalizeMp4(mediaFile);
             }
@@ -395,6 +509,14 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
         } finally {
             mediaReservation.releaseActiveStaging(mediaFile.getFile());
         }
+    }
+
+    private static void requireEncryptedImageReadyForPublication(
+            DcamMediaFile mediaFile, boolean segmentedAesGcm) throws IOException {
+        if (mediaFile.getType() != DcamFileType.IMAGE || !mediaFile.isEncrypted()
+                || segmentedAesGcm || DcamEncryptionJournal.isComplete(mediaFile)) return;
+        throw new IOException(
+                "Encrypted image staging has no Segmented AES-GCM envelope or completed legacy AES-CTR journal.");
     }
 
     private File publishSavedNow(Context context, DcamMediaFile mediaFile) throws IOException {
@@ -432,7 +554,7 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
     }
 
     private void finalizeMp4(DcamMediaFile mediaFile) throws IOException {
-        if (!isMp4(mediaFile)) return;
+        if (!usesFragmentedMp4Container(mediaFile)) return;
         DcamInterruptedMp4Finalizer.Result result =
                 mp4Finalizer.finalizeInterrupted(mediaFile.getFile());
         if (result.durationMillis() <= 0L) {
@@ -442,8 +564,8 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
                 + result.detail());
     }
 
-    private static boolean isMp4(DcamMediaFile mediaFile) {
-        return "mp4".equals(mediaFile.getType().getExtension());
+    private static boolean usesFragmentedMp4Container(DcamMediaFile mediaFile) {
+        return mediaFile.getType().usesFragmentedMp4Container();
     }
 
     private static String stagedDescription(DcamMediaFile mediaFile) {

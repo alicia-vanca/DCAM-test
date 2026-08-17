@@ -4,14 +4,14 @@ import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 
 /** Uses foreground Activity launch semantics to warm :loggly before optimizers can block service startup. */
 public final class LogglyProcessBootstrapActivity extends Activity {
     private static final String TAG = "LogglyUpload";
 
     public static boolean start(Activity activity) {
-        if (activity == null || BuildConfig.LOGGLY_TOKEN.isBlank()) return false;
+        if (activity == null || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return false;
         Intent intent = new Intent(activity, LogglyProcessBootstrapActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION
                         | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);

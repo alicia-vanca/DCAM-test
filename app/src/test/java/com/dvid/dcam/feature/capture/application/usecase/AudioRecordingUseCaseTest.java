@@ -65,6 +65,29 @@ final class AudioRecordingUseCaseTest {
 
         assertEquals(List.of(true, false), pendingStates);
     }
+
+    @Test void asyncStopReportsSavingBeforeFinalizationTaskRuns() {
+        Queue<Runnable> tasks = new ArrayDeque<>();
+        FakeAudioRecorder recorder = new FakeAudioRecorder();
+        recorder.recording = true;
+        List<CaptureEvent> received = new ArrayList<>();
+        SerializedRecordingCoordinator events = events(received);
+        events.audioRecordingStarted("audio.aac", 123L);
+        received.clear();
+        AudioRecordingUseCase useCase =
+                new AudioRecordingUseCase(recorder, tasks::add, events);
+
+        assertTrue(useCase.toggleAudioAsync());
+
+        assertTrue(recorder.recording);
+        assertEquals(1, received.size());
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPING,
+                received.get(0).getType());
+        tasks.remove().run();
+        assertFalse(recorder.recording);
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPED,
+                received.get(1).getType());
+    }
     @Test void preparingAudioBlocksCurrentPressUntilFreshPress() {
         FakeAudioRecorder recorder = new FakeAudioRecorder();
         recorder.retryablePreparationFailures = 1;
@@ -148,18 +171,25 @@ final class AudioRecordingUseCaseTest {
         FakeAudioRecorder recorder = new FakeAudioRecorder();
         AtomicBoolean startAllowed = new AtomicBoolean(false);
         List<CaptureEvent> received = new ArrayList<>();
+        SerializedRecordingCoordinator events = events(received);
         AudioRecordingUseCase useCase = new AudioRecordingUseCase(
-                recorder, Runnable::run, startAllowed::get, events(received));
+                recorder, Runnable::run, startAllowed::get, events);
 
         assertNull(useCase.toggleAudio());
         assertFalse(useCase.toggleAudioAsync());
         assertEquals(0, recorder.toggles);
 
         recorder.recording = true;
+        events.audioRecordingStarted("audio.aac", 123L);
+        received.clear();
         assertTrue(useCase.toggleAudioAsync());
         assertFalse(recorder.recording);
         assertEquals(1, recorder.toggles);
-        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPED, received.get(0).getType());
+        assertEquals(2, received.size());
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPING,
+                received.get(0).getType());
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPED,
+                received.get(1).getType());
     }
 
     @Test void duplicateAsyncToggleSharesUseCaseSingleFlightState() {
@@ -186,7 +216,11 @@ final class AudioRecordingUseCaseTest {
         received.clear();
 
         assertEquals("audio.aac", useCase.toggleAudio());
-        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPED, received.get(0).getType());
+        assertEquals(2, received.size());
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPING,
+                received.get(0).getType());
+        assertEquals(CaptureEvent.Type.AUDIO_RECORDING_STOPPED,
+                received.get(1).getType());
     }
 
     @Test void synchronousToggleRequiresFreshPressAfterPreparationBlock() {

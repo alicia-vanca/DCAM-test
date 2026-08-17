@@ -106,6 +106,39 @@ final class SharedCameraGatewayOwnerContractTest {
         assertEquals(List.of(RecordingMode.VIDEO, RecordingMode.IMP), backend.requestedModes);
     }
 
+    @Test void recordingBitrateFollowsFirstBindReleaseRebindAndProfileSwitch() {
+        FakeBackend backend = new FakeBackend(false);
+        ManualExecutor executor = new ManualExecutor();
+        ProcessCameraRuntimeOwner owner = new ProcessCameraRuntimeOwner(
+                new NoOpLogger(), executor);
+        SharedCameraGateway gateway = new SharedCameraGateway(
+                owner, backend, new FakeEvents(), new NoOpLogger());
+        CameraRuntimeSelection first = selection(StandardResolutionLabel.FHD, 1920, 1080);
+        CameraRuntimeSelection second = selection(StandardResolutionLabel.HD, 1280, 720);
+
+        gateway.initialize(first);
+        assertEquals(first.tuple().videoMode().resolution().actual().pixelCount(),
+                gateway.recordingBitrateBitsPerSecond());
+        executor.runAll();
+
+        gateway.releaseCamera();
+        executor.runAll();
+        assertEquals(first.tuple().videoMode().resolution().actual().pixelCount(),
+                gateway.recordingBitrateBitsPerSecond());
+
+        gateway.bindCommitted(first);
+        assertEquals(first.tuple().videoMode().resolution().actual().pixelCount(),
+                gateway.recordingBitrateBitsPerSecond());
+        executor.runAll();
+
+        gateway.verifySetting(second);
+        assertEquals(second.tuple().videoMode().resolution().actual().pixelCount(),
+                gateway.recordingBitrateBitsPerSecond());
+        executor.runAll();
+        assertEquals(second.tuple().videoMode().resolution().actual().pixelCount(),
+                gateway.recordingBitrateBitsPerSecond());
+    }
+
     @Test void storageLimitCallbackStopsActiveRecording() {
         FakeBackend backend = new FakeBackend(false);
         ProcessCameraRuntimeOwner owner = new ProcessCameraRuntimeOwner(
@@ -123,14 +156,19 @@ final class SharedCameraGatewayOwnerContractTest {
     }
 
     private static CameraRuntimeSelection selection() {
-        StandardResolution fhd = new StandardResolution(StandardResolutionLabel.FHD,
-                new CameraResolution(1920, 1080));
-        StandardResolution hd = new StandardResolution(StandardResolutionLabel.HD,
+        return selection(StandardResolutionLabel.FHD, 1920, 1080);
+    }
+
+    private static CameraRuntimeSelection selection(
+            StandardResolutionLabel label, int width, int height) {
+        StandardResolution video = new StandardResolution(
+                label, new CameraResolution(width, height));
+        StandardResolution image = new StandardResolution(StandardResolutionLabel.HD,
                 new CameraResolution(1280, 720));
         return new CameraRuntimeSelection(new CameraId("0"),
                 new VerificationPipelineId("a-camera2-native-surface-sharing-v1"),
                 VideoCodec.H264, new CaptureModeTuple(
-                        new VideoMode(fhd, 30), new ImageMode(hd)));
+                        new VideoMode(video, 30), new ImageMode(image)));
     }
 
     private static final class FakeBackend implements SharedCameraGatewayBackend {
@@ -153,6 +191,10 @@ final class SharedCameraGatewayOwnerContractTest {
         @Override public void refreshDisplayRotation() {}
         @Override public void setImpHandoff(SharedCameraGatewayBackend.ImpHandoff value) {
             handoff = value;
+        }
+        @Override public long recordingBitrateBitsPerSecond(
+                CameraRuntimeSelection selection) {
+            return selection.tuple().videoMode().resolution().actual().pixelCount();
         }
         @Override public void requestRecording(RecordingMode mode) {
             requestedModes.add(mode);
@@ -186,7 +228,12 @@ final class SharedCameraGatewayOwnerContractTest {
         }
 
         private void complete(Command command, Completion completion) {
-            if (command.operation() == Operation.INITIALIZE) {
+            if (command.operation() == Operation.INITIALIZE
+                    || command.operation() == Operation.SWITCH_CAMERA
+                    || command.operation() == Operation.VERIFY_SETTING
+                    || command.operation() == Operation.BIND_COMMITTED
+                    || command.operation() == Operation.RESTORE_EXACT
+                    || command.operation() == Operation.RECOVER) {
                 CameraRuntimeSelection target = command.target().orElseThrow();
                 CameraOperationContext context = new CameraOperationContext(target.cameraId(),
                         target.verificationPipelineId(), target.codec(), target.tuple(),

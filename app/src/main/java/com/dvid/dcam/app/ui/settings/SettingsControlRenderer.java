@@ -202,15 +202,6 @@ public final class SettingsControlRenderer {
         if (item.getStableId() != null) renderedRows.put(item.getStableId(), row);
     }
 
-    public void refreshEnabledStates(SettingsScreenModel model) {
-        for (SettingsSection section : model.getSections()) {
-            for (SettingItem item : section.getItems()) {
-                View row = renderedRows.get(item.getStableId());
-                if (row != null) applyEnabledState(row, item);
-            }
-        }
-    }
-
     public void refreshRows(SettingsScreenModel model) {
         refreshingRows = true;
         try {

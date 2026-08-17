@@ -5,7 +5,7 @@ import android.app.job.JobScheduler;
 import android.content.ComponentName;
 import android.content.Context;
 import android.util.Log;
-import com.dvid.dcam.BuildConfig;
+import com.dvid.dcam.BuildSecrets;
 
 /** Starts Loggly foreground upload and retains JobScheduler fallback. */
 public final class LogglyUploadScheduler {
@@ -16,19 +16,19 @@ public final class LogglyUploadScheduler {
     private LogglyUploadScheduler() { }
 
     public static void scheduleNow(Context context) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return;
         LogglyUploadService.start(context);
         cancelRetry(context);
         scheduleJobNow(context);
     }
 
     public static void scheduleRetry(Context context, Long nextRetryAtMillis) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank() || nextRetryAtMillis == null) return;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED() || nextRetryAtMillis == null) return;
         schedule(context, RETRY_JOB_ID, Math.max(0L, nextRetryAtMillis - System.currentTimeMillis()));
     }
 
     static boolean scheduleJobNow(Context context) {
-        if (BuildConfig.LOGGLY_TOKEN.isBlank()) return false;
+        if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return false;
         return schedule(context, UPLOAD_JOB_ID, 0L);
     }
 

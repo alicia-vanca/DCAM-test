@@ -12,6 +12,7 @@ public final class CaptureEvent {
         RECORDING_COMPLETED,
         RECORDING_STOPPED_FOR_STORAGE,
         AUDIO_RECORDING_STARTED,
+        AUDIO_RECORDING_STOPPING,
         AUDIO_RECORDING_STOPPED,
         PHOTO_SAVING,
         PHOTO_SAVED,
@@ -85,6 +86,10 @@ public final class CaptureEvent {
             String fileName, long startedAtMillis) {
         return new CaptureEvent(Type.AUDIO_RECORDING_STARTED, null, fileName, null, null,
                 startedAtMillis);
+    }
+
+    public static CaptureEvent audioRecordingStopping() {
+        return new CaptureEvent(Type.AUDIO_RECORDING_STOPPING, null, null, null, null);
     }
 
     public static CaptureEvent audioRecordingStopped(String fileName) {
