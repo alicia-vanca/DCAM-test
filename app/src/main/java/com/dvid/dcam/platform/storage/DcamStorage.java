@@ -325,8 +325,17 @@ public final class DcamStorage implements
     public DcamMediaFile durableAudioMediaFile(
             String cameraId, String fileUserId, LocalDateTime at, boolean encrypted)
             throws IOException {
-        DcamMediaFile staging = mediaFile(
+        return durableAudioMediaFile(
                 DcamFileType.AUDIO_M4A, cameraId, fileUserId, at, encrypted);
+    }
+
+    public DcamMediaFile durableAudioMediaFile(
+            DcamFileType type, String cameraId, String fileUserId, LocalDateTime at,
+            boolean encrypted) throws IOException {
+        if (type == null || !type.isAudio()) {
+            throw new IllegalArgumentException("Audio media type required");
+        }
+        DcamMediaFile staging = mediaFile(type, cameraId, fileUserId, at, encrypted);
         File parent = staging.getFile().getParentFile();
         if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
             throw new IOException("Cannot create durable audio staging directory: " + parent);

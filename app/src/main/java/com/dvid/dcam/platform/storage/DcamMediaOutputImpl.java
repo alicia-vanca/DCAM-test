@@ -105,7 +105,17 @@ public final class DcamMediaOutputImpl implements DcamMediaOutput {
     @Override public DcamMediaFile durableAudioMediaFile(
             String cameraId, String fileUserId, boolean encrypted)
             throws IOException {
-        return claimMediaFile(DcamFileType.AUDIO_M4A, cameraId, fileUserId, encrypted);
+        return durableAudioMediaFile(
+                DcamFileType.AUDIO_M4A, cameraId, fileUserId, encrypted);
+    }
+
+    @Override public DcamMediaFile durableAudioMediaFile(
+            DcamFileType type, String cameraId, String fileUserId, boolean encrypted)
+            throws IOException {
+        if (type == null || !type.isAudio()) {
+            throw new IllegalArgumentException("Audio media type required");
+        }
+        return claimMediaFile(type, cameraId, fileUserId, encrypted);
     }
 
     private DcamMediaFile claimMediaFile(

@@ -18,6 +18,7 @@ import androidx.media3.muxer.FragmentedMp4Muxer;
 import androidx.media3.muxer.MuxerException;
 import androidx.media3.muxer.MuxerUtil;
 import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
 import com.dvid.dcam.platform.audio.SharedMicrophoneCapture;
@@ -44,7 +45,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
 
     private static final int AUDIO_SAMPLE_RATE = SharedMicrophoneCapture.SAMPLE_RATE;
     private static final int AUDIO_CHANNEL_COUNT = SharedMicrophoneCapture.CHANNEL_COUNT;
-    private static final int AUDIO_BIT_RATE = 64_000;
+    private static final int AUDIO_BIT_RATE = AudioCaptureSettings.BIT_RATE_BPS;
     private static final int AUDIO_BYTES_PER_FRAME = SharedMicrophoneCapture.BYTES_PER_FRAME;
     private static final int AUDIO_PRIME_BYTES = 8 * 1024;
     private static final long AUDIO_PRIME_TIMEOUT_MILLIS = 1_000L;

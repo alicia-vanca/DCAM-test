@@ -12,10 +12,13 @@ import androidx.media3.muxer.MuxerUtil;
 import com.dvid.dcam.R;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.port.AudioRecorder;
+import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
+import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 import com.dvid.dcam.platform.recording.RecordingForegroundService;
 import com.dvid.dcam.platform.storage.DcamAudioM4aWriter;
+import com.dvid.dcam.platform.storage.DcamFileType;
 import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamMediaOutput;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
@@ -26,12 +29,16 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public final class AndroidAudioRecorderImpl implements AudioRecorder {
     private static final String AUDIO_MIME_TYPE = MediaFormat.MIMETYPE_AUDIO_AAC;
-    private static final int AUDIO_BIT_RATE = 64_000;
+    private static final int AUDIO_BIT_RATE = AudioCaptureSettings.BIT_RATE_BPS;
+    private static final int ADTS_HEADER_SIZE = 7;
     private static final long ENCODER_STOP_TIMEOUT_MILLIS = 2_000L;
 
     private final Context context;
@@ -42,6 +49,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
     private final Supplier<String> operatorFileUserId;
     private final Supplier<String> deviceSerialNumber;
     private final Supplier<GpsCoordinate> captureLocation;
+    private final Supplier<AudioFileFormat> audioFileFormat;
     private volatile Thread encoderThread;
     private volatile boolean stopRequested;
     private volatile Throwable encoderFailure;
@@ -51,6 +59,10 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
     private File outputFile;
     private DcamRecordingOutput recordingOutput;
     private DcamAudioM4aWriter m4aWriter;
+    private AudioFileFormat recordingFormat;
+    private long aacSampleCount;
+    private long checkpointedOutputBytes;
+    private ScheduledExecutorService durabilitySync;
     private boolean outputEncrypted;
     private Long recordingStartedAtMillis;
     private volatile long recordingDurationUs;
@@ -61,6 +73,16 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                                     Supplier<String> operatorFileUserId,
                                     Supplier<String> deviceSerialNumber,
                                     Supplier<GpsCoordinate> captureLocation) {
+        this(context, mediaOutput, log, mediaEncryptionEnabled, operatorFileUserId,
+                deviceSerialNumber, captureLocation, () -> AudioFileFormat.DEFAULT);
+    }
+
+    public AndroidAudioRecorderImpl(Context context, DcamMediaOutput mediaOutput, Logger log,
+                                    BooleanSupplier mediaEncryptionEnabled,
+                                    Supplier<String> operatorFileUserId,
+                                    Supplier<String> deviceSerialNumber,
+                                    Supplier<GpsCoordinate> captureLocation,
+                                    Supplier<AudioFileFormat> audioFileFormat) {
         this.context = context;
         this.mediaOutput = mediaOutput;
         this.log = log;
@@ -70,6 +92,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         this.operatorFileUserId = Objects.requireNonNull(operatorFileUserId, "operatorFileUserId");
         this.deviceSerialNumber = Objects.requireNonNull(deviceSerialNumber, "deviceSerialNumber");
         this.captureLocation = Objects.requireNonNull(captureLocation, "captureLocation");
+        this.audioFileFormat = Objects.requireNonNull(audioFileFormat, "audioFileFormat");
     }
 
     @Override public String toggle() {
@@ -110,12 +133,17 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                 return null;
             }
             outputEncrypted = mediaEncryptionEnabled.getAsBoolean();
+            recordingFormat = Objects.requireNonNull(audioFileFormat.get(), "audioFileFormat");
             try {
                 outputMediaFile = mediaOutput.durableAudioMediaFile(
-                        cameraId, fileUserId, outputEncrypted);
+                        outputFileType(recordingFormat), cameraId, fileUserId, outputEncrypted);
                 recordingOutput = mediaOutput.openAudioOutput(outputMediaFile);
                 outputFile = recordingOutput.file();
-                m4aWriter = new DcamAudioM4aWriter(recordingOutput, captureLocation, log);
+                if (usesM4aContainer()) {
+                    m4aWriter = new DcamAudioM4aWriter(recordingOutput, captureLocation, log);
+                }
+                aacSampleCount = 0L;
+                checkpointedOutputBytes = 0L;
                 recordingDurationUs = 0L;
             } catch (IOException error) {
                 AudioRecorder.PreparationException reservationPreparation =
@@ -132,12 +160,14 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                     this::startEncoder)) {
                 throw new IllegalStateException("Could not start audio foreground protection");
             }
+            if (!usesM4aContainer()) startDurabilitySync();
             recordingStartedAtMillis = System.currentTimeMillis();
             log.info("Audio started: " + outputFile.getAbsolutePath());
             return outputMediaFile.getFileName();
         } catch (Exception error) {
             DcamMediaFile failed = outputMediaFile;
             RecordingForegroundService.stopAudio(context);
+            stopDurabilitySync();
             stopEncoder();
             boolean empty = !hasAudioSamples();
             closeM4aWriter();
@@ -192,7 +222,13 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         boolean encrypted = outputEncrypted;
         String output = completed == null ? null : completed.getFileName();
         try {
-            boolean encoderStopped = stopEncoder();
+            if (!usesM4aContainer()) stopDurabilitySync();
+            boolean encoderStopped;
+            try {
+                encoderStopped = stopEncoder();
+            } finally {
+                if (!usesM4aContainer()) syncOutput();
+            }
             long encoderStoppedAt = System.nanoTime();
             if (!encoderStopped) {
                 log.error("Audio stop failed",
@@ -212,22 +248,38 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                 return null;
             }
             try {
-                finishM4aWriter();
-                long writerClosedAt = System.nanoTime();
-                DcamRecordingOutput completedOutput = recordingOutput;
-                if (completedOutput == null) throw new IOException("audio_output_closed");
-                recordingOutput = null;
-                mediaOutput.finalizeOpenAudioM4aNow(
-                        context, completed, completedOutput, recordingDurationUs);
+                if (usesM4aContainer()) {
+                    finishM4aWriter();
+                    long writerClosedAt = System.nanoTime();
+                    DcamRecordingOutput completedOutput = recordingOutput;
+                    if (completedOutput == null) throw new IOException("audio_output_closed");
+                    recordingOutput = null;
+                    mediaOutput.finalizeOpenAudioM4aNow(
+                            context, completed, completedOutput, recordingDurationUs);
+                    long publishedAt = System.nanoTime();
+                    clearRecordingState();
+                    log.info((encrypted ? "Encrypted audio" : "Audio")
+                            + " stop completed for '" + output + "'. Encoder shutdown: "
+                            + elapsedMillis(stopStarted, encoderStoppedAt)
+                            + " ms. M4A writer close: "
+                            + elapsedMillis(encoderStoppedAt, writerClosedAt)
+                            + " ms. Media finalization and publication: "
+                            + elapsedMillis(writerClosedAt, publishedAt)
+                            + " ms. Total: " + elapsedMillis(stopStarted, publishedAt) + " ms.");
+                    return output;
+                }
+                finishAacOutput();
+                long outputFinalizedAt = System.nanoTime();
+                mediaOutput.finalizeSavedNow(context, completed);
                 long publishedAt = System.nanoTime();
                 clearRecordingState();
                 log.info((encrypted ? "Encrypted audio" : "Audio")
-                        + " stop completed for '" + output + "'. Encoder shutdown: "
+                        + " AAC stop completed for '" + output + "'. Encoder shutdown: "
                         + elapsedMillis(stopStarted, encoderStoppedAt)
-                        + " ms. M4A writer close: "
-                        + elapsedMillis(encoderStoppedAt, writerClosedAt)
-                        + " ms. Media finalization and publication: "
-                        + elapsedMillis(writerClosedAt, publishedAt)
+                        + " ms. Audio output finalization: "
+                        + elapsedMillis(encoderStoppedAt, outputFinalizedAt)
+                        + " ms. Publication: "
+                        + elapsedMillis(outputFinalizedAt, publishedAt)
                         + " ms. Total: " + elapsedMillis(stopStarted, publishedAt) + " ms.");
                 return output;
             } catch (Exception error) {
@@ -331,7 +383,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                         outputInfo, inputEnded ? 10_000L : 0L);
                 if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) break;
                 if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    startM4aTrack(runningEncoder.getOutputFormat());
+                    if (usesM4aContainer()) startM4aTrack(runningEncoder.getOutputFormat());
                     continue;
                 }
                 if (outputIndex < 0) continue;
@@ -341,7 +393,8 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                             && (outputInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                         output.position(outputInfo.offset);
                         output.limit(outputInfo.offset + outputInfo.size);
-                        writeM4aSample(output, outputInfo);
+                        if (usesM4aContainer()) writeM4aSample(output, outputInfo);
+                        else writeAdtsFrame(output);
                     }
                     if ((outputInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                         outputEnded = true;
@@ -354,6 +407,17 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         }
     }
 
+
+    static DcamFileType outputFileType(AudioFileFormat format) {
+        return switch (Objects.requireNonNull(format, "format")) {
+            case AAC -> DcamFileType.AUDIO;
+            case M4A -> DcamFileType.AUDIO_M4A;
+        };
+    }
+
+    private boolean usesM4aContainer() {
+        return recordingFormat == AudioFileFormat.M4A;
+    }
 
     private static long audioPresentationTimeUs(long frames) {
         return frames * 1_000_000L / SharedMicrophoneCapture.SAMPLE_RATE;
@@ -398,6 +462,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
     @Override public void release() {
         if (encoderThread != null) {
             DcamMediaFile failed = outputMediaFile;
+            stopDurabilitySync();
             stopEncoder();
             boolean empty = !hasAudioSamples();
             closeM4aWriter();
@@ -436,6 +501,9 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         outputFile = null;
         recordingOutput = null;
         m4aWriter = null;
+        recordingFormat = null;
+        aacSampleCount = 0L;
+        checkpointedOutputBytes = 0L;
         outputEncrypted = false;
         recordingStartedAtMillis = null;
         recordingDurationUs = 0L;
@@ -453,8 +521,52 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                 MuxerUtil.getMuxerBufferInfoFromMediaCodecBufferInfo(sampleInfo));
     }
 
+    private synchronized void writeAdtsFrame(ByteBuffer payload) throws IOException {
+        if (recordingOutput == null) throw new IOException("audio_output_closed");
+        ByteBuffer frame = ByteBuffer.allocate(ADTS_HEADER_SIZE + payload.remaining());
+        frame.put(adtsHeader(payload.remaining()));
+        frame.put(payload);
+        frame.flip();
+        while (frame.hasRemaining()) {
+            if (recordingOutput.write(frame) <= 0) {
+                throw new IOException("audio_output_write_failed");
+            }
+        }
+        aacSampleCount++;
+    }
+
+    static byte[] adtsHeader(int payloadLength) {
+        if (payloadLength < 0 || payloadLength > 0x1FFF - ADTS_HEADER_SIZE) {
+            throw new IllegalArgumentException("invalid AAC payload length");
+        }
+        int frameLength = payloadLength + ADTS_HEADER_SIZE;
+        int profile = 1;
+        int frequencyIndex = 3;
+        int channelConfiguration = SharedMicrophoneCapture.CHANNEL_COUNT;
+        return new byte[] {
+                (byte) 0xFF,
+                (byte) 0xF1,
+                (byte) ((profile << 6) | (frequencyIndex << 2)
+                        | (channelConfiguration >> 2)),
+                (byte) (((channelConfiguration & 3) << 6) | (frameLength >> 11)),
+                (byte) ((frameLength >> 3) & 0xFF),
+                (byte) (((frameLength & 7) << 5) | 0x1F),
+                (byte) 0xFC
+        };
+    }
+
     private synchronized boolean hasAudioSamples() {
-        return m4aWriter != null && m4aWriter.sampleCount() > 0L;
+        return usesM4aContainer()
+                ? m4aWriter != null && m4aWriter.sampleCount() > 0L
+                : aacSampleCount > 0L;
+    }
+
+    private synchronized void finishAacOutput() throws IOException {
+        if (recordingOutput == null) throw new IOException("audio_output_closed");
+        DcamRecordingOutput output = recordingOutput;
+        output.finish();
+        output.close();
+        recordingOutput = null;
     }
 
     private synchronized void finishM4aWriter() throws IOException {
@@ -473,6 +585,33 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         } catch (IOException error) {
             log.warn("Audio M4A writer close failed. Staged media remains available for "
                     + "startup recovery.", error);
+        }
+    }
+
+    private void startDurabilitySync() {
+        durabilitySync = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "dcam-audio-sync");
+            thread.setDaemon(true);
+            return thread;
+        });
+        durabilitySync.scheduleWithFixedDelay(this::syncOutput, 1, 1, TimeUnit.SECONDS);
+    }
+
+    private void stopDurabilitySync() {
+        if (durabilitySync == null) return;
+        durabilitySync.shutdownNow();
+        durabilitySync = null;
+    }
+
+    private synchronized void syncOutput() {
+        if (recordingOutput == null) return;
+        try {
+            long logicalBytes = recordingOutput.size();
+            if (logicalBytes <= checkpointedOutputBytes) return;
+            recordingOutput.checkpoint();
+            checkpointedOutputBytes = logicalBytes;
+        } catch (IOException error) {
+            log.warn("Audio durability sync failed", error);
         }
     }
 

@@ -4,6 +4,7 @@ import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -16,8 +17,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public final class SharedMicrophoneCapture {
-    public static final int SAMPLE_RATE = 48_000;
-    public static final int CHANNEL_COUNT = 1;
+    public static final int SAMPLE_RATE = AudioCaptureSettings.SAMPLE_RATE_HZ;
+    public static final int CHANNEL_COUNT = AudioCaptureSettings.CHANNEL_COUNT;
     public static final int BYTES_PER_FRAME = 2;
     private static final int CAPTURE_CHUNK_BYTES = 4_096;
     private static final int QUEUE_CAPACITY = 64;

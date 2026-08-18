@@ -75,9 +75,10 @@ final class RecordingLifecycleSourceTest {
         assertTrue(notice.contains("showPersistent(Context context, CharSequence message)"));
         assertTrue(gateway.contains("storagePreparationEvents.onPreparing(message)"));
     }
-    @Test void standaloneAudioUsesRecoverableM4aWithGpsRoute() throws IOException {
+    @Test void standaloneAudioSupportsAacAndRecoverableM4a() throws IOException {
         String composition = source("app/AppComposition.java");
         String audio = source("platform/audio/AndroidAudioRecorderImpl.java");
+        String video = source("platform/camera/shared/SharedAvcEncoder.java");
         String writer = source("platform/storage/DcamAudioM4aWriter.java");
         String output = source("platform/storage/DcamMediaOutputImpl.java");
 
@@ -86,12 +87,19 @@ final class RecordingLifecycleSourceTest {
                 "new DcamAudioM4aWriter(recordingOutput, captureLocation, log)"));
         assertTrue(audio.contains("MediaFormatUtil.createFormatFromMediaFormat(format)"));
         assertTrue(audio.contains("mediaOutput.finalizeOpenAudioM4aNow("));
+        assertTrue(audio.contains("AudioFileFormat"));
+        assertTrue(audio.contains("AudioCaptureSettings.BIT_RATE_BPS"));
+        assertTrue(video.contains("AudioCaptureSettings.BIT_RATE_BPS"));
+        assertTrue(audio.contains("outputFileType(recordingFormat)"));
+        assertTrue(audio.contains("writeAdtsFrame"));
+        assertTrue(audio.contains("startDurabilitySync"));
         assertTrue(audio.contains("recordingDurationUs = durationUs;"));
-        assertFalse(audio.contains("writeAdtsFrame"));
-        assertFalse(audio.contains("startDurabilitySync"));
+
+
         assertTrue(writer.contains("new FragmentedMp4Muxer.Builder(outputChannel)"));
         assertTrue(writer.contains("outputChannel.queueGpsRoutePoint("));
-        assertTrue(output.contains("claimMediaFile(DcamFileType.AUDIO_M4A"));
+        assertTrue(output.contains("DcamFileType.AUDIO_M4A"));
+        assertTrue(output.contains("return claimMediaFile(type, cameraId, fileUserId, encrypted);"));
         int cleanPatch = output.indexOf(
                 "mp4Finalizer.finalizeCleanTimed(recordingOutput.media(), durationUs)");
         int recoveryPatch = output.indexOf(

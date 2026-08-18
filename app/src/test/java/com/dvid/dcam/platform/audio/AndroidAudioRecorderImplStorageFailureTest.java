@@ -6,12 +6,24 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dvid.dcam.feature.capture.application.port.AudioRecorder;
+import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
+import com.dvid.dcam.platform.storage.DcamFileType;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 import java.io.IOException;
 import java.nio.file.FileSystemException;
 import org.junit.jupiter.api.Test;
 
 final class AndroidAudioRecorderImplStorageFailureTest {
+
+    @Test void aacDefaultUsesRawAudioTypeWithoutMp4Container() {
+        assertEquals(AudioFileFormat.AAC, AudioFileFormat.DEFAULT);
+        assertEquals(DcamFileType.AUDIO,
+                AndroidAudioRecorderImpl.outputFileType(AudioFileFormat.AAC));
+        assertFalse(DcamFileType.AUDIO.usesFragmentedMp4Container());
+        assertEquals(DcamFileType.AUDIO_M4A,
+                AndroidAudioRecorderImpl.outputFileType(AudioFileFormat.M4A));
+        assertTrue(DcamFileType.AUDIO_M4A.usesFragmentedMp4Container());
+    }
     @Test void externalPreparingFailureRetries() {
         IOException cause = new IOException("not mounted");
 

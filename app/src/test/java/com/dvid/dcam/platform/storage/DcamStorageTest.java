@@ -274,7 +274,8 @@ public class DcamStorageTest {
                 MediaPartitionLocation.AUTO, MediaPartitionLocation.EXTERNAL, internal, external,
                 new CaptureStorageCapacityPolicy());
         DcamMediaFile media = storage.durableAudioMediaFile(
-                "CAM001", "000000", LocalDateTime.of(2026, 7, 14, 16, 22, 7), false);
+                DcamFileType.AUDIO_M4A, "CAM001", "000000",
+                LocalDateTime.of(2026, 7, 14, 16, 22, 7), false);
         assertEquals(DcamFileType.AUDIO_M4A, media.getType());
         assertTrue(media.getFileName().endsWith(".m4a"));
         Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});

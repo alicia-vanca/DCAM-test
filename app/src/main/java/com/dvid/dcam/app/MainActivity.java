@@ -17,6 +17,7 @@ import android.database.ContentObserver;
 import android.graphics.Color;
 import android.hardware.display.DisplayManager;
 import android.location.LocationManager;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.content.pm.ActivityInfo;
@@ -75,6 +76,8 @@ import com.dvid.dcam.databinding.ScreenMenuBinding;
 import com.dvid.dcam.databinding.ScreenSettingsDetailBinding;
 import com.dvid.dcam.feature.auth.domain.UserProvisioningRequest;
 import com.dvid.dcam.feature.auth.domain.UserSource;
+import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
+import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
 import com.dvid.dcam.feature.location.application.usecase.LocationControlUseCase;
 import com.dvid.dcam.feature.location.application.usecase.LocationSettingsUseCase;
 import com.dvid.dcam.feature.location.application.usecase.LocationTrackingUseCase;
@@ -475,7 +478,8 @@ public final class MainActivity extends ComponentActivity {
                 composition.resourceMonitorEnabled());
         activityChrome.updateManagedTopBar();
         activityChrome.bindSystemNavigationInset();
-        activityChrome.hideSystemStatusBar();
+        activityChrome.setFullScreenDisplayEnabled(
+                settingsUiState.isFullScreenDisplayEnabled());
 
         permissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
@@ -1046,11 +1050,11 @@ public final class MainActivity extends ComponentActivity {
         }
         syncRecordingRotationLock();
         syncAutoRotateFromDevice();
-        activityChrome.hideSystemStatusBar();
+        activityChrome.applyFullScreenDisplay();
         refreshWifiSetting();
         if (androidRuntime != null) {
             androidRuntime.enterLockTaskIfAllowed(this, () -> {
-                activityChrome.hideSystemStatusBar();
+                activityChrome.applyFullScreenDisplay();
                 activityChrome.updateManagedTopBar();
             });
         }
@@ -1205,7 +1209,7 @@ public final class MainActivity extends ComponentActivity {
         if (!hasFocus && hardwareButtons != null)
             hardwareButtons.clearFocusTransientState();
         if (hasFocus && activityChrome != null)
-            activityChrome.hideSystemStatusBar();
+            activityChrome.applyFullScreenDisplay();
         if (hasFocus && composition != null && androidRuntime != null
                 && androidRuntime.capturePermissionsGranted()) {
             composition.bindCameraIfPermitted();
@@ -1281,6 +1285,10 @@ public final class MainActivity extends ComponentActivity {
             if (renderedScreen == MainScreen.CAMERA && screen != MainScreen.CAMERA) {
                 FloatingNotice.hideLowPriorityPersistent();
                 storageWarningVisible = null;
+            }
+            if (screen == MainScreen.STORAGE_SETTINGS) {
+                storageVolumesGeneration++;
+                storageVolumesStale = true;
             }
             renderedScreen = screen;
             recordingStatusRenderer.updateFloatingRecordingStatus(state);
@@ -1683,17 +1691,28 @@ public final class MainActivity extends ComponentActivity {
                     getString(R.string.default_storage), getString(R.string.low_storage_warning));
         } else if (screen == MainScreen.USER_SETTINGS) {
             settingsUiState.setVideoEncryptionEnabled(mediaEncryptionSettings.isMediaEncryptionEnabled());
-            model = settingsUiState.security();
+            model = settingsUiState.security(
+                    getString(R.string.operator_account), getString(R.string.security_settings));
+        } else if (screen == MainScreen.AUDIO_SETTINGS) {
+            model = settingsUiState.audio(getString(R.string.available_settings),
+                    visibleReadOnlySettings(screen), composition.audioFileFormat(),
+                    AudioCaptureSettings.SAMPLE_RATE_HZ / 1_000 + " kHz",
+                    AudioCaptureSettings.BIT_RATE_BPS / 1_000 + " kbps",
+                    AudioCaptureSettings.CHANNEL_COUNT == 1 ? "Mono"
+                            : Integer.toString(AudioCaptureSettings.CHANNEL_COUNT),
+                    alertVolumeLabel());
         } else if (screen == MainScreen.DEVICE_SETTINGS) {
             model = withLanguage(settingsUiState.device(
-                    getString(R.string.auto_rotate), getString(R.string.wifi),
-                    getString(R.string.connect_wifi)));
+                    getString(R.string.device_settings_short), getString(R.string.auto_rotate),
+                    getString(R.string.wifi), getString(R.string.connect_wifi)));
         } else if (screen == MainScreen.GPS_SETTINGS)
             model = locationSettingsModel();
         else if (screen == MainScreen.ABOUT)
             model = aboutSettingsModel();
         else
-            model = settingsUiState.readOnly(visibleReadOnlySettings(screen));
+            model = settingsUiState.readOnly(getString(R.string.available_settings),
+                    getString(R.string.settings_value_unavailable),
+                    visibleReadOnlySettings(screen));
         return filterUnavailableSettings(screen, model);
     }
 
@@ -1935,14 +1954,17 @@ public final class MainActivity extends ComponentActivity {
 
     private SettingsScreenModel aboutSettingsModel() {
         String[] labels = visibleReadOnlySettings(MainScreen.ABOUT);
-        String appVersionLabel = getResources().getStringArray(R.array.about_settings_items)[0];
-        String[] values = new String[labels.length];
-        for (int i = 0; i < labels.length; i++) {
-            values[i] = labels[i].equals(appVersionLabel)
-                    ? BuildConfig.VERSION_NAME : "Pending";
-        }
-        return settingsUiState.readOnly(labels, values);
+        String[] values = {BuildConfig.VERSION_NAME, Build.DISPLAY};
+        return settingsUiState.readOnly(getString(R.string.available_settings),
+                getString(R.string.settings_value_unavailable), labels, values);
     }
+    private String alertVolumeLabel() {
+        AudioManager audioManager = getSystemService(AudioManager.class);
+        if (audioManager == null) return getString(R.string.settings_value_unavailable);
+        return audioManager.getStreamVolume(AudioManager.STREAM_ALARM) + "/"
+                + audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+    }
+
     private String[] visibleReadOnlySettings(MainScreen screen) {
         String[] labels = getResources().getStringArray(settingsItems(screen));
         List<String> visible = new ArrayList<>();
@@ -1968,6 +1990,9 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private boolean isSettingVisible(MainScreen screen, SettingItem item) {
+        if (item.getId() == SettingId.FULL_SCREEN_DISPLAY
+                && !androidRuntime.isDeviceOwner())
+            return false;
         if ((item.getId() == SettingId.WIFI_ENABLED || item.getId() == SettingId.WIFI_CONNECT)
                 && !androidRuntime.isDeviceOwner())
             return false;
@@ -2307,6 +2332,17 @@ public final class MainActivity extends ComponentActivity {
             }
             return;
         }
+        if (id == SettingId.AUDIO_FILE_FORMAT) {
+            AudioFileFormat[] formats = AudioFileFormat.values();
+            if (selectedIndex < 0 || selectedIndex >= formats.length) return;
+            composition.setAudioFileFormat(formats[selectedIndex]);
+            logSelectedSettingChanged(item, id, selectedIndex);
+            return;
+        }
+        if (id == SettingId.AUDIO_SAMPLE_RATE || id == SettingId.AUDIO_BIT_RATE
+                || id == SettingId.AUDIO_CHANNEL_COUNT || id == SettingId.AUDIO_ALERT_VOLUME) {
+            return;
+        }
         if (id == SettingId.DEFAULT_STORAGE) {
             List<MediaPartitionLocation> modes = storageSettings.supportedModes();
             if (selectedIndex >= 0 && selectedIndex < modes.size()) {
@@ -2425,6 +2461,12 @@ public final class MainActivity extends ComponentActivity {
             if (handleLocationSwitchChanged(checked)) {
                 logBooleanSettingChanged(item, id, checked);
             }
+            return;
+        }
+        if (id == SettingId.FULL_SCREEN_DISPLAY) {
+            settingsUiState.updateBoolean(id, checked);
+            activityChrome.setFullScreenDisplayEnabled(checked);
+            logBooleanSettingChanged(item, id, checked);
             return;
         }
         settingsUiState.updateBoolean(id, checked);

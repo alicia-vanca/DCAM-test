@@ -30,6 +30,14 @@ final class OperationLoggingSourceTest {
                 "static int cameraPipelineNotice");
         String booleanSetting = method(activity, "private void updateBooleanSetting(",
                 "private void applyAutoRotate");
+        String formatSetting = method(activity, "private void selectSetting(",
+                "protected void onNewIntent");
+        String audioSettings = method(activity, "private SettingsScreenModel settingsModel(",
+                "private List<StorageOptionUiState> storageOptions");
+        String visibility = method(activity, "private boolean isSettingVisible(",
+                "private boolean isReadOnlySettingVisible");
+        String alertVolume = method(activity, "private String alertVolumeLabel()",
+                "private String[] visibleReadOnlySettings");
 
         assertTrue(cameraSetting.indexOf("return;")
                 < cameraSetting.indexOf("logSelectedSettingChanged(item, stableId, selectedIndex);"));
@@ -37,6 +45,21 @@ final class OperationLoggingSourceTest {
                 < pipelineSetting.indexOf("logSelectedSettingChanged(item, stableId, selectedIndex);"));
         assertTrue(booleanSetting.contains("if (handleLocationSwitchChanged(checked))"));
         assertTrue(booleanSetting.contains("if (!androidRuntime.setWifiEnabled(checked))"));
+        assertTrue(booleanSetting.contains("if (id == SettingId.FULL_SCREEN_DISPLAY)"));
+        assertTrue(booleanSetting.contains(
+                "activityChrome.setFullScreenDisplayEnabled(checked);"));
+        assertTrue(formatSetting.contains("if (id == SettingId.AUDIO_FILE_FORMAT)"));
+        assertTrue(formatSetting.contains("composition.setAudioFileFormat(formats[selectedIndex]);"));
+        assertTrue(audioSettings.contains("screen == MainScreen.AUDIO_SETTINGS"));
+        assertTrue(audioSettings.contains("composition.audioFileFormat()"));
+        assertTrue(audioSettings.contains("AudioCaptureSettings.SAMPLE_RATE_HZ"));
+        assertTrue(audioSettings.contains("AudioCaptureSettings.BIT_RATE_BPS"));
+        assertTrue(audioSettings.contains("AudioCaptureSettings.CHANNEL_COUNT"));
+        assertTrue(audioSettings.contains("alertVolumeLabel()"));
+        assertTrue(formatSetting.contains("id == SettingId.AUDIO_ALERT_VOLUME"));
+        assertTrue(alertVolume.contains("AudioManager.STREAM_ALARM"));
+        assertTrue(visibility.contains("item.getId() == SettingId.FULL_SCREEN_DISPLAY"));
+        assertTrue(visibility.contains("!androidRuntime.isDeviceOwner()"));
         assertTrue(booleanSetting.contains("logBooleanSettingChanged(item, id, checked);"));
     }
 

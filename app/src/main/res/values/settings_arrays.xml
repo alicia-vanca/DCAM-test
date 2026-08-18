@@ -33,11 +33,10 @@
 
     <string-array name="audio_settings_items">
         <item>Audio file format</item>
-        <item>Record sound</item>
-        <item>Audio sample rate</item>
-        <item>Audio bit rate</item>
-        <item>Audio channel count</item>
-        <item>Speaker and alert volume</item>
+        <item>Sample rate</item>
+        <item>Audio bitrate</item>
+        <item>Audio channels</item>
+        <item>Alert volume</item>
     </string-array>
 
     <string-array name="storage_settings_items">
@@ -62,7 +61,6 @@
         <item>Double-click recording control</item>
         <item>Continuous playback</item>
         <item>Fall detection</item>
-        <item>Status lights</item>
     </string-array>
 
     <string-array name="security_settings_items">
@@ -101,12 +99,6 @@
 
     <string-array name="about_settings_items">
         <item>Application version</item>
-        <item>Device information</item>
-        <item>Cloud identity state</item>
-        <item>Provisioning / recovery state</item>
-        <item>Remote config cache</item>
-        <item>Firmware information</item>
-        <item>Available hardware features</item>
-        <item>Diagnostics and logs</item>
+        <item>Firmware version</item>
     </string-array>
 </resources>

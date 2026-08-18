@@ -36,9 +36,9 @@ final class DcamMediaReservationTest {
         DcamMediaFile secondVideo = output.mediaFile(
                 DcamFileType.VIDEO, "CAM001", "000001", false);
         DcamMediaFile firstAudio = output.durableAudioMediaFile(
-                "CAM001", "000001", false);
+                DcamFileType.AUDIO_M4A, "CAM001", "000001", false);
         DcamMediaFile secondAudio = output.durableAudioMediaFile(
-                "CAM001", "000001", false);
+                DcamFileType.AUDIO_M4A, "CAM001", "000001", false);
 
         assertEquals("DCAM_CAM001_000001_20260804_100000.mp4",
                 firstVideo.getFileName());

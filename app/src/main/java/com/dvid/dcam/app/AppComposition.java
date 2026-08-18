@@ -42,6 +42,7 @@ import com.dvid.dcam.feature.capture.application.usecase.CaptureEvents;
 import com.dvid.dcam.feature.capture.application.usecase.PhotoCaptureUseCase;
 import com.dvid.dcam.feature.capture.application.usecase.SerializedRecordingCoordinator;
 import com.dvid.dcam.feature.capture.application.usecase.RecordingCommands;
+import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.device.application.port.DeviceRepository;
 import com.dvid.dcam.feature.device.application.port.DeveloperSettingsStore;
@@ -274,6 +275,7 @@ public final class AppComposition {
     private final Handler captureStorageNoticeHandler;
     private final AtomicReference<CameraCapabilityRecheckUpdate> activeCameraCapabilityRecheckUpdate = new AtomicReference<>();
     private final AudioRecorder audioRecorder;
+    private volatile AudioFileFormat audioFileFormat = AudioFileFormat.DEFAULT;
     private final AudioPreparationNotifier audioPreparationNotifier;
     private final CaptureStorageNoticeMonitor captureStorageNoticeMonitor;
     private final AudioRecordingUseCase audioRecording;
@@ -400,7 +402,8 @@ public final class AppComposition {
 
         audioRecorder = new AndroidAudioRecorderImpl(context, mediaOutput, logger,
                 mediaEncryptionSettings::isMediaEncryptionEnabled, operatorFileUserId,
-                deviceSerialNumbers::load, locationTracking::latestCoordinate);
+                deviceSerialNumbers::load, locationTracking::latestCoordinate,
+                () -> audioFileFormat);
         audioRecording = new AudioRecordingUseCase(audioRecorder, captureIoExecutor,
                 () -> DcamPermissions.captureRuntimeGranted(this.context)
                         && !captureStorageUnavailable(),
@@ -603,6 +606,12 @@ public final class AppComposition {
 
     public AndroidRuntime androidRuntime() {
         return androidRuntime;
+    }
+
+    public AudioFileFormat audioFileFormat() { return audioFileFormat; }
+
+    public void setAudioFileFormat(AudioFileFormat format) {
+        audioFileFormat = Objects.requireNonNull(format, "format");
     }
 
     public DeveloperSettingsStore.Mode cameraPipelineMode() {

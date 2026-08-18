@@ -21,6 +21,7 @@ public final class ActivityChromeController {
     private final ComponentActivity activity;
     private final ActivityMainBinding binding;
     private final BooleanSupplier deviceOwner;
+    private boolean fullScreenDisplayEnabled;
 
     public ActivityChromeController(
             ComponentActivity activity,
@@ -31,11 +32,20 @@ public final class ActivityChromeController {
         this.deviceOwner = deviceOwner;
     }
 
-    public void hideSystemStatusBar() {
-        if (!deviceOwner.getAsBoolean()) {
-            activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+    public void setFullScreenDisplayEnabled(boolean enabled) {
+        fullScreenDisplayEnabled = enabled;
+        applyFullScreenDisplay();
+    }
+
+    public void applyFullScreenDisplay() {
+        if (!fullScreenDisplayEnabled || !deviceOwner.getAsBoolean()) {
+            showSystemStatusBar();
             return;
         }
+        hideSystemStatusBar();
+    }
+
+    private void hideSystemStatusBar() {
         activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             View decor = activity.getWindow().getDecorView();
@@ -52,6 +62,18 @@ public final class ActivityChromeController {
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    }
+
+    private void showSystemStatusBar() {
+        activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = activity.getWindow().getDecorView()
+                    .getWindowInsetsController();
+            if (controller != null) controller.show(WindowInsets.Type.statusBars());
+            return;
+        }
+        activity.getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
     public void updateManagedTopBar() {

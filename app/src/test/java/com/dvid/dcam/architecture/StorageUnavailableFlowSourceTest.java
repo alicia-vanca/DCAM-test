@@ -75,6 +75,21 @@ final class StorageUnavailableFlowSourceTest {
         assertFalse(storage.contains("registerReceiver("));
     }
 
+    @Test void storageUsageRefreshesOnEveryStorageScreenEntry() throws IOException {
+        String activity = source("app/MainActivity.java");
+        String render = section(activity,
+                "private void render(MainUiState state)",
+                "private void vibrateCaptureCommandStart()");
+        String screenEntry = section(render,
+                "if (renderedScreen != screen)",
+                "renderedScreen = screen;");
+
+        assertTrue(screenEntry.contains(
+                "if (screen == MainScreen.STORAGE_SETTINGS)"));
+        assertTrue(screenEntry.contains("storageVolumesGeneration++;"));
+        assertTrue(screenEntry.contains("storageVolumesStale = true;"));
+    }
+
     private static String section(String source, String start, String end) {
         int from = source.indexOf(start);
         int to = source.indexOf(end, from);

@@ -31,12 +31,11 @@
     </string-array>
 
     <string-array name="audio_settings_items">
-        <item>Định dạng tệp âm thanh</item>
-        <item>Ghi âm</item>
-        <item>Tần số lấy mẫu</item>
-        <item>Bit rate âm thanh</item>
-        <item>Số kênh âm thanh</item>
-        <item>Âm lượng loa và cảnh báo</item>
+        <item>Định dạng tệp</item>
+        <item>Tần số</item>
+        <item>Bitrate</item>
+        <item>Số kênh</item>
+        <item>Âm lượng cảnh báo</item>
     </string-array>
 
     <string-array name="storage_settings_items">
@@ -61,7 +60,6 @@
         <item>Điều khiển ghi bằng double-click</item>
         <item>Phát liên tục</item>
         <item>Phát hiện ngã</item>
-        <item>Đèn trạng thái</item>
     </string-array>
 
     <string-array name="security_settings_items">
@@ -96,10 +94,7 @@
 
     <string-array name="about_settings_items">
         <item>Phiên bản ứng dụng</item>
-        <item>Thông tin thiết bị</item>
-        <item>Thông tin firmware</item>
-        <item>Tính năng phần cứng khả dụng</item>
-        <item>Chẩn đoán và log</item>
+        <item>Phiên bản firmware</item>
     </string-array>
 </resources>
 

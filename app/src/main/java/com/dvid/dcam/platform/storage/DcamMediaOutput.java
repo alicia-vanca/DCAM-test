@@ -13,6 +13,15 @@ public interface DcamMediaOutput {
             boolean encrypted);
     DcamMediaFile durableAudioMediaFile(
             String cameraId, String fileUserId, boolean encrypted) throws IOException;
+
+    default DcamMediaFile durableAudioMediaFile(
+            DcamFileType type, String cameraId, String fileUserId, boolean encrypted)
+            throws IOException {
+        if (type != DcamFileType.AUDIO_M4A) {
+            throw new IOException("Audio media type selection is unsupported");
+        }
+        return durableAudioMediaFile(cameraId, fileUserId, encrypted);
+    }
     long mediaReservationDelayMillis(DcamFileType type);
     boolean hasPublishedFile(String fileName);
     CaptureStorageCheck checkCaptureReady();

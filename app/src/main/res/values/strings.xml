@@ -69,10 +69,13 @@
     <string name="gps_settings">GPS</string>
     <string name="transfer_settings">Transfer</string>
     <string name="security_settings">Security</string>
+    <string name="operator_account">Operator account</string>
     <string name="network_settings">Network</string>
     <string name="storage_settings">Storage</string>
     <string name="device_settings">Device settings</string>
     <string name="device_settings_short">Device</string>
+    <string name="available_settings">Available settings</string>
+    <string name="settings_value_unavailable">Unavailable</string>
     <string name="audio_settings">Audio</string>
     <string name="camera_settings">Camera settings</string>
     <string name="camera_settings_short">Photo</string>

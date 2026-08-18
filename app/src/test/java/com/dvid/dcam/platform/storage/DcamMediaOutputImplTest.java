@@ -511,7 +511,7 @@ final class DcamMediaOutputImplTest {
         DcamMediaOutputImpl output = new DcamMediaOutputImpl(
                 null, storage, () -> false, () -> password, new NoOpLogger());
         DcamMediaFile media = output.durableAudioMediaFile(
-                "CAM001", "000001", encrypted);
+                DcamFileType.AUDIO_M4A, "CAM001", "000001", encrypted);
         DcamRecordingOutput recordingOutput = output.openAudioOutput(media);
         writeFully(recordingOutput,
                 DcamInterruptedMp4FinalizerTest.interruptedAudioM4aWithGpsRoute());

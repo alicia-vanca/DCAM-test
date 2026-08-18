@@ -69,10 +69,13 @@
     <string name="gps_settings">GPS</string>
     <string name="transfer_settings">Truyền dữ liệu</string>
     <string name="security_settings">Bảo mật</string>
+    <string name="operator_account">Tài khoản người vận hành</string>
     <string name="network_settings">Mạng</string>
     <string name="storage_settings">Lưu trữ</string>
     <string name="device_settings">Cài đặt thiết bị</string>
     <string name="device_settings_short">Thiết bị</string>
+    <string name="available_settings">Cài đặt khả dụng</string>
+    <string name="settings_value_unavailable">Không khả dụng</string>
     <string name="audio_settings">Âm thanh</string>
     <string name="camera_settings">Cài đặt camera</string>
     <string name="camera_settings_short">Hình ảnh</string>
