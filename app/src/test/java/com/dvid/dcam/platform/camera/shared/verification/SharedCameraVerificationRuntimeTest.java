@@ -34,7 +34,6 @@ final class SharedCameraVerificationRuntimeTest {
         CameraOperationContext context = context();
 
         adapter.bindSession(context);
-        adapter.updateSession(context);
         adapter.previewProgress(context);
         adapter.startEncoder(context);
         adapter.captureJpeg(context);
@@ -44,7 +43,6 @@ final class SharedCameraVerificationRuntimeTest {
         adapter.diagnostics(context);
 
         assertEquals(List.of(CameraPipelineOperation.BIND_SESSION,
-                CameraPipelineOperation.UPDATE_SESSION,
                 CameraPipelineOperation.PREVIEW_PROGRESS,
                 CameraPipelineOperation.START_ENCODER,
                 CameraPipelineOperation.DIAGNOSTICS,
@@ -138,9 +136,6 @@ final class SharedCameraVerificationRuntimeTest {
         }
         @Override public CameraOperationResult bindSession(CameraOperationContext context) {
             return result(context, CameraPipelineOperation.BIND_SESSION);
-        }
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            return result(context, CameraPipelineOperation.UPDATE_SESSION);
         }
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
             return result(context, CameraPipelineOperation.PREVIEW_PROGRESS);

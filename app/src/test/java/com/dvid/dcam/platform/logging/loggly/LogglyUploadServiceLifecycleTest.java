@@ -30,6 +30,22 @@ class LogglyUploadServiceLifecycleTest {
     }
 
     @Test
+    void everyStartRequestPromotesForegroundBeforeWakingUploader() throws IOException {
+        String service = read("app/src/main/java/com/dvid/dcam/platform/logging/loggly/LogglyUploadService.java");
+        String create = service.substring(service.indexOf("onCreate()"),
+                service.indexOf("onStartCommand"));
+        String start = service.substring(service.indexOf("onStartCommand"),
+                service.indexOf("onTimeout"));
+        String promotion = service.substring(service.indexOf("private void ensureForeground()"),
+                service.indexOf("private int foregroundServiceType"));
+        assertTrue(create.contains("ensureForeground();"));
+        assertTrue(start.contains("ensureForeground();"));
+        assertTrue(start.indexOf("ensureForeground();") < start.indexOf("wakeSignal.wake();"));
+        assertFalse(promotion.contains("getForegroundServiceType()"));
+        assertTrue(promotion.contains("startForeground("));
+    }
+
+    @Test
     void connectivityEventsOwnOnlineStateWithoutPolling() throws IOException {
         String service = read("app/src/main/java/com/dvid/dcam/platform/logging/loggly/LogglyUploadService.java");
         String offline = service.substring(service.indexOf("if (!networkAvailable)"),
@@ -75,12 +91,16 @@ class LogglyUploadServiceLifecycleTest {
         assertTrue(application.contains("new LogglyProcessSupervisor(this)"));
         assertTrue(application.contains("logglySupervisor.start()"));
         assertTrue(supervisor.contains("Context.BIND_AUTO_CREATE"));
+        assertTrue(supervisor.contains("PowerManager"));
+        assertTrue(supervisor.contains("isInteractive()"));
         assertFalse(supervisor.contains("Context.BIND_ABOVE_CLIENT"));
         assertFalse(supervisor.contains("Context.BIND_IMPORTANT"));
         assertTrue(supervisor.contains("onServiceDisconnected"));
         assertTrue(supervisor.contains("onBindingDied"));
         assertTrue(supervisor.contains("current.isBinderAlive()"));
         assertTrue(supervisor.contains("mainHandler.postDelayed(healthCheck"));
+        assertTrue(supervisor.contains("interactive != lastInteractive"));
+        assertTrue(supervisor.contains("screen became interactive"));
         assertTrue(supervisor.contains("LogglyProcessBootstrapActivity.start(activity)"));
         assertTrue(supervisor.contains("LogglyUploadScheduler.scheduleJobNow(application)"));
         assertFalse(supervisor.contains("LogglyHttpClient"));
@@ -90,6 +110,32 @@ class LogglyUploadServiceLifecycleTest {
         String activity = serviceDeclaration(manifest, "LogglyProcessBootstrapActivity");
         assertTrue(activity.contains("android:process=\":loggly\""));
         assertTrue(activity.contains("@android:style/Theme.NoDisplay"));
+    }
+
+    @Test
+    void roomLogWritesUseJobFallbackWithoutBackgroundForegroundStart() throws IOException {
+        String writer = read("app/src/main/java/com/dvid/dcam/platform/logging/app/RoomLogWriter.java");
+        assertTrue(writer.contains("pendingLogs.pendingCount() == 1"));
+        assertTrue(writer.contains("LogglyUploadScheduler.scheduleJobNow(appContext)"));
+        assertFalse(writer.contains("LogglyUploadScheduler.scheduleNow(appContext)"));
+    }
+
+    @Test
+    void schedulerJobFallbackIsCallableFromAppProcess() throws IOException {
+        String scheduler = read("app/src/main/java/com/dvid/dcam/platform/logging/loggly/LogglyUploadScheduler.java");
+        assertTrue(scheduler.contains("public static boolean scheduleJobNow(Context context)"));
+    }
+
+    @Test
+    void supervisorOnlyStartsForegroundServiceWhileVisible() throws IOException {
+        String supervisor = read("app/src/main/java/com/dvid/dcam/platform/logging/loggly/LogglyProcessSupervisor.java");
+        String ensureAlive = supervisor.substring(supervisor.indexOf("private void ensureAlive"),
+                supervisor.indexOf("private void ensureBound"));
+        assertTrue(ensureAlive.contains("boolean visible = isVisibleActivity()"));
+        assertTrue(ensureAlive.contains("if (visible)"));
+        assertTrue(ensureAlive.contains("ensureBound();"));
+        assertTrue(ensureAlive.contains("LogglyUploadService.start(application)"));
+        assertTrue(ensureAlive.contains("LogglyUploadScheduler.scheduleJobNow(application)"));
     }
 
     @Test

@@ -42,7 +42,11 @@ public final class SegmentedAesGcmJpegOutput {
 
     public synchronized void discard() {
         written = false;
-        try { Files.deleteIfExists(file.toPath()); } catch (IOException ignored) { }
+        try {
+            Files.deleteIfExists(file.toPath());
+        } catch (IOException ignored) {
+            // Discard remains idempotent when best-effort cleanup cannot complete.
+        }
     }
 
     private static void writeFully(DcamRecordingOutput output, ByteBuffer source)

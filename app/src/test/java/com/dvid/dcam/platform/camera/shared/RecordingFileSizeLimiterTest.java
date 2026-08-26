@@ -50,6 +50,15 @@ final class RecordingFileSizeLimiterTest {
         assertEquals(0L, limiter.writtenBytes());
     }
 
+    @Test void forcedStopRejectsSamplesWithoutWriting() {
+        RecordingFileSizeLimiter limiter = new RecordingFileSizeLimiter();
+        limiter.reset(0L);
+
+        assertEquals(RecordingFileSizeLimiter.Decision.STOP, limiter.forceStop());
+        assertEquals(RecordingFileSizeLimiter.Decision.STOP, limiter.evaluateSample(1));
+        assertEquals(0L, limiter.writtenBytes());
+    }
+
     @Test void zeroLimitAllowsSamplesAndResetStartsNewSegment() {
         RecordingFileSizeLimiter limiter = new RecordingFileSizeLimiter();
         limiter.reset(0L);

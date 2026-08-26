@@ -62,6 +62,25 @@ class LogglyCrashSpoolTest {
         assertTrue(jsonFiles(spool).isEmpty());
     }
 
+    @Test
+    void successfulUploadRemainsCompleteWhenAnotherProcessDeletesTheSpoolFile() throws IOException {
+        File spool = tempDir.resolve("crash-spool").toFile();
+        LogglyCrashSpool.enqueue(spool, "{\"message\":\"crash\"}");
+        File delivered = jsonFiles(spool).get(0).toFile();
+
+        Long complete = LogglyCrashSpool.uploadPending(spool, () -> false, payload -> {
+            try {
+                Files.delete(delivered.toPath());
+                return null;
+            } catch (IOException error) {
+                return "could not simulate concurrent spool cleanup";
+            }
+        });
+
+        assertNull(complete);
+        assertTrue(jsonFiles(spool).isEmpty());
+    }
+
     private static List<Path> jsonFiles(File spool) throws IOException {
         if (!spool.isDirectory()) return List.of();
         try (Stream<Path> entries = Files.list(spool.toPath())) {

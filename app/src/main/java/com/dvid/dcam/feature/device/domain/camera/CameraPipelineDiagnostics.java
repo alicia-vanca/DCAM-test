@@ -39,13 +39,11 @@ public record CameraPipelineDiagnostics(
                 finalizedVideoArtifact, "finalizedVideoArtifact");
         capturedJpegArtifact = checkedArtifact(
                 capturedJpegArtifact, "capturedJpegArtifact");
-        if (jpegCapturedWhileEncoderActive && capturedJpegResolution.isEmpty()) {
+        if (jpegCapturedWhileEncoderActive && !capturedJpegResolution.isPresent()) {
             throw new IllegalArgumentException(
                     "JPEG capture evidence requires captured resolution");
         }
-        if (detail == null || detail.isBlank()) {
-            throw new IllegalArgumentException("detail is required");
-        }
+        detail = checkedDetail(detail);
     }
 
     public boolean hasPreviewProgressSince(long previousFrameCount) {
@@ -63,5 +61,12 @@ public record CameraPipelineDiagnostics(
             throw new IllegalArgumentException(name + " must not be blank");
         }
         return checked;
+    }
+
+    private static String checkedDetail(String detail) {
+        if (detail == null || detail.isBlank()) {
+            throw new IllegalArgumentException("detail is required");
+        }
+        return detail;
     }
 }

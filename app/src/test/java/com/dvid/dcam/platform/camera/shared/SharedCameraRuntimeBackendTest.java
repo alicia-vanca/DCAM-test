@@ -22,7 +22,6 @@ import com.dvid.dcam.feature.device.domain.camera.CameraPipelineDiagnostics;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineOperation;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
-import com.dvid.dcam.feature.device.domain.camera.CameraRuntimeState;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
 import com.dvid.dcam.feature.device.domain.camera.ImageMode;
 import com.dvid.dcam.feature.device.domain.camera.PipelineAvailability;
@@ -45,11 +44,12 @@ import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -937,16 +937,22 @@ final class SharedCameraRuntimeBackendTest {
         assertFalse(backend.recordingStorageLimitRequested());
     }
 
-    @Test void storageLimitDuringAsyncFinalizationUsesStorageCompletion() {
+    @Test void recordingStopReleasesPhotoBeforeEncoderAndStorageFinalizationComplete() {
         FakePipeline pipeline = new FakePipeline();
         FakeMedia media = new FakeMedia();
         media.deferRecordingFinalization = true;
         FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requestedPhoto = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakeProvider provider = new FakeProvider(pipeline, new FakePipeline());
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
-                new FakeProvider(pipeline), new FakePreviewOutput(), media, events,
-                new NoOpLogger());
+                provider, new FakePreviewOutput(), media,
+                new FakeCapabilityAccess(requestedPhoto, VerificationOutcome.UNKNOWN),
+                events, new NoOpLogger(), finalizationTasks::add);
         ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
-                ProcessCameraRuntimeBackend.Operation.INITIALIZE, selection(), 1L,
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                 Optional.empty()));
         backend.requestRecording(RecordingMode.VIDEO);
         execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
@@ -955,14 +961,241 @@ final class SharedCameraRuntimeBackendTest {
 
         backend.execute(command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
                 null, 3L, ready.activeBinding()), value -> stopped[0] = value);
-        assertTrue(stopped[0] == null);
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS,
+                stopped[0].outcome(), stopped[0].detail());
+        assertEquals("recording_input_stopped", stopped[0].detail());
+        assertEquals(1, finalizationTasks.size());
+        assertEquals(0L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.FINALIZE_ENCODER)
+                .count());
+
+        ProcessCameraRuntimeBackend.Result photo = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 4L, ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, photo.outcome(), photo.detail());
+        assertEquals(1, provider.createCount);
+        assertEquals(1L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
+        finalizationTasks.remove(0).run();
+        assertEquals(1L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.FINALIZE_ENCODER)
+                .count());
+        assertTrue(events.storageStopped.isEmpty());
+        assertTrue(events.completed.isEmpty());
         pipeline.reachRecordingLimit();
         media.completeRecordingFinalization();
 
-        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, stopped[0].outcome());
         assertEquals(List.of(media.recording.mediaFile().getFileName()), events.storageStopped);
         assertTrue(events.completed.isEmpty());
         assertFalse(backend.recordingStorageLimitRequested());
+    }
+
+    @Test void releaseWaitsOnlyForEncoderFinalizationHandoff() {
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.releaseInvalidatesFinalization = true;
+        FakeMedia media = new FakeMedia();
+        media.deferRecordingFinalization = true;
+        FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(pipeline), new FakePreviewOutput(), media,
+                null, events, new NoOpLogger(), finalizationTasks::add);
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, selection(), 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+        ProcessCameraRuntimeBackend.Result[] stopped = new ProcessCameraRuntimeBackend.Result[1];
+        int[] stopCompletionCount = { 0 };
+
+        backend.execute(command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 3L, ready.activeBinding()), value -> {
+                    stopped[0] = value;
+                    stopCompletionCount[0]++;
+                });
+        ProcessCameraRuntimeBackend.Result[] released =
+                new ProcessCameraRuntimeBackend.Result[1];
+        int[] releaseCompletionCount = { 0 };
+        backend.execute(command(ProcessCameraRuntimeBackend.Operation.RELEASE,
+                null, 4L, ready.activeBinding()), value -> {
+                    released[0] = value;
+                    releaseCompletionCount[0]++;
+                });
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS,
+                stopped[0].outcome(), stopped[0].detail());
+        assertEquals("recording_input_stopped", stopped[0].detail());
+        assertEquals(1, stopCompletionCount[0]);
+        assertEquals(1, finalizationTasks.size());
+        assertNull(released[0]);
+        assertEquals(0, releaseCompletionCount[0]);
+        assertFalse(pipeline.released);
+
+        finalizationTasks.remove(0).run();
+
+        assertTrue(released[0] != null);
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS,
+                released[0].outcome(), released[0].detail());
+        assertEquals(1, releaseCompletionCount[0]);
+        assertTrue(pipeline.released);
+        assertEquals(1L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.FINALIZE_ENCODER)
+                .count());
+        assertEquals(1L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.RELEASE)
+                .count());
+        assertEquals(0, media.failedRecordingCount);
+        assertTrue(events.failures.isEmpty());
+        assertTrue(events.completed.isEmpty());
+
+        media.completeRecordingFinalization();
+
+        assertEquals(List.of(media.recording.mediaFile().getFileName()), events.completed);
+        assertEquals(1, stopCompletionCount[0]);
+        assertEquals(1, releaseCompletionCount[0]);
+    }
+
+    @Test void pipelineReplacementWaitsOnlyForEncoderFinalizationHandoff() {
+        FakePipeline recordingPipeline = new FakePipeline();
+        recordingPipeline.releaseInvalidatesFinalization = true;
+        FakePipeline switchedPipeline = new FakePipeline();
+        FakeMedia media = new FakeMedia();
+        media.deferRecordingFinalization = true;
+        FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        FakeProvider provider = new FakeProvider(recordingPipeline, switchedPipeline);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media,
+                null, events, new NoOpLogger(), finalizationTasks::add);
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, selection("0"), 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 3L, ready.activeBinding()));
+        ProcessCameraRuntimeBackend.Result[] switched =
+                new ProcessCameraRuntimeBackend.Result[1];
+
+        backend.execute(command(ProcessCameraRuntimeBackend.Operation.SWITCH_CAMERA,
+                selection("1"), 4L, ready.activeBinding()), value -> switched[0] = value);
+
+        assertNull(switched[0]);
+        assertEquals(1, provider.createCount);
+        assertFalse(recordingPipeline.released);
+
+        finalizationTasks.remove(0).run();
+
+        assertTrue(switched[0] != null);
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.READY,
+                switched[0].outcome(), switched[0].detail());
+        assertEquals(2, provider.createCount);
+        assertTrue(recordingPipeline.released);
+        assertEquals(1L, recordingPipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.FINALIZE_ENCODER)
+                .count());
+        assertEquals(1L, recordingPipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.RELEASE)
+                .count());
+        assertTrue(events.failures.isEmpty());
+        assertTrue(events.completed.isEmpty());
+
+        media.completeRecordingFinalization();
+
+        assertEquals(List.of(media.recording.mediaFile().getFileName()), events.completed);
+    }
+
+    @Test void photoRunsDuringEncoderToStorageHandoffWithoutReplacingPipeline() {
+        FakePipeline pipeline = new FakePipeline();
+        FakeMedia media = new FakeMedia();
+        media.deferRecordingFinalization = true;
+        FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requestedPhoto = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakeProvider provider = new FakeProvider(pipeline, new FakePipeline());
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media,
+                new FakeCapabilityAccess(requestedPhoto, VerificationOutcome.UNKNOWN),
+                events, new NoOpLogger(), finalizationTasks::add);
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 3L, ready.activeBinding()));
+        ProcessCameraRuntimeBackend.Result[] photo = new ProcessCameraRuntimeBackend.Result[1];
+        media.duringRecordingFinalizationHandoff = () -> backend.execute(command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 4L, ready.activeBinding()), value -> photo[0] = value);
+
+        finalizationTasks.remove(0).run();
+
+        assertTrue(photo[0] != null);
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS,
+                photo[0].outcome(), photo[0].detail());
+        assertEquals(1, provider.createCount);
+        assertEquals(1L, pipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
+        assertTrue(events.completed.isEmpty());
+
+        media.completeRecordingFinalization();
+
+        assertEquals(List.of(media.recording.mediaFile().getFileName()), events.completed);
+    }
+
+    @Test void photoRebindStartsAfterEncoderHandoffBeforeRecordingCompletionNotice() {
+        FakePipeline recordingPipeline = new FakePipeline();
+        FakePipeline photoPipeline = new FakePipeline();
+        photoPipeline.jpegWidth = 1920;
+        photoPipeline.jpegHeight = 1080;
+        FakeMedia media = new FakeMedia();
+        media.deferRecordingFinalization = true;
+        FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requestedPhoto = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakeProvider provider = new FakeProvider(recordingPipeline, photoPipeline);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media,
+                new FakeCapabilityAccess(requestedPhoto, VerificationOutcome.UNKNOWN),
+                events, new NoOpLogger(), finalizationTasks::add);
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 3L, ready.activeBinding()));
+
+        finalizationTasks.remove(0).run();
+        ProcessCameraRuntimeBackend.Result photo = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 4L, ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, photo.outcome(), photo.detail());
+        assertEquals(2, provider.createCount);
+        assertEquals(1L, recordingPipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.RELEASE)
+                .count());
+        assertEquals(1L, photoPipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
+        assertTrue(events.completed.isEmpty());
+
+        media.completeRecordingFinalization();
+
+        assertEquals(List.of(media.recording.mediaFile().getFileName()), events.completed);
     }
 
     @Test void failedAsyncFinalizationClearsStorageLimitRequest() {
@@ -979,12 +1212,20 @@ final class SharedCameraRuntimeBackendTest {
         backend.requestRecording(RecordingMode.VIDEO);
         execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
                 null, 2L, ready.activeBinding()));
+        ProcessCameraRuntimeBackend.Result[] stopped = new ProcessCameraRuntimeBackend.Result[1];
+        int[] completionCount = { 0 };
 
         backend.execute(command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
-                null, 3L, ready.activeBinding()), value -> {});
+                null, 3L, ready.activeBinding()), value -> {
+                    stopped[0] = value;
+                    completionCount[0]++;
+                });
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, stopped[0].outcome());
+        assertEquals(1, completionCount[0]);
         pipeline.reachRecordingLimit();
         media.failRecordingFinalization();
 
+        assertEquals(1, completionCount[0]);
         assertFalse(backend.recordingStorageLimitRequested());
         assertTrue(events.storageStopped.isEmpty());
         assertTrue(events.completed.isEmpty());
@@ -1013,6 +1254,48 @@ final class SharedCameraRuntimeBackendTest {
         assertTrue(events.completed.isEmpty());
         assertTrue(events.failures.stream().anyMatch(value -> value.startsWith("Recording:")));
         assertEquals(1, media.failedRecordingCount);
+    }
+
+    @Test void asyncEncoderFinalizeExceptionClearsRecordingMarkerForNextPhoto() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requestedPhoto = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakePipeline recordingPipeline = new FakePipeline();
+        recordingPipeline.finalizeException = new IllegalStateException("finalize crashed");
+        FakePipeline photoPipeline = new FakePipeline();
+        photoPipeline.jpegWidth = 1920;
+        photoPipeline.jpegHeight = 1080;
+        FakeProvider provider = new FakeProvider(recordingPipeline, photoPipeline);
+        FakeMedia media = new FakeMedia();
+        FakeEvents events = new FakeEvents();
+        List<Runnable> finalizationTasks = new ArrayList<>();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media,
+                new FakeCapabilityAccess(requestedPhoto, VerificationOutcome.UNKNOWN),
+                events, new NoOpLogger(), finalizationTasks::add);
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                null, 2L, ready.activeBinding()));
+
+        ProcessCameraRuntimeBackend.Result stopped = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                null, 3L, ready.activeBinding()));
+        finalizationTasks.remove(0).run();
+        ProcessCameraRuntimeBackend.Result photo = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                null, 4L, ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, stopped.outcome());
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, photo.outcome(), photo.detail());
+        assertEquals(1, media.failedRecordingCount);
+        assertEquals(1, events.failures.size());
+        assertEquals(2, provider.createCount);
+        assertEquals(1L, photoPipeline.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
     }
 
     @Test void impHandoffStopsCurrentSegmentBeforeStartingSos() {
@@ -1070,22 +1353,152 @@ final class SharedCameraRuntimeBackendTest {
         assertTrue(capabilities.recordedOutcomes.isEmpty());
         assertTrue(pipeline.operations.contains(CameraPipelineOperation.CAPTURE_JPEG));
     }
-    @Test void standalonePhotoBindsRequestedImageAndKeepsMismatchFile() {
+
+    @Test void standalonePhotosRetainImageBindingUntilRecordingNeedsCommittedTuple() {
+        CameraRuntimeSelection committed = selection();
+        ImageMode maximum = image(StandardResolutionLabel.MAX, 2320, 1740);
+        CameraRuntimeSelection photoSelection = selection("0", maximum);
+        CandidateKey requested = candidate(committed, maximum);
+        FakePipeline initial = new FakePipeline();
+        FakePipeline photo = new FakePipeline();
+        photo.jpegWidth = 2320;
+        photo.jpegHeight = 1740;
+        FakePipeline recording = new FakePipeline();
+        FakeProvider provider = new FakeProvider(initial, photo, recording);
+        FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
+                requested, VerificationOutcome.UNKNOWN);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), capabilities,
+                new FakeEvents(), new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, committed, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result firstPhoto = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, committed, 2L,
+                ready.activeBinding()));
+        ProcessCameraRuntimeBackend.Result secondPhoto = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, committed, 3L,
+                firstPhoto.activeBinding()));
+
+        assertEquals(photoSelection, firstPhoto.selection().orElseThrow());
+        assertEquals(photoSelection, secondPhoto.selection().orElseThrow());
+        assertEquals(2, provider.createCount);
+
+        backend.requestRecording(RecordingMode.VIDEO);
+        ProcessCameraRuntimeBackend.Result firstRecording = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.START_RECORDING, committed, 4L,
+                secondPhoto.activeBinding()));
+
+        assertEquals(committed, firstRecording.selection().orElseThrow());
+        assertEquals(3, provider.createCount);
+        assertEquals(committed, provider.bitrateSelection);
+
+        execute(backend, command(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING,
+                committed, 5L, firstRecording.activeBinding()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        ProcessCameraRuntimeBackend.Result secondRecording = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.START_RECORDING, committed, 6L,
+                firstRecording.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS,
+                secondRecording.outcome(), secondRecording.detail());
+        assertEquals(3, provider.createCount);
+    }
+
+    @Test void committedTupleContainingSelectedImageNeedsNoPhotoOrRecordingSwitch() {
+        ImageMode maximum = image(StandardResolutionLabel.MAX, 2320, 1740);
+        CameraRuntimeSelection committed = selection("0", maximum);
+        CandidateKey requested = candidate(committed, maximum);
+        FakePipeline pipeline = new FakePipeline();
+        pipeline.jpegWidth = 2320;
+        pipeline.jpegHeight = 1740;
+        FakeProvider provider = new FakeProvider(pipeline);
+        FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
+                requested, VerificationOutcome.UNKNOWN);
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), new FakeMedia(), capabilities,
+                new FakeEvents(), new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, committed, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result photo = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, committed, 2L,
+                ready.activeBinding()));
+        backend.requestRecording(RecordingMode.VIDEO);
+        ProcessCameraRuntimeBackend.Result recording = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.START_RECORDING, committed, 3L,
+                photo.activeBinding()));
+
+        assertEquals(committed, photo.selection().orElseThrow());
+        assertEquals(committed, recording.selection().orElseThrow());
+        assertEquals(1, provider.createCount);
+    }
+
+    @Test void recordingBindFailureRestoresRetainedPhotoSession() {
+        CameraRuntimeSelection committed = selection();
+        ImageMode maximum = image(StandardResolutionLabel.MAX, 2320, 1740);
+        CameraRuntimeSelection photoSelection = selection("0", maximum);
+        CandidateKey requested = candidate(committed, maximum);
+        FakePipeline photo = new FakePipeline();
+        photo.jpegWidth = 2320;
+        photo.jpegHeight = 1740;
+        FakePipeline failedRecording = new FakePipeline();
+        failedRecording.bindOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
+        FakePipeline restoredPhoto = new FakePipeline();
+        FakeProvider provider = new FakeProvider(
+                new FakePipeline(), photo, failedRecording, restoredPhoto);
+        FakeMedia media = new FakeMedia();
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media,
+                new FakeCapabilityAccess(requested, VerificationOutcome.UNKNOWN),
+                events, new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, committed, 1L,
+                Optional.empty()));
+        ProcessCameraRuntimeBackend.Result photoResult = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, committed, 2L,
+                ready.activeBinding()));
+        backend.requestRecording(RecordingMode.VIDEO);
+
+        ProcessCameraRuntimeBackend.Result recordingResult = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.START_RECORDING, committed, 3L,
+                photoResult.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED,
+                recordingResult.outcome(), recordingResult.detail());
+        assertEquals(photoSelection, recordingResult.selection().orElseThrow());
+        assertEquals(StandardResolutionLabel.MAX, restoredPhoto.lastContext.tuple()
+                .imageMode().resolution().label());
+        assertEquals(4, provider.createCount);
+        assertEquals(1, media.abortedRecordingCount);
+        assertEquals(1, events.failures.size());
+    }
+
+    @Test void standalonePhotoRetriesLowerResolutionWhenCapturedDimensionsMismatch() {
         CameraRuntimeSelection effective = selection();
         CandidateKey requested = candidate(effective,
                 image(StandardResolutionLabel.FHD, 1920, 1080));
+        CandidateKey fallback = candidate(effective,
+                image(StandardResolutionLabel.HD, 1280, 720));
         FakePipeline initial = new FakePipeline();
         FakePipeline photo = new FakePipeline();
         photo.jpegWidth = 1280;
         photo.jpegHeight = 720;
         FakePipeline restored = new FakePipeline();
+        restored.jpegWidth = 1280;
+        restored.jpegHeight = 720;
         FakeProvider provider = new FakeProvider(initial, photo, restored);
         FakeMedia media = new FakeMedia();
         FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
                 requested, VerificationOutcome.UNKNOWN);
+        capabilities.fallback = fallback;
+        FakeEvents events = new FakeEvents();
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                 provider, new FakePreviewOutput(), media, capabilities,
-                new FakeEvents(), new NoOpLogger());
+                events, new NoOpLogger());
         ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                 ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                 Optional.empty()));
@@ -1095,14 +1508,18 @@ final class SharedCameraRuntimeBackendTest {
                 ready.activeBinding()));
 
         assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, result.outcome(), result.detail());
-        assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED),
-                capabilities.recordedOutcomes);
+        assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED,
+                VerificationOutcome.VERIFIED_PASS), capabilities.recordedOutcomes);
         assertEquals(StandardResolutionLabel.FHD, photo.lastContext.tuple()
+                .imageMode().resolution().label());
+        assertEquals(StandardResolutionLabel.HD, restored.lastContext.tuple()
                 .imageMode().resolution().label());
         assertEquals(3, provider.createCount);
         assertEquals(1, media.photoStoragePreflightCount);
-        assertEquals(1, media.photoPreparationCount);
+        assertEquals(2, media.photoPreparationCount);
         assertTrue(media.photo.outputFile().isFile());
+        assertEquals(List.of(media.photo.mediaFile().getFileName()), events.photos);
+        assertTrue(events.photoFailures.isEmpty());
     }
 
     @Test void repeatedStandaloneBindRejectionPersistsUnsupported() {
@@ -1117,9 +1534,10 @@ final class SharedCameraRuntimeBackendTest {
                 new FakePipeline(), firstRejection, confirmation, new FakePipeline());
         FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
                 requested, VerificationOutcome.UNKNOWN);
+        FakeEvents events = new FakeEvents();
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                 provider, new FakePreviewOutput(), new FakeMedia(), capabilities,
-                new FakeEvents(), new NoOpLogger());
+                events, new NoOpLogger());
         ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                 ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                 Optional.empty()));
@@ -1132,6 +1550,7 @@ final class SharedCameraRuntimeBackendTest {
         assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED),
                 capabilities.recordedOutcomes);
         assertEquals(4, provider.createCount);
+        assertEquals(1, events.photoFailures.size());
     }
 
     @Test void transientStandaloneBindConfirmationDoesNotPruneImage() {
@@ -1230,10 +1649,12 @@ final class SharedCameraRuntimeBackendTest {
                 FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
                         requested, VerificationOutcome.UNKNOWN);
                 capabilities.sensorOrientationDegrees = sensorOrientationDegrees;
+                FakeMedia media = new FakeMedia();
+                FakeEvents events = new FakeEvents();
                 SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                         new FakeProvider(new FakePipeline(), photo, new FakePipeline()),
-                        new FakePreviewOutput(), new FakeMedia(), capabilities,
-                        new FakeEvents(), new NoOpLogger());
+                        new FakePreviewOutput(), media, capabilities,
+                        events, new NoOpLogger());
                 ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                         ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                         Optional.empty()));
@@ -1263,10 +1684,12 @@ final class SharedCameraRuntimeBackendTest {
                 FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
                         requested, VerificationOutcome.UNKNOWN);
                 capabilities.sensorOrientationDegrees = sensorOrientationDegrees;
+                FakeMedia media = new FakeMedia();
+                FakeEvents events = new FakeEvents();
                 SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                         new FakeProvider(new FakePipeline(), photo, new FakePipeline()),
-                        new FakePreviewOutput(), new FakeMedia(), capabilities,
-                        new FakeEvents(), new NoOpLogger());
+                        new FakePreviewOutput(), media, capabilities,
+                        events, new NoOpLogger());
                 ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                         ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                         Optional.empty()));
@@ -1275,10 +1698,12 @@ final class SharedCameraRuntimeBackendTest {
                         ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
                         ready.activeBinding()));
 
-                assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, result.outcome(),
+                assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, result.outcome(),
                         result.detail());
                 assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED),
                         capabilities.recordedOutcomes);
+                assertFalse(media.photo.outputFile().isFile());
+                assertEquals(1, events.photoFailures.size());
             }
         }
     }
@@ -1361,10 +1786,11 @@ final class SharedCameraRuntimeBackendTest {
         photo.captureOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
         FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
                 requested, VerificationOutcome.UNKNOWN);
+        FakeEvents events = new FakeEvents();
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                 new FakeProvider(new FakePipeline(), photo, new FakePipeline()),
                 new FakePreviewOutput(), new FakeMedia(), capabilities,
-                new FakeEvents(), new NoOpLogger());
+                events, new NoOpLogger());
         ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
                 ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
                 Optional.empty()));
@@ -1376,7 +1802,126 @@ final class SharedCameraRuntimeBackendTest {
         assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, result.outcome());
         assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED),
                 capabilities.recordedOutcomes);
+        assertEquals(1, events.photoFailures.size());
     }
+
+    @Test void definitiveStandaloneCaptureFailureRetriesLowerResolutionInSameRequest() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requested = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        CandidateKey fallback = candidate(effective,
+                image(StandardResolutionLabel.HD, 1280, 720));
+        FakePipeline failedPhoto = new FakePipeline();
+        failedPhoto.captureOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
+        FakePipeline restoredFallback = new FakePipeline();
+        restoredFallback.jpegWidth = 1280;
+        restoredFallback.jpegHeight = 720;
+        FakeProvider provider = new FakeProvider(
+                new FakePipeline(), failedPhoto, restoredFallback);
+        FakeMedia media = new FakeMedia();
+        FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
+                requested, VerificationOutcome.UNKNOWN);
+        capabilities.fallback = fallback;
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                provider, new FakePreviewOutput(), media, capabilities,
+                events, new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
+                ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, result.outcome(), result.detail());
+        assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED,
+                VerificationOutcome.VERIFIED_PASS), capabilities.recordedOutcomes);
+        assertEquals(Optional.of(fallback),
+                capabilities.requestedCandidate(effective.cameraId().value()));
+        assertEquals(1L, failedPhoto.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
+        assertEquals(1L, restoredFallback.operations.stream()
+                .filter(operation -> operation == CameraPipelineOperation.CAPTURE_JPEG)
+                .count());
+        assertEquals(2, media.photoPreparationCount);
+        assertEquals(3, provider.createCount);
+        assertEquals(List.of(media.photo.mediaFile().getFileName()), events.photos);
+        assertTrue(events.photoFailures.isEmpty());
+    }
+
+    @Test void fallbackRetryUsesReturnedCandidateInsteadOfRereadingMutableSelection() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requested = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        CandidateKey fallback = candidate(effective,
+                image(StandardResolutionLabel.HD, 1280, 720));
+        CandidateKey concurrentlySelected = candidate(effective,
+                image(StandardResolutionLabel.SD, 720, 480));
+        FakePipeline failedPhoto = new FakePipeline();
+        failedPhoto.captureOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
+        FakePipeline fallbackPhoto = new FakePipeline();
+        fallbackPhoto.jpegWidth = 1280;
+        fallbackPhoto.jpegHeight = 720;
+        FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
+                requested, VerificationOutcome.UNKNOWN);
+        capabilities.fallback = fallback;
+        capabilities.requestedAfterFallback = concurrentlySelected;
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(new FakePipeline(), failedPhoto, fallbackPhoto),
+                new FakePreviewOutput(), new FakeMedia(), capabilities,
+                new FakeEvents(), new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
+                ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.PASS, result.outcome(), result.detail());
+        assertEquals(runtimeSelection(fallback), result.selection().orElseThrow());
+        assertEquals(StandardResolutionLabel.HD, fallbackPhoto.lastContext.tuple()
+                .imageMode().resolution().label());
+        assertEquals(Optional.of(concurrentlySelected),
+                capabilities.requestedCandidate(effective.cameraId().value()));
+    }
+
+    @Test void photoFailsOnlyAfterRequestedAndFallbackCandidatesBothFail() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requested = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        CandidateKey fallback = candidate(effective,
+                image(StandardResolutionLabel.HD, 1280, 720));
+        FakePipeline requestedPhoto = new FakePipeline();
+        requestedPhoto.captureOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
+        FakePipeline fallbackPhoto = new FakePipeline();
+        fallbackPhoto.captureOutcome = CameraOperationOutcome.DEFINITIVE_CANDIDATE_FAILURE;
+        FakeCapabilityAccess capabilities = new FakeCapabilityAccess(
+                requested, VerificationOutcome.UNKNOWN);
+        capabilities.fallback = fallback;
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(new FakePipeline(), requestedPhoto, fallbackPhoto),
+                new FakePreviewOutput(), new FakeMedia(), capabilities,
+                events, new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
+                ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, result.outcome());
+        assertEquals(List.of(VerificationOutcome.DEFINITIVE_UNSUPPORTED,
+                VerificationOutcome.DEFINITIVE_UNSUPPORTED),
+                capabilities.recordedOutcomes);
+        assertEquals(1, events.photoFailures.size());
+        assertTrue(events.photos.isEmpty());
+    }
+
     private static ProcessCameraRuntimeBackend.Result execute(
             SharedCameraRuntimeBackend backend, ProcessCameraRuntimeBackend.Command command) {
         final ProcessCameraRuntimeBackend.Result[] result = new ProcessCameraRuntimeBackend.Result[1];
@@ -1420,6 +1965,12 @@ final class SharedCameraRuntimeBackendTest {
         return CandidateKey.forTuple(selection.cameraId(), selection.codec(),
                 selection.verificationPipelineId(), new CaptureModeTuple(
                         selection.tuple().videoMode(), image));
+    }
+
+    private static CameraRuntimeSelection runtimeSelection(CandidateKey candidate) {
+        return new CameraRuntimeSelection(candidate.cameraId(),
+                candidate.verificationPipelineId(), candidate.codec(),
+                candidate.tuple().orElseThrow());
     }
 
     private static Snapshot capabilitySnapshot(
@@ -1469,22 +2020,25 @@ final class SharedCameraRuntimeBackendTest {
 
     private static final class FakeCapabilityAccess
             implements SharedCameraRuntimeBackend.CapabilityAccess {
-        private final CandidateKey requested;
+        private CandidateKey requested;
+        private CandidateKey fallback;
+        private CandidateKey requestedAfterFallback;
         private Snapshot snapshot;
-        private VerificationOutcome standaloneOutcome;
+        private final Map<CandidateKey, VerificationOutcome> standaloneOutcomes = new HashMap<>();
         private int sensorOrientationDegrees;
         private final List<VerificationOutcome> recordedOutcomes = new ArrayList<>();
 
         private FakeCapabilityAccess(
                 CandidateKey requested, VerificationOutcome standaloneOutcome) {
             this.requested = requested;
-            this.standaloneOutcome = standaloneOutcome;
+            if (requested != null && standaloneOutcome != VerificationOutcome.UNKNOWN) {
+                standaloneOutcomes.put(requested, standaloneOutcome);
+            }
         }
 
         private FakeCapabilityAccess(Snapshot snapshot) {
             this.requested = null;
             this.snapshot = snapshot;
-            this.standaloneOutcome = VerificationOutcome.UNKNOWN;
         }
 
         @Override public CameraCapabilityStore capabilityStore() {
@@ -1516,17 +2070,25 @@ final class SharedCameraRuntimeBackendTest {
                 CameraId cameraId, Optional<CameraCapabilityStore.SelectedRecordingProfile> selection) {}
 
         @Override public VerificationOutcome standaloneImageOutcome(CandidateKey requested) {
-            return standaloneOutcome;
+            return standaloneOutcomes.getOrDefault(requested, VerificationOutcome.UNKNOWN);
         }
 
         @Override public java.util.OptionalInt sensorOrientationDegrees(CameraId cameraId) {
             return java.util.OptionalInt.of(sensorOrientationDegrees);
         }
 
-        @Override public void recordStandaloneImageOutcome(
+        @Override public Optional<CandidateKey> recordStandaloneImageOutcome(
                 CandidateKey requested, VerificationOutcome outcome) {
             recordedOutcomes.add(outcome);
-            standaloneOutcome = outcome;
+            standaloneOutcomes.put(requested, outcome);
+            if (outcome == VerificationOutcome.DEFINITIVE_UNSUPPORTED && fallback != null) {
+                CandidateKey selectedFallback = fallback;
+                fallback = null;
+                this.requested = requestedAfterFallback == null
+                        ? selectedFallback : requestedAfterFallback;
+                return Optional.of(selectedFallback);
+            }
+            return Optional.empty();
         }
     }
     private static final class FakeProvider implements SharedCameraPipelineProvider {
@@ -1637,8 +2199,11 @@ final class SharedCameraRuntimeBackendTest {
                 com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome.PASS;
         private com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome finalizeOutcome =
                 com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome.PASS;
+        private RuntimeException finalizeException;
         private long finalizedDurationUs = 12_345_678L;
         private boolean cleanFinalizationRequested;
+        private boolean releaseInvalidatesFinalization;
+        private boolean released;
         private long recordingBitrateBitsPerSecond = 12_000_000L;
 
         @Override public long recordingBitrateBitsPerSecond() {
@@ -1671,10 +2236,6 @@ final class SharedCameraRuntimeBackendTest {
             lastContext = context;
             return new CameraOperationResult(context, CameraPipelineOperation.BIND_SESSION,
                     bindOutcome, 1L, "bind");
-        }
-
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            return pass(context, CameraPipelineOperation.UPDATE_SESSION);
         }
 
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
@@ -1741,8 +2302,14 @@ final class SharedCameraRuntimeBackendTest {
         }
 
         @Override public CameraOperationResult finalizeEncoder(CameraOperationContext context) {
+            if (finalizeException != null) throw finalizeException;
             operations.add(CameraPipelineOperation.FINALIZE_ENCODER);
             lastContext = context;
+            if (releaseInvalidatesFinalization && released) {
+                return new CameraOperationResult(context,
+                        CameraPipelineOperation.FINALIZE_ENCODER,
+                        CameraOperationOutcome.STALE, 1L, "released_before_finalize");
+            }
             return new CameraOperationResult(context, CameraPipelineOperation.FINALIZE_ENCODER,
                     finalizeOutcome, 1L, "finalize");
         }
@@ -1813,6 +2380,7 @@ final class SharedCameraRuntimeBackendTest {
             beforeRelease.run();
             if (releaseException != null) throw releaseException;
             if (releaseOutcome == CameraOperationOutcome.PASS) {
+                released = true;
                 return pass(context, CameraPipelineOperation.RELEASE);
             }
             operations.add(CameraPipelineOperation.RELEASE);
@@ -1869,6 +2437,7 @@ final class SharedCameraRuntimeBackendTest {
         private RecordingMode preparedRecordingMode;
         private long preparedRecordingBitrateBitsPerSecond;
         private Completion pendingRecordingCompletion;
+        private Runnable duringRecordingFinalizationHandoff = () -> {};
 
         private FakeMedia() {
             this(false);
@@ -1930,6 +2499,7 @@ final class SharedCameraRuntimeBackendTest {
             recordingDurationUs = durationUs;
             if (deferRecordingFinalization) {
                 pendingRecordingCompletion = completion;
+                duringRecordingFinalizationHandoff.run();
                 return;
             }
             completion.onSuccess(capture.outputFile());
@@ -1967,6 +2537,7 @@ final class SharedCameraRuntimeBackendTest {
         private final List<String> completed = new ArrayList<>();
         private final List<String> photos = new ArrayList<>();
         private final List<String> photoEvents = new ArrayList<>();
+        private final List<String> photoFailures = new ArrayList<>();
         private final List<String> failures = new ArrayList<>();
         private final List<String> storageStopped = new ArrayList<>();
         private int blockedStarts;
@@ -1990,7 +2561,9 @@ final class SharedCameraRuntimeBackendTest {
             photos.add(fileName);
             photoEvents.add("saved:" + fileName);
         }
-        @Override public void photoFailed(String operation, String message) {}
+        @Override public void photoFailed(String operation, String message) {
+            photoFailures.add(operation + ":" + message);
+        }
         @Override public void captureFailed(String operation, String message) {
             failures.add(operation + ":" + message);
         }

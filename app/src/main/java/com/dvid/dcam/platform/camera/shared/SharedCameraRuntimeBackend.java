@@ -18,17 +18,41 @@ import com.dvid.dcam.platform.camera.shared.runtime.CameraRuntimeSelection;
 import com.dvid.dcam.platform.camera.shared.verification.SharedCameraVerificationSession;
 import com.dvid.dcam.platform.device.capability.CameraCapabilityService;
 import com.dvid.dcam.platform.camera.shared.runtime.ProcessCameraRuntimeBackend;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBackend {
+    private static final String TRANSITION_SUPERSEDED = "transition_superseded";
+    private static final String RECORDING = "Recording";
+    private static final String RECORDING_START_CANCELLED = "recording_start_cancelled";
+    private static final String TOTAL_DURATION = " ms. Total: ";
+    private static final String PHOTO = "Photo";
+    private static final String PHOTO_BINDING_UNCHANGED = "photo_binding_unchanged";
+    private static final String ACTIVE_SELECTION = "activeSelection";
+    private static final String ACTIVE_CONTEXT = "activeContext";
+    private static final String FINALIZATION = "Finalization";
+    private static final Executor RECORDING_FINALIZATION_EXECUTOR = action -> {
+        Thread thread = new Thread(action, "dcam-recording-finalization");
+        thread.setDaemon(true);
+        thread.start();
+    };
     private static final SharedCameraGatewayBackend.RecordingPreparationListener
             NO_RECORDING_PREPARATION_LISTENER = new SharedCameraGatewayBackend.RecordingPreparationListener() {
-        @Override public void onPreparing(String message) {}
-        @Override public void onCleared() {}
-        @Override public void onUnavailable(String message) {}
+        @Override public void onPreparing(String message) {
+            // No preparation listener is registered.
+        }
+        @Override public void onCleared() {
+            // No preparation listener is registered.
+        }
+        @Override public void onUnavailable(String message) {
+            // No preparation listener is registered.
+        }
     };
     private final SharedCameraPipelineProvider pipelineProvider;
     private final SharedCameraPreviewOutput previewSurface;
@@ -36,6 +60,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
     private final CapabilityAccess capabilities;
     private final CaptureEvents captureEvents;
     private final Logger logger;
+    private final Executor recordingFinalizationExecutor;
     private final AtomicLong cancelledThroughSequence = new AtomicLong();
 
     private SharedCameraCapturePipeline pipeline;
@@ -44,6 +69,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
     private CameraRuntimeSelection activeSelection;
     private CameraOperationContext activeContext;
     private SharedCameraMediaLifecycle.RecordingCapture activeRecording;
+    private PendingRecordingFinalization pendingRecordingFinalization;
     private RecordingMode requestedRecordingMode;
     private boolean impHandoffRequested;
     private boolean recordingStorageLimitRequested;
@@ -64,7 +90,8 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         VerificationOutcome standaloneImageOutcome(CandidateKey requested);
         OptionalInt sensorOrientationDegrees(
                 com.dvid.dcam.feature.device.domain.camera.CameraId cameraId);
-        void recordStandaloneImageOutcome(CandidateKey requested, VerificationOutcome outcome);
+        Optional<CandidateKey> recordStandaloneImageOutcome(
+                CandidateKey requested, VerificationOutcome outcome);
     }
 
     SharedCameraRuntimeBackend(
@@ -74,7 +101,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             CaptureEvents captureEvents,
             Logger logger) {
         this(pipelineProvider, previewSurface, mediaLifecycle, (CapabilityAccess) null,
-                captureEvents, logger);
+                captureEvents, logger, Runnable::run);
     }
 
     SharedCameraRuntimeBackend(
@@ -84,12 +111,26 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             CapabilityAccess capabilities,
             CaptureEvents captureEvents,
             Logger logger) {
+        this(pipelineProvider, previewSurface, mediaLifecycle, capabilities,
+                captureEvents, logger, Runnable::run);
+    }
+
+    SharedCameraRuntimeBackend(
+            SharedCameraPipelineProvider pipelineProvider,
+            SharedCameraPreviewOutput previewSurface,
+            SharedCameraMediaLifecycle mediaLifecycle,
+            CapabilityAccess capabilities,
+            CaptureEvents captureEvents,
+            Logger logger,
+            Executor recordingFinalizationExecutor) {
         this.pipelineProvider = Objects.requireNonNull(pipelineProvider, "pipelineProvider");
         this.previewSurface = Objects.requireNonNull(previewSurface, "previewSurface");
         this.mediaLifecycle = Objects.requireNonNull(mediaLifecycle, "mediaLifecycle");
         this.capabilities = capabilities;
         this.captureEvents = Objects.requireNonNull(captureEvents, "captureEvents");
         this.logger = Objects.requireNonNull(logger, "logger");
+        this.recordingFinalizationExecutor = Objects.requireNonNull(
+                recordingFinalizationExecutor, "recordingFinalizationExecutor");
     }
     public SharedCameraRuntimeBackend(
             SharedCameraPipelineProvider pipelineProvider,
@@ -100,7 +141,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             Logger logger) {
         this(pipelineProvider, previewSurface, mediaLifecycle,
                 capabilityAccess(Objects.requireNonNull(capabilities, "capabilities")),
-                captureEvents, logger);
+                captureEvents, logger, RECORDING_FINALIZATION_EXECUTOR);
     }
 
     private static CapabilityAccess capabilityAccess(CameraCapabilityService service) {
@@ -141,9 +182,10 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                         .findFirst();
             }
 
-            @Override public void recordStandaloneImageOutcome(CandidateKey requested,
+            @Override public Optional<CandidateKey> recordStandaloneImageOutcome(
+                    CandidateKey requested,
                     VerificationOutcome outcome) {
-                service.recordStandaloneImageOutcome(requested, outcome);
+                return service.recordStandaloneImageOutcome(requested, outcome);
             }
         };
     }
@@ -260,6 +302,8 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(completion, "completion");
         try {
+            if (deferPipelineReplacementUntilRecordingFinalizationHandoff(
+                    command, completion)) return;
             switch (command.operation()) {
                 case INITIALIZE, SWITCH_CAMERA, VERIFY_SETTING ->
                         executeVerifiedTransition(command, completion);
@@ -279,9 +323,11 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
     }
 
+    @SuppressWarnings({"java:S6541", "java:S3776"})
+    // Keep verification, rollback, and binding adoption in one transition boundary.
     private void executeVerifiedTransition(Command command, Completion completion) {
         if (superseded(command)) {
-            complete(command, completion, Result.cancelled("transition_superseded"));
+            complete(command, completion, Result.cancelled(TRANSITION_SUPERSEDED));
             return;
         }
         if (capabilities == null) {
@@ -295,13 +341,13 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                     command, command.previous().orElseThrow(), true));
             return;
         }
-        Result release = releaseCurrent(command);
+        Result release = releaseCurrent();
         if (release.outcome() == Outcome.RECOVERY_REQUIRED) {
             complete(command, completion, release);
             return;
         }
         if (superseded(command)) {
-            complete(command, completion, Result.cancelled("transition_superseded"));
+            complete(command, completion, Result.cancelled(TRANSITION_SUPERSEDED));
             return;
         }
         CameraRuntimeSelection target = command.target().orElseThrow();
@@ -346,7 +392,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                 }
             }
             restoreSelection(target, previousTargetSelection);
-            complete(command, completion, Result.cancelled("transition_superseded"));
+            complete(command, completion, Result.cancelled(TRANSITION_SUPERSEDED));
             return;
         }
         if (verified.verified()) {
@@ -473,7 +519,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
 
     private SelectionBindResult bindSelectionAttempt(
             Command command, CameraRuntimeSelection selection, boolean rollback) {
-        Result release = releaseCurrent(command);
+        Result release = releaseCurrent();
         if (release.outcome() == Outcome.RECOVERY_REQUIRED) {
             return new SelectionBindResult(release, Optional.empty());
         }
@@ -525,10 +571,33 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
     private record SelectionBindResult(Result result,
             Optional<CameraOperationOutcome> failureOutcome) {}
 
+    private static final class PendingRecordingFinalization {
+        private final SharedCameraMediaLifecycle.RecordingCapture recording;
+        private DeferredBackendCommand deferredCommand;
+
+        private PendingRecordingFinalization(
+                SharedCameraMediaLifecycle.RecordingCapture recording) {
+            this.recording = recording;
+        }
+    }
+
+    private record DeferredBackendCommand(Command command, Completion completion) {}
+
+    private record RecordingFinalizationRequest(
+            Command command,
+            SharedCameraCapturePipeline current,
+            CameraOperationContext operationContext,
+            SharedCameraMediaLifecycle.RecordingCapture recording,
+            PendingRecordingFinalization pendingFinalization,
+            long stopStartedAtNanos,
+            long inputStoppedAtNanos,
+            AtomicBoolean finalizationSucceeded,
+            Runnable startHandoffWhenReady) {}
+
     private void executeRelease(Command command, Completion completion) {
         Result result;
         try {
-            result = releaseCurrent(command);
+            result = releaseCurrent();
         } finally {
             pipelineProvider.stopMediaOrientationTracking();
         }
@@ -536,7 +605,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                 ? result : Result.pass("camera_released"));
     }
 
-    private Result releaseCurrent(Command command) {
+    private Result releaseCurrent() {
         SharedCameraCapturePipeline current;
         CameraOperationContext context;
         synchronized (this) {
@@ -554,10 +623,14 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         return Result.pass("released");
     }
 
+    @SuppressWarnings("java:S3776")
     private void executeStartRecording(Command command, Completion completion) {
         long startedAtNanos = System.nanoTime();
-        SharedCameraCapturePipeline current = requirePipeline(command, completion, "Recording");
+        SharedCameraCapturePipeline current = requirePipeline(command, completion, RECORDING);
         if (current == null) return;
+        CameraRuntimeSelection original = Objects.requireNonNull(
+                activeSelection, ACTIVE_SELECTION);
+        CameraRuntimeSelection recordingSelection = command.target().orElse(original);
         RecordingMode mode;
         synchronized (this) {
             mode = requestedRecordingMode;
@@ -565,20 +638,20 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         if (recordingStartCancelled()) {
             clearRequestedRecordingMode();
             clearRecordingPreparationNotice();
-            complete(command, completion, Result.cancelled("recording_start_cancelled"));
+            complete(command, completion, Result.cancelled(RECORDING_START_CANCELLED));
             return;
         }
         if (mode == null || mode == RecordingMode.IDLE) {
             clearRequestedRecordingMode();
             clearRecordingPreparationNotice();
-            captureEvents.captureFailed("Recording", "Recording request missing");
+            captureEvents.captureFailed(RECORDING, "Recording request missing");
             complete(command, completion, Result.blocked("recording_request_missing"));
             return;
         }
         SharedCameraMediaLifecycle.RecordingCapture prepared;
         try {
             prepared = mediaLifecycle.prepareRecording(
-                    mode, current.recordingBitrateBitsPerSecond());
+                    mode, recordingBitrateBitsPerSecond(recordingSelection));
         } catch (SharedCameraMediaLifecycle.PreparationException error) {
             clearRequestedRecordingMode();
             if (error.retryable()) {
@@ -609,16 +682,38 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             mediaLifecycle.abortRecordingStart(prepared);
             clearRequestedRecordingMode();
             clearRecordingPreparationNotice();
-            complete(command, completion, Result.cancelled("recording_start_cancelled"));
+            complete(command, completion, Result.cancelled(RECORDING_START_CANCELLED));
+            return;
+        }
+        long mediaPreparedAtNanos = System.nanoTime();
+        if (!recordingSelection.equals(original)) {
+            SelectionBindResult recordingBinding = bindSelectionAttempt(
+                    command, recordingSelection, false);
+            if (recordingBinding.result().outcome() != Outcome.READY) {
+                mediaLifecycle.abortRecordingStart(prepared);
+                clearRequestedRecordingMode();
+                clearRecordingPreparationNotice();
+                completeRecordingBindingFailure(command, completion, original,
+                        recordingBinding.result());
+                return;
+            }
+            current = Objects.requireNonNull(pipeline, "pipeline");
+        }
+        if (recordingStartCancelled()) {
+            mediaLifecycle.abortRecordingStart(prepared);
+            clearRequestedRecordingMode();
+            clearRecordingPreparationNotice();
+            complete(command, completion, cancelledWithActiveBinding(
+                    RECORDING_START_CANCELLED));
             return;
         }
         clearRequestedRecordingMode();
         clearRecordingPreparationNotice();
         CameraRuntimeSelection selection = Objects.requireNonNull(
-                activeSelection, "activeSelection");
+                activeSelection, ACTIVE_SELECTION);
         int recordingRotationDegrees = pipelineProvider.mediaRotationDegrees(
                 selection, current.outputRotationDegrees());
-        long preparedAtNanos = System.nanoTime();
+        long sessionReadyAtNanos = System.nanoTime();
         CameraOperationResult start = prepared.recordingOutput() == null
                 ? current.startEncoder(runtimeContext(), prepared.outputFile(),
                         prepared.fileSizeLimitBytes(), this::recordingStorageLimitReached,
@@ -629,40 +724,60 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         long encoderCompletedAtNanos = System.nanoTime();
         logger.info("Complete recording startup pipeline. Mode: " + mode
                 + ". Media preparation: "
-                + elapsedMillis(startedAtNanos, preparedAtNanos) + " ms. Encoder startup: "
-                + elapsedMillis(preparedAtNanos, encoderCompletedAtNanos)
-                + " ms. Total: " + elapsedMillis(startedAtNanos, encoderCompletedAtNanos)
+                + elapsedMillis(startedAtNanos, mediaPreparedAtNanos)
+                + " ms. Session selection: "
+                + elapsedMillis(mediaPreparedAtNanos, sessionReadyAtNanos)
+                + " ms. Encoder startup: "
+                + elapsedMillis(sessionReadyAtNanos, encoderCompletedAtNanos)
+                + TOTAL_DURATION + elapsedMillis(startedAtNanos, encoderCompletedAtNanos)
                 + " ms. Outcome: " + start.outcome() + ".");
         if (commitStartedRecording(prepared, start)) {
             CameraOperationContext cancelContext = runtimeContext();
             current.stopEncoder(cancelContext);
             current.finalizeEncoder(cancelContext);
             mediaLifecycle.abortRecordingStart(prepared);
-            complete(command, completion, Result.cancelled("recording_start_cancelled"));
+            complete(command, completion, cancelledWithActiveBinding(
+                    RECORDING_START_CANCELLED));
             return;
         }
         if (start.outcome() != CameraOperationOutcome.PASS) {
             mediaLifecycle.abortRecordingStart(prepared);
-            captureEvents.captureFailed("Recording", start.detail());
+            captureEvents.captureFailed(RECORDING, start.detail());
             Result result = start.outcome().requiresRuntimeRecovery()
                     ? Result.recoveryRequired("record_start:" + start.detail())
-                    : Result.blocked("record_start:" + start.detail());
+                    : blockedWithActiveBinding("record_start:" + start.detail());
             complete(command, completion, result);
             return;
         }
         captureEvents.recordingStarted(mode, prepared.mediaFile().getFileName());
-        complete(command, completion, Result.pass("recording_started"));
+        complete(command, completion, passWithActiveBinding("recording_started"));
+    }
+
+    private void completeRecordingBindingFailure(Command command, Completion completion,
+            CameraRuntimeSelection original, Result bindingFailure) {
+        captureEvents.captureFailed(RECORDING, bindingFailure.detail());
+        if (bindingFailure.outcome() == Outcome.RECOVERY_REQUIRED) {
+            complete(command, completion, bindingFailure);
+            return;
+        }
+        Result restored = bindSelection(command, original, true);
+        if (restored.outcome() != Outcome.ROLLED_BACK_READY) {
+            complete(command, completion, Result.recoveryRequired(
+                    "recording_restore:" + restored.detail()));
+            return;
+        }
+        complete(command, completion, blockedWithActiveBinding(
+                "recording_bind_failed:" + bindingFailure.detail()));
     }
 
     private void executeStopRecording(Command command, Completion completion) {
         long stopStartedAtNanos = System.nanoTime();
-        SharedCameraCapturePipeline current = requirePipeline(command, completion, "Recording");
+        SharedCameraCapturePipeline current = requirePipeline(command, completion, RECORDING);
         if (current == null) return;
         SharedCameraMediaLifecycle.RecordingCapture recording;
         boolean handoff;
         synchronized (this) {
             recording = activeRecording;
-            activeRecording = null;
             handoff = impHandoffRequested;
             impHandoffRequested = false;
         }
@@ -672,48 +787,204 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         }
         CameraOperationContext operationContext = runtimeContext();
         CameraOperationResult stop = current.stopEncoder(operationContext);
-        CameraOperationResult finalize = current.finalizeEncoder(operationContext, true);
-        long encoderCompletedAtNanos = System.nanoTime();
-        Result runtimeResult = resultForRecordingStop(stop, finalize);
+        long inputStoppedAtNanos = System.nanoTime();
+        Result runtimeResult = resultForRecordingInputStop(stop);
         if (runtimeResult.outcome() != Outcome.PASS) {
+            clearActiveRecording(recording);
             takeRecordingStorageLimitRequested();
+            logger.info("Stop recording '" + recording.mediaFile().getFileName()
+                    + "' failed before encoder finalization. Stop outcome: " + stop.outcome()
+                    + ". Beginning staged-output failure cleanup.");
             mediaLifecycle.failRecording(recording);
-            captureEvents.captureFailed("Recording", runtimeResult.detail());
+            captureEvents.captureFailed(RECORDING, runtimeResult.detail());
             complete(command, completion, runtimeResult);
             return;
         }
-        mediaLifecycle.finalizeRecording(recording, current.finalizedDurationUs(),
-                new SharedCameraMediaLifecycle.Completion() {
-            @Override public void onSuccess(java.io.File finalFile) {
-                long completedAtNanos = System.nanoTime();
-                logger.info("Complete recording stop pipeline for '"
-                        + recording.mediaFile().getFileName() + "'. Encoder stop and finish: "
-                        + elapsedMillis(stopStartedAtNanos, encoderCompletedAtNanos)
-                        + " ms. Media finalization: "
-                        + elapsedMillis(encoderCompletedAtNanos, completedAtNanos)
-                        + " ms. Total: "
-                        + elapsedMillis(stopStartedAtNanos, completedAtNanos) + " ms.");
-                boolean stoppedForStorage = takeRecordingStorageLimitRequested();
-                if (stoppedForStorage) {
-                    captureEvents.recordingStoppedForStorage(recording.mediaFile().getFileName());
-                } else {
-                    captureEvents.recordingCompleted(recording.mediaFile().getFileName());
-                }
-                complete(command, completion, runtimeResult);
-                if (handoff) impHandoff.startImpRecording();
+        AtomicBoolean runtimeReleased = new AtomicBoolean();
+        AtomicBoolean finalizationSucceeded = new AtomicBoolean();
+        AtomicBoolean handoffStarted = new AtomicBoolean();
+        PendingRecordingFinalization pendingFinalization =
+                beginRecordingFinalizationHandoff(recording);
+        Runnable startHandoffWhenReady = () -> {
+            if (handoff && runtimeReleased.get() && finalizationSucceeded.get()
+                    && handoffStarted.compareAndSet(false, true)) {
+                impHandoff.startImpRecording();
             }
+        };
+        RecordingFinalizationRequest finalizationRequest = new RecordingFinalizationRequest(
+                command, current, operationContext, recording, pendingFinalization,
+                stopStartedAtNanos,
+                inputStoppedAtNanos, finalizationSucceeded, startHandoffWhenReady);
+        try {
+            recordingFinalizationExecutor.execute(
+                    () -> finalizeStoppedRecording(finalizationRequest));
+        } catch (RuntimeException error) {
+            clearActiveRecording(recording);
+            takeRecordingStorageLimitRequested();
+            mediaLifecycle.failRecording(recording);
+            logger.error(logPrefix(command)
+                    + " stage=record_finalize_schedule outcome=failed", error);
+            captureEvents.captureFailed(RECORDING,
+                    "Could not schedule recording finalization: " + message(error));
+            completeRecordingFinalizationHandoff(pendingFinalization);
+            complete(command, completion,
+                    Result.recoveryRequired("record_finalize_schedule:" + message(error)));
+            return;
+        }
+        complete(command, completion, runtimeResult);
+        runtimeReleased.set(true);
+        startHandoffWhenReady.run();
+    }
 
-            @Override public void onFailure(Exception failure) {
-                takeRecordingStorageLimitRequested();
-                String detail = recording.outputFile().isFile()
-                        ? "Finalization failed; staged media preserved: " + message(failure)
-                        : "Finalization failed after staged media left Temp; recovery will reconcile final publication: "
-                                + message(failure);
-                logger.error(logPrefix(command) + " stage=record_finalize outcome=failed", failure);
-                captureEvents.captureFailed("Finalization", detail);
-                complete(command, completion, Result.blocked("record_finalize_failed"));
+    private void finalizeStoppedRecording(RecordingFinalizationRequest request) {
+        try {
+            finalizeStoppedRecordingHandoff(request);
+        } finally {
+            completeRecordingFinalizationHandoff(request.pendingFinalization());
+        }
+    }
+
+    private void finalizeStoppedRecordingHandoff(RecordingFinalizationRequest request) {
+        Command command = request.command();
+        SharedCameraCapturePipeline current = request.current();
+        CameraOperationContext operationContext = request.operationContext();
+        SharedCameraMediaLifecycle.RecordingCapture recording = request.recording();
+        long stopStartedAtNanos = request.stopStartedAtNanos();
+        long inputStoppedAtNanos = request.inputStoppedAtNanos();
+        AtomicBoolean finalizationSucceeded = request.finalizationSucceeded();
+        Runnable startHandoffWhenReady = request.startHandoffWhenReady();
+        CameraOperationResult finalize;
+        try {
+            finalize = current.finalizeEncoder(operationContext, true);
+        } catch (RuntimeException error) {
+            clearActiveRecording(recording);
+            failStoppedRecordingFinalization(command, recording,
+                    "Encoder finalization threw an exception", error);
+            return;
+        }
+        long encoderCompletedAtNanos = System.nanoTime();
+        clearActiveRecording(recording);
+        if (finalize.outcome() != CameraOperationOutcome.PASS) {
+            takeRecordingStorageLimitRequested();
+            logger.info("Finalize recording '" + recording.mediaFile().getFileName()
+                    + "' failed after camera input stopped. Outcome: " + finalize.outcome()
+                    + ". Beginning staged-output failure cleanup.");
+            mediaLifecycle.failRecording(recording);
+            captureEvents.captureFailed(RECORDING,
+                    "record_finalize:" + finalize.detail());
+            return;
+        }
+        try {
+            mediaLifecycle.finalizeRecording(recording, current.finalizedDurationUs(),
+                    new SharedCameraMediaLifecycle.Completion() {
+                        @Override public void onSuccess(java.io.File finalFile) {
+                            long completedAtNanos = System.nanoTime();
+                            logger.info("Complete recording media finalization for '"
+                                    + recording.mediaFile().getFileName()
+                                    + "'. Camera input stop: "
+                                    + elapsedMillis(stopStartedAtNanos, inputStoppedAtNanos)
+                                    + " ms. Encoder drain and finish: "
+                                    + elapsedMillis(inputStoppedAtNanos, encoderCompletedAtNanos)
+                                    + " ms. Media finalization: "
+                                    + elapsedMillis(encoderCompletedAtNanos, completedAtNanos)
+                                    + TOTAL_DURATION
+                                    + elapsedMillis(stopStartedAtNanos, completedAtNanos) + " ms.");
+                            boolean stoppedForStorage = takeRecordingStorageLimitRequested();
+                            if (stoppedForStorage) {
+                                captureEvents.recordingStoppedForStorage(
+                                        recording.mediaFile().getFileName());
+                            } else {
+                                captureEvents.recordingCompleted(
+                                        recording.mediaFile().getFileName());
+                            }
+                            finalizationSucceeded.set(true);
+                            startHandoffWhenReady.run();
+                        }
+
+                        @Override public void onFailure(Exception failure) {
+                            takeRecordingStorageLimitRequested();
+                            String detail = recording.outputFile().isFile()
+                                    ? "Finalization failed; staged media preserved: "
+                                            + message(failure)
+                                    : "Finalization failed after staged media left Temp; "
+                                            + "recovery will reconcile final publication: "
+                                            + message(failure);
+                            logger.error(logPrefix(command)
+                                    + " stage=record_finalize outcome=failed", failure);
+                            captureEvents.captureFailed(FINALIZATION, detail);
+                        }
+                    });
+        } catch (RuntimeException error) {
+            failStoppedRecordingFinalization(command, recording,
+                    "Media finalization handoff threw an exception", error);
+        }
+    }
+
+    private void failStoppedRecordingFinalization(
+            Command command,
+            SharedCameraMediaLifecycle.RecordingCapture recording,
+            String stage,
+            RuntimeException error) {
+        takeRecordingStorageLimitRequested();
+        mediaLifecycle.failRecording(recording);
+        logger.error(logPrefix(command) + " stage=record_finalize outcome=failed", error);
+        captureEvents.captureFailed(FINALIZATION, stage + ": " + message(error));
+    }
+
+    private synchronized void clearActiveRecording(
+            SharedCameraMediaLifecycle.RecordingCapture recording) {
+        if (activeRecording == recording) activeRecording = null;
+    }
+
+    private synchronized PendingRecordingFinalization beginRecordingFinalizationHandoff(
+            SharedCameraMediaLifecycle.RecordingCapture recording) {
+        if (pendingRecordingFinalization != null) {
+            throw new IllegalStateException("recording_finalization_handoff_already_pending");
+        }
+        PendingRecordingFinalization pending = new PendingRecordingFinalization(recording);
+        pendingRecordingFinalization = pending;
+        return pending;
+    }
+
+    private boolean deferPipelineReplacementUntilRecordingFinalizationHandoff(
+            Command command, Completion completion) {
+        if (!replacesActivePipeline(command.operation())) return false;
+        String recordingName;
+        synchronized (this) {
+            PendingRecordingFinalization pending = pendingRecordingFinalization;
+            if (pending == null) return false;
+            if (pending.deferredCommand != null) {
+                throw new IllegalStateException("recording_finalization_command_already_deferred");
             }
-        });
+            pending.deferredCommand = new DeferredBackendCommand(command, completion);
+            recordingName = pending.recording.mediaFile().getFileName();
+        }
+        logger.info("Defer " + command.operation() + " camera command until encoder "
+                + "finalization hands recording '" + recordingName + "' to media storage.");
+        return true;
+    }
+
+    private static boolean replacesActivePipeline(Operation operation) {
+        return switch (operation) {
+            case INITIALIZE, SWITCH_CAMERA, VERIFY_SETTING, BIND_COMMITTED,
+                    RESTORE_EXACT, RECOVER, RELEASE -> true;
+            case START_RECORDING, STOP_RECORDING, CAPTURE_PHOTO -> false;
+        };
+    }
+
+    private void completeRecordingFinalizationHandoff(
+            PendingRecordingFinalization completed) {
+        DeferredBackendCommand deferredCommand;
+        synchronized (this) {
+            if (pendingRecordingFinalization != completed) return;
+            pendingRecordingFinalization = null;
+            deferredCommand = completed.deferredCommand;
+        }
+        if (deferredCommand == null) return;
+        logger.info("Resume deferred " + deferredCommand.command().operation()
+                + " camera command after encoder finalization handed recording '"
+                + completed.recording.mediaFile().getFileName() + "' to media storage.");
+        execute(deferredCommand.command(), deferredCommand.completion());
     }
 
     private synchronized boolean takeRecordingStorageLimitRequested() {
@@ -722,41 +993,53 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         return requested;
     }
 
-    private Result resultForRecordingStop(
-            CameraOperationResult stop, CameraOperationResult finalize) {
-        if (stop.outcome().requiresRuntimeRecovery()
-                || finalize.outcome().requiresRuntimeRecovery()) {
-            return Result.recoveryRequired("record_stop:" + stop.detail()
-                    + ";finalize:" + finalize.detail());
+    private Result resultForRecordingInputStop(CameraOperationResult stop) {
+        if (stop.outcome().requiresRuntimeRecovery()) {
+            return Result.recoveryRequired("record_stop:" + stop.detail());
         }
         if (stop.outcome() != CameraOperationOutcome.PASS) {
             return Result.blocked("record_stop:" + stop.detail());
         }
-        if (finalize.outcome() != CameraOperationOutcome.PASS) {
-            return Result.blocked("record_finalize:" + finalize.detail());
-        }
-        return Result.pass("recording_finalized");
+        return Result.pass("recording_input_stopped");
     }
 
     private void executeCapturePhoto(Command command, Completion completion) {
-        long startedAtNanos = System.nanoTime();
-        SharedCameraCapturePipeline current = requirePipeline(command, completion, "Photo");
-        if (current == null) return;
-        CameraRuntimeSelection original = Objects.requireNonNull(activeSelection, "activeSelection");
-        boolean recording;
+        if (requirePipeline(command, completion, PHOTO) == null) return;
+        CameraRuntimeSelection original = Objects.requireNonNull(activeSelection, ACTIVE_SELECTION);
+        boolean retainedRecordingBinding;
         synchronized (this) {
-            recording = activeRecording != null;
+            retainedRecordingBinding = activeRecording != null
+                    || pendingRecordingFinalization != null;
         }
-        Optional<CandidateKey> requestedPhotoCandidate = recording || capabilities == null
+        Optional<CandidateKey> requestedPhotoCandidate = retainedRecordingBinding
+                || capabilities == null
                 ? Optional.empty()
                 : capabilities.requestedCandidate(original.cameraId().value());
-        if (!recording && capabilities != null && requestedPhotoCandidate.isEmpty()) {
-            captureEvents.photoFailed("Photo", "Selected photo quality is unavailable");
+        if (!retainedRecordingBinding && capabilities != null
+                && requestedPhotoCandidate.isEmpty()) {
+            captureEvents.photoFailed(PHOTO, "Selected photo quality is unavailable");
             complete(command, completion,
                     Result.blocked("standalone_photo_selection_unavailable"));
             return;
         }
-        CandidateKey requestedPhoto = requestedPhotoCandidate.orElse(null);
+        executeCapturePhotoCandidate(command, completion, original,
+                requestedPhotoCandidate.orElse(null), new HashSet<>());
+    }
+
+    @SuppressWarnings({"java:S6541", "java:S3776"})
+    // Keep photo fallback, restoration, and asynchronous finalization in one state boundary.
+    private void executeCapturePhotoCandidate(Command command, Completion completion,
+            CameraRuntimeSelection original, CandidateKey requestedPhoto,
+            Set<CandidateKey> attemptedPhotoCandidates) {
+        long startedAtNanos = System.nanoTime();
+        SharedCameraCapturePipeline current = requirePipeline(command, completion, PHOTO);
+        if (current == null) return;
+        if (requestedPhoto != null && !attemptedPhotoCandidates.add(requestedPhoto)) {
+            captureEvents.photoFailed(PHOTO, "No lower supported photo resolution remains");
+            complete(command, completion,
+                    Result.blocked("standalone_photo_fallback_exhausted"));
+            return;
+        }
         boolean verifyStandaloneImage = requestedPhoto != null
                 && standaloneImageUnverified(requestedPhoto);
         boolean temporaryBinding = requestedPhoto != null
@@ -767,17 +1050,17 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                 mediaLifecycle.requirePhotoStorage();
             } catch (SharedCameraMediaLifecycle.PreparationException error) {
                 handlePhotoPreparationFailure(command, completion, error,
-                        Result.pass("photo_binding_unchanged"));
+                        Result.pass(PHOTO_BINDING_UNCHANGED));
                 return;
             }
             SelectionBindResult photoBinding = bindSelectionAttempt(
                     command, runtimeSelection(requestedPhoto), false);
-            boolean bindFailureConfirmed = verifyStandaloneImage
+            boolean bindFailureConfirmed = requestedPhoto != null
                     && photoBinding.failureOutcome()
                             .filter(SharedCameraRuntimeBackend::isDurableStandaloneFailure)
                             .isPresent();
             if (photoBinding.result().outcome() != Outcome.READY
-                    && verifyStandaloneImage
+                    && requestedPhoto != null
                     && photoBinding.failureOutcome()
                             .filter(outcome -> outcome == CameraOperationOutcome.CANDIDATE_SUSPECT)
                             .isPresent()) {
@@ -791,13 +1074,23 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                                 .isPresent();
             }
             if (photoBinding.result().outcome() != Outcome.READY) {
+                Optional<CandidateKey> fallback = Optional.empty();
                 if (bindFailureConfirmed) {
-                    recordStandaloneImageOutcome(requestedPhoto,
+                    fallback = recordStandaloneImageOutcome(requestedPhoto,
                             VerificationOutcome.DEFINITIVE_UNSUPPORTED);
                 }
                 Result restored = bindSelection(command, original, true);
-                complete(command, completion, restorationFailure(restored)
-                        .orElseGet(() -> Result.blocked("standalone_photo_bind_failed")));
+                Optional<Result> restoreFailure = restorationFailure(restored);
+                if (restoreFailure.isPresent()) {
+                    captureEvents.photoFailed(PHOTO,
+                            "Camera restore failed after photo binding failed");
+                    complete(command, completion, restoreFailure.orElseThrow());
+                    return;
+                }
+                if (retryPhotoFallback(command, completion, original, requestedPhoto,
+                        fallback, attemptedPhotoCandidates)) return;
+                captureEvents.photoFailed(PHOTO, photoBinding.result().detail());
+                complete(command, completion, Result.blocked("standalone_photo_bind_failed"));
                 return;
             }
             current = Objects.requireNonNull(pipeline, "pipeline");
@@ -807,23 +1100,25 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             photo = mediaLifecycle.preparePhoto();
         } catch (SharedCameraMediaLifecycle.PreparationException error) {
             Result restored = temporaryBinding ? bindSelection(command, original, true)
-                    : Result.pass("photo_binding_unchanged");
+                    : Result.pass(PHOTO_BINDING_UNCHANGED);
             handlePhotoPreparationFailure(command, completion, error, restored);
             return;
         }
         clearRecordingPreparationNotice();
 
+        CameraRuntimeSelection photoSelection = Objects.requireNonNull(
+                activeSelection, ACTIVE_SELECTION);
         int photoRotationDegrees = pipelineProvider.mediaRotationDegrees(
-                original, current.outputRotationDegrees());
+                photoSelection, current.outputRotationDegrees());
         long preparedAtNanos = System.nanoTime();
         CameraOperationResult capture = photo.segmentedAesGcmOutput() == null
                 ? current.captureJpeg(
                         runtimeContext(), photo.outputFile(), photoRotationDegrees)
                 : current.captureJpeg(
                         runtimeContext(), photo.segmentedAesGcmOutput(), photoRotationDegrees);
-        boolean captureFailureConfirmed = verifyStandaloneImage
+        boolean captureFailureConfirmed = requestedPhoto != null
                 && isDurableStandaloneFailure(capture.outcome());
-        if (verifyStandaloneImage
+        if (requestedPhoto != null
                 && capture.outcome() == CameraOperationOutcome.CANDIDATE_SUSPECT) {
             photo.discard();
             logger.info(logPrefix(command)
@@ -839,19 +1134,24 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         logger.info("Complete photo capture pipeline. Preparation: "
                 + elapsedMillis(startedAtNanos, preparedAtNanos)
                 + " ms. Camera capture: " + elapsedMillis(preparedAtNanos, capturedAtNanos)
-                + " ms. Total: " + elapsedMillis(startedAtNanos, capturedAtNanos)
+                + TOTAL_DURATION + elapsedMillis(startedAtNanos, capturedAtNanos)
                 + " ms. Outcome: " + capture.outcome() + ".");
         if (capture.outcome() != CameraOperationOutcome.PASS) {
+            Optional<CandidateKey> fallback = Optional.empty();
             if (captureFailureConfirmed) {
-                recordStandaloneImageOutcome(requestedPhoto,
+                fallback = recordStandaloneImageOutcome(requestedPhoto,
                         VerificationOutcome.DEFINITIVE_UNSUPPORTED);
             }
             photo.discard();
             Result restored = temporaryBinding ? bindSelection(command, original, true)
-                    : Result.pass("photo_binding_unchanged");
+                    : Result.pass(PHOTO_BINDING_UNCHANGED);
             CameraOperationResult failedCapture = capture;
-            captureEvents.photoFailed("Photo", failedCapture.detail());
-            Result result = restorationFailure(restored).orElseGet(() ->
+            Optional<Result> restoreFailure = restorationFailure(restored);
+            if (restoreFailure.isEmpty()
+                    && retryPhotoFallback(command, completion, original, requestedPhoto,
+                            fallback, attemptedPhotoCandidates)) return;
+            captureEvents.photoFailed(PHOTO, failedCapture.detail());
+            Result result = restoreFailure.orElseGet(() ->
                     failedCapture.outcome().requiresRuntimeRecovery()
                             ? Result.recoveryRequired(
                                     "photo_capture:" + failedCapture.detail())
@@ -881,30 +1181,40 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
                             + requestedPhoto.cameraId().value() + ". Expected: " + expected
                             + ". Actual: " + actual.map(Object::toString).orElse("unavailable")
                             + ". Output rotation: " + outputRotationDegrees + " degrees.", null);
+                    Optional<CandidateKey> fallback = recordStandaloneImageOutcome(
+                            requestedPhoto, VerificationOutcome.DEFINITIVE_UNSUPPORTED);
+                    photo.discard();
+                    Result restored = temporaryBinding
+                            ? bindSelection(command, original, true)
+                            : Result.pass(PHOTO_BINDING_UNCHANGED);
+                    Optional<Result> restoreFailure = restorationFailure(restored);
+                    if (restoreFailure.isEmpty()
+                            && retryPhotoFallback(command, completion, original, requestedPhoto,
+                                    fallback, attemptedPhotoCandidates)) return;
+                    String detail = "Captured photo dimensions did not match the selected quality";
+                    captureEvents.photoFailed(PHOTO, detail);
+                    complete(command, completion, restoreFailure.orElseGet(() ->
+                            Result.blocked("standalone_photo_dimensions_mismatch")));
+                    return;
                 }
-                recordStandaloneImageOutcome(requestedPhoto, matches
-                        ? VerificationOutcome.VERIFIED_PASS
-                        : VerificationOutcome.DEFINITIVE_UNSUPPORTED);
+                recordStandaloneImageOutcome(
+                        requestedPhoto, VerificationOutcome.VERIFIED_PASS);
             }
         }
-        Result restored = temporaryBinding ? bindSelection(command, original, true)
-                : Result.pass("photo_binding_unchanged");
-        Optional<Result> restoreFailure = restorationFailure(restored);
         captureEvents.photoSaving();
         mediaLifecycle.finalizePhoto(photo, new SharedCameraMediaLifecycle.Completion() {
             @Override public void onSuccess(java.io.File finalFile) {
                 captureEvents.photoSaved(photo.mediaFile().getFileName());
-                complete(command, completion, restoreFailure.orElseGet(
-                        () -> Result.pass("photo_finalized")));
+                complete(command, completion, passWithActiveBinding("photo_finalized"));
             }
 
             @Override public void onFailure(Exception failure) {
                 String detail = "Finalization failed; staged media preserved: "
                         + message(failure);
                 logger.error(logPrefix(command) + " stage=photo_finalize outcome=failed", failure);
-                captureEvents.photoFailed("Finalization", detail);
-                complete(command, completion, restoreFailure.orElseGet(
-                        () -> Result.blocked("photo_finalize_failed")));
+                captureEvents.photoFailed(FINALIZATION, detail);
+                complete(command, completion, blockedWithActiveBinding(
+                        "photo_finalize_failed"));
             }
         });
     }
@@ -940,7 +1250,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
             clearRecordingPreparationNotice();
             String detail = "Photo capture stopped because camera restore failed while storage was checked: "
                     + restorationFailure.get().detail();
-            captureEvents.photoFailed("Photo", detail);
+            captureEvents.photoFailed(PHOTO, detail);
             logger.warn(detail, error);
             complete(command, completion, restorationFailure.get());
             return;
@@ -970,13 +1280,31 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         complete(command, completion, Result.blocked("photo_prepare:" + error.getMessage()));
     }
 
-    private void recordStandaloneImageOutcome(CandidateKey requested,
+    private boolean retryPhotoFallback(Command command, Completion completion,
+            CameraRuntimeSelection original, CandidateKey requested,
+            Optional<CandidateKey> fallback,
+            Set<CandidateKey> attemptedPhotoCandidates) {
+        if (requested == null || fallback.isEmpty()) return false;
+        CandidateKey candidate = fallback.orElseThrow();
+        if (attemptedPhotoCandidates.contains(candidate)) return false;
+        logger.info("Retry photo capture at a lower resolution after the requested image "
+                + "profile failed. Requested: "
+                + requested.imageMode().orElseThrow().resolution().actual()
+                + ". Fallback: "
+                + candidate.imageMode().orElseThrow().resolution().actual() + ".");
+        executeCapturePhotoCandidate(command, completion, original, candidate,
+                attemptedPhotoCandidates);
+        return true;
+    }
+
+    private Optional<CandidateKey> recordStandaloneImageOutcome(CandidateKey requested,
             VerificationOutcome outcome) {
-        if (capabilities == null) return;
+        if (capabilities == null) return Optional.empty();
         try {
-            capabilities.recordStandaloneImageOutcome(requested, outcome);
+            return capabilities.recordStandaloneImageOutcome(requested, outcome);
         } catch (RuntimeException error) {
             logger.warn("standalone_photo_evidence_failed outcome=" + outcome, error);
+            return Optional.empty();
         }
     }
 
@@ -987,6 +1315,24 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         captureEvents.captureFailed(operation, "Camera is not ready");
         complete(command, completion, Result.blocked("camera_not_ready"));
         return null;
+    }
+
+    private synchronized Result passWithActiveBinding(String detail) {
+        return Result.pass(
+                Objects.requireNonNull(activeSelection, ACTIVE_SELECTION),
+                Objects.requireNonNull(activeContext, ACTIVE_CONTEXT), detail);
+    }
+
+    private synchronized Result blockedWithActiveBinding(String detail) {
+        return Result.blocked(
+                Objects.requireNonNull(activeSelection, ACTIVE_SELECTION),
+                Objects.requireNonNull(activeContext, ACTIVE_CONTEXT), detail);
+    }
+
+    private synchronized Result cancelledWithActiveBinding(String detail) {
+        return Result.cancelled(
+                Objects.requireNonNull(activeSelection, ACTIVE_SELECTION),
+                Objects.requireNonNull(activeContext, ACTIVE_CONTEXT), detail);
     }
 
     private synchronized boolean commitStartedRecording(
@@ -1022,7 +1368,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
     }
 
     private CameraOperationContext runtimeContext() {
-        CameraOperationContext context = Objects.requireNonNull(activeContext, "activeContext");
+        CameraOperationContext context = Objects.requireNonNull(activeContext, ACTIVE_CONTEXT);
         long startedAt = System.currentTimeMillis();
         return new CameraOperationContext(context.cameraId(), context.verificationPipelineId(),
                 context.codec(), context.tuple(), context.sessionGeneration(),
@@ -1052,10 +1398,6 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
         completion.complete(result);
     }
 
-    private void log(Command command, String stage, String detail) {
-        logger.info(logPrefix(command) + " stage=" + stage + " detail=" + detail);
-    }
-
     private String logPrefix(Command command) {
         String camera = command.target().map(value -> value.cameraId().value())
                 .or(() -> command.activeBinding().map(value -> value.cameraId().value()))
@@ -1074,8 +1416,7 @@ public final class SharedCameraRuntimeBackend implements SharedCameraGatewayBack
 
     private static String message(Throwable error) {
         String value = error == null ? null : error.getMessage();
-        return value == null || value.isBlank()
-                ? (error == null ? "unknown" : error.getClass().getSimpleName())
-                : value;
+        String fallback = error == null ? "unknown" : error.getClass().getSimpleName();
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

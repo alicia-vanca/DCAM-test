@@ -95,6 +95,11 @@ public interface ProcessCameraRuntimeBackend {
             return new Result(Outcome.PASS, Optional.empty(), Optional.empty(), detail);
         }
 
+        public static Result pass(CameraRuntimeSelection selection,
+                CameraOperationContext activeBinding, String detail) {
+            return retaining(Outcome.PASS, selection, activeBinding, detail);
+        }
+
         public static Result targetFailed(String detail) {
             return new Result(Outcome.TARGET_FAILED,
                     Optional.empty(), Optional.empty(), detail);
@@ -111,9 +116,24 @@ public interface ProcessCameraRuntimeBackend {
                     Optional.empty(), Optional.empty(), detail);
         }
 
+        public static Result blocked(CameraRuntimeSelection selection,
+                CameraOperationContext activeBinding, String detail) {
+            return retaining(Outcome.BLOCKED, selection, activeBinding, detail);
+        }
+
         public static Result cancelled(String detail) {
             return new Result(Outcome.CANCELLED,
                     Optional.empty(), Optional.empty(), detail);
+        }
+
+        public static Result cancelled(CameraRuntimeSelection selection,
+                CameraOperationContext activeBinding, String detail) {
+            return retaining(Outcome.CANCELLED, selection, activeBinding, detail);
+        }
+
+        private static Result retaining(Outcome outcome, CameraRuntimeSelection selection,
+                CameraOperationContext activeBinding, String detail) {
+            return new Result(outcome, Optional.of(selection), Optional.of(activeBinding), detail);
         }
     }
 

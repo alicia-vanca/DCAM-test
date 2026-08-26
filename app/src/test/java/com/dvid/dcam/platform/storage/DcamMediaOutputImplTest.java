@@ -28,6 +28,22 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class DcamMediaOutputImplTest {
+    @Test void recordingOutputUsesStorageAvailabilityProvider(@TempDir Path root)
+            throws Exception {
+        DcamStorage storage = new DcamStorage(
+                MediaPartitionLocation.INTERNAL, root.toFile(), List.of(), () -> false,
+                ignored -> "mounted", ignored -> 123L);
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, new NoOpLogger());
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.VIDEO, "0", "operator", LocalDateTime.of(2026, 8, 19, 10, 0), false);
+        output.prepareVideoFile(media);
+
+        try (DcamRecordingOutput recordingOutput = output.openVideoOutput(media)) {
+            assertEquals(123L, recordingOutput.availableBytes());
+        }
+    }
+
     @Test void sharedRuntimePreparationCreatesPublicStorageStagingDirectories(
             @TempDir Path root) {
         DcamStorage storage = new DcamStorage(

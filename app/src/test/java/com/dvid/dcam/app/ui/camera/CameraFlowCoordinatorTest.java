@@ -2,6 +2,7 @@ package com.dvid.dcam.app.ui.camera;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dvid.dcam.app.ui.settings.camera.CameraResolutionOption;
@@ -26,6 +27,11 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 final class CameraFlowCoordinatorTest {
+    @Test void recheckUpdateRejectsNullStatus() {
+        assertThrows(NullPointerException.class,
+                () -> new CameraFlowCoordinator.RecheckUpdate(null, "recheck_started"));
+    }
+
     @Test void startupVerifiesSecondaryCamerasThenRetainsMain() {
         FakeBackend backend = new FakeBackend(List.of(candidate("main"), candidate("aux-1"),
                 candidate("aux-2")));
@@ -296,6 +302,28 @@ final class CameraFlowCoordinatorTest {
         assertEquals(CameraFlowCoordinator.State.READY, coordinator.state());
     }
 
+    @Test void activeImageResolutionPersistsWithoutPreVerification() {
+        CandidateKey active = candidate("main");
+        CandidateKey requested = candidate(
+                "main", "a-camera2-native-surface-sharing-v1", 24);
+        FakeBackend backend = new FakeBackend(List.of(active));
+        backend.active = Optional.of(active);
+        backend.setting = Optional.of(requested);
+        CameraFlowCoordinator coordinator = new CameraFlowCoordinator(backend);
+        coordinator.start();
+        backend.transitions.clear();
+        backend.transitionTypes.clear();
+
+        assertTrue(coordinator.select("camera:4:main:image-resolution", 0));
+
+        assertEquals(1, backend.resolveCount);
+        assertTrue(backend.transitions.isEmpty());
+        assertTrue(backend.transitionTypes.isEmpty());
+        assertEquals(Optional.of(active), backend.active);
+        assertFalse(coordinator.transitionInFlight());
+        assertEquals(CameraFlowCoordinator.State.READY, coordinator.state());
+    }
+
     @Test void inactiveSettingSkipsDuplicateRestoreAfterVerifierRollback() {
         CandidateKey main = candidate("main");
         CandidateKey auxiliary = candidate("aux");
@@ -376,11 +404,11 @@ final class CameraFlowCoordinatorTest {
         backend.startupPreviewReady.clear();
         backend.deferSubmit = true;
 
-        assertTrue(coordinator.select("camera:0:main:frame-rate", 0));
+        assertTrue(coordinator.select("camera:4:main:video-frame-rate", 0));
         backend.setting = Optional.of(middle);
-        assertTrue(coordinator.select("camera:0:main:frame-rate", 0));
+        assertTrue(coordinator.select("camera:4:main:video-frame-rate", 0));
         backend.setting = Optional.of(latest);
-        assertTrue(coordinator.select("camera:0:main:frame-rate", 0));
+        assertTrue(coordinator.select("camera:4:main:video-frame-rate", 0));
 
         assertEquals(List.of(first, middle, latest), backend.transitions);
         assertEquals(CameraFlowCoordinator.State.READY, coordinator.state());
@@ -596,6 +624,24 @@ final class CameraFlowCoordinatorTest {
         assertFalse(coordinator.recheckInFlight());
     }
 
+    @Test void failedCapabilityInvalidationDoesNotStartScan() {
+        FakeBackend backend = new FakeBackend(List.of(candidate("main")));
+        CameraFlowCoordinator coordinator = new CameraFlowCoordinator(backend);
+        coordinator.start();
+        backend.invalidationSuccessful = false;
+        List<CameraFlowCoordinator.RecheckStatus> updates = new ArrayList<>();
+
+        assertTrue(coordinator.recheckCapabilities(update -> updates.add(update.status())));
+
+        assertEquals(1, backend.releaseCount);
+        assertEquals(1, backend.invalidateCount);
+        assertEquals(List.of(true), backend.capabilityLoadDeepVerify);
+        assertEquals(CameraFlowCoordinator.State.UNAVAILABLE, coordinator.state());
+        assertEquals(List.of(CameraFlowCoordinator.RecheckStatus.RUNNING,
+                CameraFlowCoordinator.RecheckStatus.FAILED), updates);
+        assertFalse(coordinator.recheckInFlight());
+    }
+
     @Test void releaseTimeoutFailsRecheckAndIgnoresLateCallback() {
         FakeBackend backend = new FakeBackend(List.of(candidate("main")));
         ManualTimeoutScheduler scheduler = new ManualTimeoutScheduler();
@@ -781,6 +827,7 @@ final class CameraFlowCoordinatorTest {
         private int switchCandidatesCalls;
         private List<CandidateKey> committedCandidates = List.of();
         private boolean releaseSuccessful = true;
+        private boolean invalidationSuccessful = true;
         private boolean deferRelease;
         private boolean failNextBindCommitted;
         private Consumer<Boolean> deferredRelease;
@@ -822,7 +869,7 @@ final class CameraFlowCoordinatorTest {
 
         @Override public boolean invalidateCapabilities() {
             invalidateCount++;
-            return true;
+            return invalidationSuccessful;
         }
 
         @Override public void submit(CameraFlowCoordinator.Transition transition,

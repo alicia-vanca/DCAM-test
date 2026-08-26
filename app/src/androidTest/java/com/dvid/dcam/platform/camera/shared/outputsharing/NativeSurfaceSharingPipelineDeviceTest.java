@@ -45,7 +45,6 @@ import com.dvid.dcam.feature.device.domain.camera.VideoMode;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Assume;
 import org.junit.Test;

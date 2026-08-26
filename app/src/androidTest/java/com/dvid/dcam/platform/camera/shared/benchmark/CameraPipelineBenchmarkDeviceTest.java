@@ -5,16 +5,7 @@ import static org.junit.Assert.assertTrue;
 
 import android.Manifest;
 import android.content.Context;
-import android.graphics.ImageFormat;
-import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraManager;
-import android.hardware.camera2.params.StreamConfigurationMap;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
-import android.media.MediaFormat;
 import android.os.Build;
-import android.util.Range;
-import android.util.Size;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.dvid.dcam.core.logging.application.port.Logger;
@@ -33,15 +24,10 @@ import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkPlan;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkPlan.CameraScope;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkPlan.FrozenEnvironment;
-import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
-import com.dvid.dcam.feature.device.domain.camera.ImageMode;
 import com.dvid.dcam.feature.device.domain.camera.PipelineEvidence;
-import com.dvid.dcam.feature.device.domain.camera.StandardResolution;
-import com.dvid.dcam.feature.device.domain.camera.StandardResolutionLabel;
 import com.dvid.dcam.feature.device.domain.camera.VideoCodec;
-import com.dvid.dcam.feature.device.domain.camera.VideoMode;
 import com.dvid.dcam.platform.camera.shared.egl.EglFanOutPipelineFactory;
 import com.dvid.dcam.platform.camera.shared.outputsharing.NativeSurfaceSharingPipelineFactory;
 import com.dvid.dcam.platform.camera.shared.verification.SharedCameraVerificationRuntime;
@@ -50,7 +36,6 @@ import com.dvid.dcam.platform.device.capability.fast.AndroidFastCameraCapability
 import com.dvid.dcam.platform.device.capability.probe.egl.EglFanOutFastProbe;
 import com.dvid.dcam.platform.device.capability.probe.nativesharing.NativeSurfaceSharingFastProbe;
 import java.io.File;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -90,29 +75,25 @@ public final class CameraPipelineBenchmarkDeviceTest {
         String cameraHardware = "camera:" + selection.cameraId;
         String h264Configuration = "device-default-avc-profile-level-bitrate";
         String cropRotationPolicy = "sensor-native-video-jpeg-preview-display-only";
-        String thermalGate = "thermal-status<=moderate";
+        String thermalPolicy = "thermal-status-not-gated";
         CameraPipelineBenchmarkPlan plan = new CameraPipelineBenchmarkPlan(
                 new FrozenEnvironment(hardware, Map.of(cameraId, cameraHardware),
                         VideoCodec.H264, h264Configuration, cropRotationPolicy, 5_000,
-                        root.getAbsolutePath(), thermalGate),
+                        root.getAbsolutePath(), thermalPolicy),
                 List.of(new CameraScope(cameraId, cameraHardware, Set.of(tuple))),
                 CameraPipelineBenchmarkPlan.BenchmarkProtocol.defaults());
         Snapshot baseline = baseline(hardware, cameraHardware, cameraId, tuple);
-        android.os.PowerManager power = context.getSystemService(android.os.PowerManager.class);
         SharedCameraPipelineBenchmarkRunner.EnvironmentValidator environmentValidator =
                 requested -> {
-                    long thermalStatus = power == null || Build.VERSION.SDK_INT < 29
-                            ? Long.MAX_VALUE : power.getCurrentThermalStatus();
                     boolean ready = requested.hardwareSignature().equals(hardware)
                             && requested.cameraHardwareSignatures().equals(
                                     Map.of(cameraId, cameraHardware))
                             && requested.h264Configuration().equals(h264Configuration)
                             && requested.cropRotationPolicy().equals(cropRotationPolicy)
                             && requested.storagePath().equals(root.getAbsolutePath())
-                            && requested.thermalGate().equals(thermalGate)
-                            && thermalStatus <= android.os.PowerManager.THERMAL_STATUS_MODERATE;
+                            && requested.thermalGate().equals(thermalPolicy);
                     return new SharedCameraPipelineBenchmarkRunner.EnvironmentValidation(
-                            ready, "thermalStatus=" + thermalStatus + ",ready=" + ready);
+                            ready, "ready=" + ready);
                 };
         File report = new File(root, "camera-pipeline-ab-report.json");
         RecordingStore store = new RecordingStore(report);

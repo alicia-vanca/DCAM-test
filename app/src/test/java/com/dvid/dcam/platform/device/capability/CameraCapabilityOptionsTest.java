@@ -79,6 +79,24 @@ final class CameraCapabilityOptionsTest {
                         new CaptureModeTuple(FHD_30, HD))));
     }
 
+    @Test void standaloneImageFallbackReturnsExactClosestLowerCandidate() {
+        CandidateKey requested = CandidateKey.forTuple(
+                CAMERA, VideoCodec.H264, PIPELINE, new CaptureModeTuple(FHD_30, FHD));
+
+        CandidateKey fallback = CameraCapabilityOptions.nextLowerStandaloneImageCandidate(
+                snapshot(), requested, Set.of()).orElseThrow();
+
+        assertEquals(CAMERA, fallback.cameraId());
+        assertEquals(VideoCodec.H264, fallback.codec());
+        assertEquals(PIPELINE, fallback.verificationPipelineId());
+        assertEquals(FHD_30, fallback.videoMode().orElseThrow());
+        assertEquals(HD, fallback.imageMode().orElseThrow());
+        assertEquals(Optional.empty(),
+                CameraCapabilityOptions.nextLowerStandaloneImageCandidate(
+                        snapshot(), CandidateKey.forTuple(CAMERA, VideoCodec.H264, PIPELINE,
+                                new CaptureModeTuple(FHD_30, SD)), Set.of()));
+    }
+
 
     @Test void uiFirstUsesPinnedVideoActualAfterSoloInventory() {
         CandidateKey exact = CandidateKey.forVideo(

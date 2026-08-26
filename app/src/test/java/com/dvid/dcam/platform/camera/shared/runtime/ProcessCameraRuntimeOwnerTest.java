@@ -99,21 +99,91 @@ final class ProcessCameraRuntimeOwnerTest {
         assertEquals(1, backend.maxPending());
     }
 
-    @Test void recordStartDuringActivePhotoIsBlockedWithoutQueueing() {
+    @Test void recordStartDuringActivePhotoIsHeldAndRunsAfterPhoto() {
         ManualBackend backend = new ManualBackend();
         ProcessCameraRuntimeOwner owner = readyOwner(backend,
                 selection("0", StandardResolutionLabel.FHD));
 
         assertEquals(ProcessCameraRuntimeOwner.Submission.ACCEPTED, owner.capturePhoto());
-        assertEquals(ProcessCameraRuntimeOwner.Submission.REJECTED_TRANSITION,
+        assertEquals(ProcessCameraRuntimeOwner.Submission.HELD,
                 owner.startRecording());
-        assertFalse(owner.snapshot().pendingRecordStart());
+        assertTrue(owner.snapshot().pendingRecordStart());
 
         backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("photo"));
 
+        assertEquals(ProcessCameraRuntimeBackend.Operation.START_RECORDING,
+                backend.lastCommand().operation());
+        assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.START_RECORDING));
+        assertFalse(owner.snapshot().pendingRecordStart());
+    }
+
+    @Test void photoDuringRecordingStartIsHeldAndRunsAfterRecordingStarts() {
+        ManualBackend backend = new ManualBackend();
+        ProcessCameraRuntimeOwner owner = readyOwner(backend,
+                selection("0", StandardResolutionLabel.FHD));
+
+        assertEquals(ProcessCameraRuntimeOwner.Submission.ACCEPTED, owner.startRecording());
+        assertEquals(ProcessCameraRuntimeOwner.Submission.HELD, owner.capturePhoto());
+        assertTrue(owner.snapshot().pendingPhoto());
+
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("recording"));
+
+        assertEquals(CameraRuntimeState.RECORDING, owner.snapshot().state());
         assertEquals(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
                 backend.lastCommand().operation());
-        assertEquals(0, backend.count(ProcessCameraRuntimeBackend.Operation.START_RECORDING));
+        assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO));
+        assertFalse(owner.snapshot().pendingPhoto());
+    }
+
+    @Test void photoDuringRecordingStopIsHeldAndRunsAfterEncoderStops() {
+        ManualBackend backend = new ManualBackend();
+        ProcessCameraRuntimeOwner owner = readyOwner(backend,
+                selection("0", StandardResolutionLabel.FHD));
+        owner.startRecording();
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("recording_started"));
+
+        assertEquals(ProcessCameraRuntimeOwner.Submission.ACCEPTED, owner.stopRecording());
+        assertEquals(ProcessCameraRuntimeOwner.Submission.HELD, owner.capturePhoto());
+        assertTrue(owner.snapshot().pendingPhoto());
+
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("recording_input_stopped"));
+
+        assertEquals(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                backend.lastCommand().operation());
+        assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO));
+        assertFalse(owner.snapshot().pendingPhoto());
+
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("photo_finalized"));
+        assertEquals(CameraRuntimeState.READY, owner.snapshot().state());
+    }
+
+    @Test void photoUpdatesOnlyActiveBindingAndRecordingRestoresCommittedBinding() {
+        ManualBackend backend = new ManualBackend();
+        CameraRuntimeSelection committed = selection("0", StandardResolutionLabel.FHD);
+        StandardResolution hd = new StandardResolution(StandardResolutionLabel.HD,
+                new CameraResolution(1280, 720));
+        CameraRuntimeSelection photoSelection = new CameraRuntimeSelection(
+                committed.cameraId(), committed.verificationPipelineId(), committed.codec(),
+                new CaptureModeTuple(committed.tuple().videoMode(), new ImageMode(hd)));
+        ProcessCameraRuntimeOwner owner = readyOwner(backend, committed);
+
+        owner.capturePhoto();
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass(
+                photoSelection, context(photoSelection, 2), "photo_retained"));
+
+        assertEquals(photoSelection, owner.snapshot().activeSelection().orElseThrow());
+        assertEquals(committed, owner.snapshot().committedSelection().orElseThrow());
+
+        owner.startRecording();
+        assertEquals(committed, backend.lastCommand().target().orElseThrow());
+        assertTrue(photoSelection.matches(
+                backend.lastCommand().activeBinding().orElseThrow()));
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass(
+                committed, context(committed, 3), "recording_started"));
+
+        assertEquals(CameraRuntimeState.RECORDING, owner.snapshot().state());
+        assertEquals(committed, owner.snapshot().activeSelection().orElseThrow());
+        assertEquals(committed, owner.snapshot().committedSelection().orElseThrow());
     }
 
     @Test void recordingReservationWaitsWithoutStartingBackend() {

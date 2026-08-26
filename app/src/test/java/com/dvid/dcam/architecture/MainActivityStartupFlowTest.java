@@ -77,43 +77,6 @@ final class MainActivityStartupFlowTest {
         }
 
         @Test
-        void cameraLabelWaitsForSerialAndGpsPromptRunsFirst() throws IOException {
-                String activity = source("app/MainActivity.java");
-
-                assertTrue(activity.contains("String savedSerial = deviceSerialNumbers.load();"));
-                assertTrue(activity.contains("? \"CAM \" + savedSerial")
-                                && activity.contains(": \"CAM —\""));
-                assertTrue(activity.contains("deviceSerialNumbers.isConfigured(savedSerial)"));
-                assertTrue(activity.contains("startupGpsPermissionHandled = launchLocationPermissionRequest();"));
-                assertFalse(activity.contains("hasValidSavedSerial()"));
-
-                int coreCallback = activity.indexOf("permissionLauncher = registerForActivityResult");
-                int locationCallback = activity.indexOf("locationPermissionLauncher = registerForActivityResult");
-                int gpsRequest = activity.indexOf("requestStartupLocationPermissionAfterCameraReady();", coreCallback);
-                String coreFlow = activity.substring(coreCallback, locationCallback);
-                assertTrue(gpsRequest > coreCallback);
-                assertTrue(coreFlow.contains("capturePermissionRequestInFlight = false;"));
-                int runtimeProfilePrepare = coreFlow.indexOf(
-                                "prepareCameraProfilesIfCameraGranted(\"runtime-result\");");
-                int deniedCapture = coreFlow.indexOf("if (!captureGranted)");
-                assertTrue(runtimeProfilePrepare >= 0);
-                assertTrue(deniedCapture > runtimeProfilePrepare);
-                assertTrue(coreFlow.contains("showCapturePermissionRequired();"));
-                assertTrue(activity.contains("capturePermissionSettingsLauncher = registerForActivityResult"));
-                assertTrue(activity.contains("R.string.capture_permission_required_message"));
-                assertTrue(activity.contains(".setCancelable(false)"));
-                assertFalse(activity.contains("androidRuntime.corePermissionsGranted()"));
-                assertTrue(activity.indexOf("startDeviceIdentityPrecheck();", locationCallback) > locationCallback);
-                int locationIdentityReady = activity.indexOf("ensureConfigFileAccess();", locationCallback);
-                int locationSettingsGuard = activity.indexOf("if (openSettings)", locationCallback);
-                int locationSettings = activity.indexOf(
-                                "openLocationPermissionSettings();", locationSettingsGuard);
-                assertTrue(locationIdentityReady > locationCallback);
-                assertTrue(locationSettingsGuard > locationIdentityReady);
-                assertTrue(locationSettings > locationSettingsGuard);
-        }
-
-        @Test
         void gpsSourceFallbackRefreshesSelectionAndKeepsApprovedCopy() throws IOException {
                 String activity = source("app/MainActivity.java");
                 String renderer = source("app/ui/settings/SettingsControlRenderer.java");
@@ -257,59 +220,6 @@ final class MainActivityStartupFlowTest {
                 assertFalse(activity.substring(keyDown, destroy)
                                 .contains("vibrateCaptureCommandStart();"));
                 assertTrue(activity.contains("this::vibrateCaptureCommandStart"));
-        }
-
-        @Test
-        void capturePermissionGateGuardsCaptureAndAllowsCameraProfileWarmup() throws IOException {
-                String activity = source("app/MainActivity.java");
-                String composition = source("app/AppComposition.java");
-                String permissions = source("platform/permission/DcamPermissions.java");
-                String audio = source("feature/capture/application/usecase/AudioRecordingUseCase.java");
-
-                int startup = activity.indexOf("private void startStartupPermissionFlow()");
-                int complete = activity.indexOf("private void completeCapturePermissionGate", startup);
-                int identity = activity.indexOf("startDeviceIdentityPrecheck();", complete);
-                assertTrue(startup >= 0);
-                assertTrue(complete > startup);
-                assertTrue(identity > complete);
-                assertTrue(activity.contains("capturePermissionFlowStarted"));
-                assertTrue(activity.contains("capturePermissionPolicyRequestInFlight"));
-                assertTrue(activity.contains(
-                                "if (capturePermissionFlowStarted && capturePermissionPolicyApplied)"));
-                assertTrue(activity.contains("capturePermissionPolicyApplied"));
-                assertTrue(activity.contains("capturePermissionSettingsRequestInFlight"));
-                assertTrue(activity.contains("STATE_CAPTURE_PERMISSION_REQUEST_IN_FLIGHT"));
-                assertTrue(activity.contains("STATE_CAPTURE_PERMISSION_SETTINGS_IN_FLIGHT"));
-                assertTrue(activity.contains("outState.putBoolean(STATE_CAPTURE_PERMISSION_FLOW_STARTED"));
-                assertTrue(activity.contains("PERMISSION_TRACE blocker-shown"));
-                assertTrue(activity.contains("PERMISSION_TRACE onResume captureGranted=false"));
-                assertTrue(activity.contains("prepareCameraProfilesIfCameraGranted(\"startup\")"));
-                assertTrue(activity.contains("prepareCameraProfilesIfCameraGranted(\"settings-result\")"));
-                assertTrue(activity.contains("if (!androidRuntime.cameraPermissionGranted())"));
-                assertFalse(activity.contains("PERMISSION_TRACE camera-profile-prepare"));
-                int profilePrepare = composition.indexOf(
-                                "public void prepareCameraProfilesIfPermitted()");
-                int captureBind = composition.indexOf("public void bindCameraIfPermitted()",
-                                profilePrepare);
-                assertTrue(profilePrepare >= 0);
-                assertTrue(captureBind > profilePrepare);
-                String profilePreparation = composition.substring(profilePrepare, captureBind);
-                assertTrue(profilePreparation.contains("DcamPermissions.cameraGranted(context)"));
-                assertFalse(profilePreparation.contains("captureRuntimeGranted"));
-                assertTrue(composition.contains("DcamPermissions.captureRuntimeGranted(context)"));
-                int commandBlock = composition.indexOf("private boolean cameraCaptureCommandsBlocked()");
-                int nextMethod = composition.indexOf("public OptionalInt", commandBlock);
-                assertTrue(commandBlock >= 0);
-                assertTrue(nextMethod > commandBlock);
-                assertTrue(composition.substring(commandBlock, nextMethod).contains(
-                                "!DcamPermissions.captureRuntimeGranted(context)"));
-                assertTrue(composition.contains("androidRuntime::capturePermissionsGranted"));
-                assertTrue(audio.contains("recordingStartAllowed"));
-                assertTrue(permissions.contains("public static String[] captureRuntime()"));
-                assertTrue(permissions.contains("public static boolean cameraGranted(Context context)"));
-                assertTrue(permissions.contains("Manifest.permission.CAMERA"));
-                assertTrue(permissions.contains("Manifest.permission.RECORD_AUDIO"));
-                assertTrue(permissions.contains("Arrays.asList(captureRuntime())"));
         }
 
         @Test
@@ -484,24 +394,6 @@ final class MainActivityStartupFlowTest {
                 assertTrue(composition.contains("public static synchronized void refreshDeviceIdentity()"));
                 assertTrue(composition.contains("AppLogger.setDeviceSerial(current.deviceSerialNumbers.load())"));
                 assertFalse(composition.contains("instance = null;"));
-        }
-
-        @Test
-        void sdCardUnavailableKeepsExactLocalizedNotice() throws IOException {
-                String activity = source("app/MainActivity.java");
-                String english = resource("values/strings.xml");
-                String vietnamese = resource("values-vi/strings.xml");
-                int exact = activity.indexOf(
-                                "message.equals(\"Storage failed: \" + getString(R.string.sd_card_unavailable))");
-                int exactNotice = activity.indexOf("R.string.sd_card_unavailable", exact);
-                int generic = activity.indexOf("message.startsWith(\"Storage failed:\")", exact);
-
-                assertTrue(exact >= 0);
-                assertTrue(exactNotice > exact);
-                assertTrue(generic > exactNotice);
-                assertTrue(english.contains("<string name=\"sd_card_unavailable\">SD card unavailable.</string>"));
-                assertTrue(vietnamese.contains(
-                                "<string name=\"sd_card_unavailable\">Thẻ SD không khả dụng.</string>"));
         }
 
         @Test

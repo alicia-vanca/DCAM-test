@@ -208,11 +208,6 @@ final class VerifyStandaloneImageUseCaseTest {
             return result(context, CameraPipelineOperation.BIND_SESSION, outcome);
         }
 
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            return result(context, CameraPipelineOperation.UPDATE_SESSION,
-                    CameraOperationOutcome.PASS);
-        }
-
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
             return result(context, CameraPipelineOperation.PREVIEW_PROGRESS,
                     CameraOperationOutcome.PASS);

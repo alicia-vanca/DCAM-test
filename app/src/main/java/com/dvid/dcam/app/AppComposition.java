@@ -183,10 +183,10 @@ public final class AppComposition {
     public record CameraCapabilityRecheckProgress(String profile, String cameraId,
             String stage, int completed, int total, String detail) {
         public CameraCapabilityRecheckProgress {
-            profile = Objects.requireNonNull(profile, "profile");
-            cameraId = Objects.requireNonNull(cameraId, "cameraId");
-            stage = Objects.requireNonNull(stage, "stage");
-            detail = Objects.requireNonNull(detail, "detail");
+            Objects.requireNonNull(profile, "profile");
+            Objects.requireNonNull(cameraId, "cameraId");
+            Objects.requireNonNull(stage, "stage");
+            Objects.requireNonNull(detail, "detail");
             if (profile.isBlank() || cameraId.isBlank() || stage.isBlank()
                     || detail.isBlank()) {
                 throw new IllegalArgumentException("progress text is required");
@@ -207,17 +207,17 @@ public final class AppComposition {
             Optional<CameraCapabilityRecheckSummary> summary,
             String detail) {
         public CameraCapabilityRecheckUpdate {
-            status = Objects.requireNonNull(status, "status");
-            pipelineATupleCount = Objects.requireNonNull(
+            Objects.requireNonNull(status, "status");
+            Objects.requireNonNull(
                     pipelineATupleCount, "pipelineATupleCount");
-            pipelineBTupleCount = Objects.requireNonNull(
+            Objects.requireNonNull(
                     pipelineBTupleCount, "pipelineBTupleCount");
-            pipelineAElapsedMillis = Objects.requireNonNull(
+            Objects.requireNonNull(
                     pipelineAElapsedMillis, "pipelineAElapsedMillis");
-            pipelineBElapsedMillis = Objects.requireNonNull(
+            Objects.requireNonNull(
                     pipelineBElapsedMillis, "pipelineBElapsedMillis");
-            progress = Objects.requireNonNull(progress, "progress");
-            summary = Objects.requireNonNull(summary, "summary");
+            Objects.requireNonNull(progress, "progress");
+            Objects.requireNonNull(summary, "summary");
             if (detail == null || detail.isBlank()) {
                 throw new IllegalArgumentException("detail is required");
             }
@@ -713,8 +713,7 @@ public final class AppComposition {
         if (cameraPipelineSelectionInFlight() || cameraFlow.transitionInFlight()
                 || cameraFlow.state() != CameraFlowCoordinator.State.READY)
             return false;
-        ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
-        return runtime.inFlight().isEmpty() && runtime.state() == CameraRuntimeState.READY;
+        return cameraRuntimeAcceptsRecordingStartRequest(recordingCamera.snapshot());
     }
 
     private boolean cameraPhotoCaptureAllowed() {
@@ -727,10 +726,30 @@ public final class AppComposition {
                 || cameraFlow.state() != CameraFlowCoordinator.State.READY)
             return false;
         ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
-        return runtime.inFlight().isEmpty()
-                && (runtime.state() == CameraRuntimeState.READY
-                        || runtime.state() == CameraRuntimeState.RECORDING)
+        return cameraRuntimeAcceptsPhotoRequest(runtime)
                 && !captureStorageUnavailable();
+    }
+
+    static boolean cameraRuntimeAcceptsRecordingStartRequest(
+            ProcessCameraRuntimeOwner.RuntimeSnapshot runtime) {
+        Objects.requireNonNull(runtime, "runtime");
+        return runtime.state() == CameraRuntimeState.READY
+                && runtime.inFlight()
+                        .map(operation -> operation
+                                == ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO)
+                        .orElse(true);
+    }
+
+    static boolean cameraRuntimeAcceptsPhotoRequest(
+            ProcessCameraRuntimeOwner.RuntimeSnapshot runtime) {
+        Objects.requireNonNull(runtime, "runtime");
+        return (runtime.state() == CameraRuntimeState.READY
+                || runtime.state() == CameraRuntimeState.RECORDING)
+                && runtime.inFlight()
+                        .map(operation -> operation
+                                == ProcessCameraRuntimeBackend.Operation.START_RECORDING
+                                || operation == ProcessCameraRuntimeBackend.Operation.STOP_RECORDING)
+                        .orElse(true);
     }
 
     private boolean cameraIdleForScreenOffRelease() {
@@ -1102,24 +1121,6 @@ public final class AppComposition {
         return operatorSession;
     }
 
-    private static String identity(Object value) {
-        return value == null ? "null"
-                : value.getClass().getSimpleName() + "@"
-                        + Integer.toHexString(System.identityHashCode(value));
-    }
-
-    private static String shortId(String value) {
-        if (value == null)
-            return "null";
-        return Integer.toHexString(value.hashCode());
-    }
-
-    private static String sessionSummary(com.dvid.dcam.feature.auth.domain.OperatorSession session) {
-        return session == null ? "null"
-                : shortId(session.getSessionId())
-                        + "/bootHash=" + shortId(session.getBootId());
-    }
-
     public ManageOperatorUsersUseCase manageOperatorUsersUseCase() {
         return manageUsers;
     }
@@ -1148,12 +1149,7 @@ public final class AppComposition {
                     return false;
                 if (activeCameraId().filter(cameraId::equals).isEmpty())
                     return true;
-                ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
-                return cameraFlow.state() == CameraFlowCoordinator.State.READY
-                        && !cameraFlow.transitionInFlight()
-                        && runtime.state() == CameraRuntimeState.READY
-                        && runtime.inFlight().isEmpty()
-                        && runtime.settingsEnabled();
+                return cameraRuntimeReadyForPipelineSwitch();
             }
 
             @Override
@@ -1231,6 +1227,15 @@ public final class AppComposition {
         };
     }
 
+    private boolean cameraRuntimeReadyForPipelineSwitch() {
+        ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
+        return cameraFlow.state() == CameraFlowCoordinator.State.READY
+                && !cameraFlow.transitionInFlight()
+                && runtime.state() == CameraRuntimeState.READY
+                && runtime.inFlight().isEmpty()
+                && runtime.settingsEnabled();
+    }
+
     private void configureCameraPipelineSelection(DeveloperSettingsStore.Mode mode) {
         cameraCapabilities.configurePipelineSelection(forcedPipeline(mode));
     }
@@ -1278,42 +1283,7 @@ public final class AppComposition {
             @Override
             public void loadCapabilities(boolean deepVerify,
                     Consumer<List<CandidateKey>> ready, Consumer<String> unavailable) {
-                if (!deepVerify) {
-                    if (cameraCapabilities
-                            .loadPersistedSnapshot(cameraId -> forcedPipeline(cameraPipelineSettings.mode(cameraId)))) {
-                        List<CandidateKey> candidates = cameraCapabilities.startupCandidates();
-                        if (!candidates.isEmpty()) {
-                            ready.accept(candidates);
-                            return;
-                        }
-                    }
-                    logger.info("Saved camera capabilities could not be used. "
-                            + "Running a fast camera capability scan.");
-                }
-                Runnable scanReady = () -> {
-                    configureCameraPipelineSelections();
-                    try {
-                        cameraCapabilities.markInitializationReusable();
-                    } catch (RuntimeException error) {
-                        logger.warn("camera_pipeline_selector startup_sync_failed", error);
-                    }
-                    ready.accept(cameraCapabilities.startupCandidates());
-                };
-                Runnable scanComplete = () -> {
-                    if (!cameraCapabilities.lastScanSuccessful()) {
-                        String reason = cameraCapabilities.unavailableReason();
-                        if (reason == null || reason.isBlank()) {
-                            reason = "capability_scan_unavailable";
-                        }
-                        unavailable.accept(reason);
-                    }
-                };
-                if (deepVerify) {
-                    cameraCapabilities.requestScan(scanReady, scanComplete,
-                            AppComposition.this::handleCameraCapabilityRecheckProgress);
-                } else {
-                    cameraCapabilities.requestBootstrapScan(scanReady, scanComplete);
-                }
+                loadCameraCapabilities(deepVerify, ready, unavailable);
             }
 
             @Override
@@ -1365,7 +1335,7 @@ public final class AppComposition {
             @Override
             public boolean canRestoreExact(CandidateKey candidate) {
                 return cameraCapabilities.committedCandidate(candidate.cameraId().value())
-                        .filter(candidate::equals).isPresent();
+                        .filter(value -> Objects.equals(candidate, value)).isPresent();
             }
 
             @Override
@@ -1412,6 +1382,54 @@ public final class AppComposition {
             }
 
         };
+    }
+
+    private void loadCameraCapabilities(boolean deepVerify,
+            Consumer<List<CandidateKey>> ready, Consumer<String> unavailable) {
+        if (!deepVerify && loadPersistedCameraCapabilities(ready))
+            return;
+        Runnable scanReady = () -> completeCameraCapabilityScan(ready);
+        Runnable scanComplete = () -> notifyCameraCapabilityScanUnavailable(unavailable);
+        if (deepVerify) {
+            cameraCapabilities.requestScan(scanReady, scanComplete,
+                    this::handleCameraCapabilityRecheckProgress);
+        } else {
+            cameraCapabilities.requestBootstrapScan(scanReady, scanComplete);
+        }
+    }
+
+    private boolean loadPersistedCameraCapabilities(Consumer<List<CandidateKey>> ready) {
+        if (cameraCapabilities.loadPersistedSnapshot(
+                cameraId -> forcedPipeline(cameraPipelineSettings.mode(cameraId)))) {
+            List<CandidateKey> candidates = cameraCapabilities.startupCandidates();
+            if (!candidates.isEmpty()) {
+                ready.accept(candidates);
+                return true;
+            }
+        }
+        logger.info("Saved camera capabilities could not be used. "
+                + "Running a fast camera capability scan.");
+        return false;
+    }
+
+    private void completeCameraCapabilityScan(Consumer<List<CandidateKey>> ready) {
+        configureCameraPipelineSelections();
+        try {
+            cameraCapabilities.markInitializationReusable();
+        } catch (RuntimeException error) {
+            logger.warn("camera_pipeline_selector startup_sync_failed", error);
+        }
+        ready.accept(cameraCapabilities.startupCandidates());
+    }
+
+    private void notifyCameraCapabilityScanUnavailable(Consumer<String> unavailable) {
+        if (!cameraCapabilities.lastScanSuccessful()) {
+            String reason = cameraCapabilities.unavailableReason();
+            if (reason == null || reason.isBlank()) {
+                reason = "capability_scan_unavailable";
+            }
+            unavailable.accept(reason);
+        }
     }
 
     private void releaseCamera(Consumer<Boolean> completion) {
@@ -1469,7 +1487,7 @@ public final class AppComposition {
                 current.close();
             Optional<CandidateKey> active = activeCameraCandidate();
             boolean ready = snapshot.state() == CameraRuntimeState.READY;
-            completeCameraTransition(transition, candidate, completion,
+            completeCameraTransition(completion,
                     new CameraFlowCoordinator.TransitionResult(
                             ready, active, "runtime_"
                                     + snapshot.state().name().toLowerCase()));
@@ -1494,7 +1512,7 @@ public final class AppComposition {
         if (current != null)
             current.close();
         if (completed.compareAndSet(false, true)) {
-            completeCameraTransition(transition, candidate, completion,
+            completeCameraTransition(completion,
                     new CameraFlowCoordinator.TransitionResult(false,
                             activeCameraCandidate(),
                             "submission_" + result.name().toLowerCase()));
@@ -1525,9 +1543,7 @@ public final class AppComposition {
         }
     }
 
-    private void completeCameraTransition(
-            CameraFlowCoordinator.Transition transition, CandidateKey candidate,
-            Consumer<CameraFlowCoordinator.TransitionResult> completion,
+    private void completeCameraTransition(Consumer<CameraFlowCoordinator.TransitionResult> completion,
             CameraFlowCoordinator.TransitionResult result) {
         try {
             completion.accept(result);
@@ -1611,7 +1627,7 @@ public final class AppComposition {
             Optional<CameraSelection> targetSelection = target
                     .filter(value -> value.cameraId().value().equals(cameraId))
                     .map(AppComposition::cameraSelection);
-            CameraSettingsStatus status = cameraStatus(flowState, runtime, cameraId,
+            CameraSettingsStatus status = cameraStatus(flowState, runtime,
                     targetSelection.isPresent(), videos.isEmpty() || images.isEmpty(),
                     requestedSelection.isPresent() || effectiveSelection);
             result.add(new CameraSettingsCamera(cameraId, videos, images, requestedSelection,
@@ -1621,7 +1637,7 @@ public final class AppComposition {
     }
 
     private static CameraSettingsStatus cameraStatus(CameraFlowCoordinator.State flowState,
-            ProcessCameraRuntimeOwner.RuntimeSnapshot runtime, String cameraId,
+            ProcessCameraRuntimeOwner.RuntimeSnapshot runtime,
             boolean targeted, boolean incomplete, boolean committed) {
         if (targeted || flowState == CameraFlowCoordinator.State.VERIFYING) {
             return CameraSettingsStatus.VERIFYING;
@@ -1698,10 +1714,12 @@ public final class AppComposition {
                     }
                 });
         refreshCaptureStorageNotice();
-        return new CaptureRuntime(recordingCamera, cameraPreview, cameraFlow,
-                photos, videos, audioRecording, captureEvents, audioPreparationBinding,
-                captureStorageNoticeMonitor::pause,
-                androidRuntime::capturePermissionsGranted);
+        return new CaptureRuntime(
+                new CaptureRuntimeCameraDependencies(recordingCamera, cameraPreview, cameraFlow),
+                new CaptureRuntimeCaptureDependencies(photos, videos, audioRecording, captureEvents),
+                new CaptureRuntimeLifecycleDependencies(audioPreparationBinding,
+                        captureStorageNoticeMonitor::pause,
+                        androidRuntime::capturePermissionsGranted));
     }
 
     public CameraSettingsPresentationState cameraSettings(boolean recording) {
@@ -1824,6 +1842,16 @@ public final class AppComposition {
         }
     }
 
+    private record CaptureRuntimeCameraDependencies(SharedCameraGateway camera,
+            SharedCameraPreviewView cameraPreview, CameraFlowCoordinator cameraFlow) {}
+
+    private record CaptureRuntimeCaptureDependencies(PhotoCaptureUseCase photos,
+            RecordingCommands videos, AudioRecordingUseCase audio, CaptureEvents captureEvents) {}
+
+    private record CaptureRuntimeLifecycleDependencies(
+            AudioPreparationEvents.Binding audioPreparationBinding,
+            Runnable storageNoticeRelease, BooleanSupplier capturePermissionsGranted) {}
+
     public static final class CaptureRuntime {
         private final SharedCameraGateway camera;
         private final SharedCameraPreviewView cameraPreview;
@@ -1838,27 +1866,19 @@ public final class AppComposition {
         private CameraFlowCoordinator.StateSubscription cameraFlowStateSubscription;
         private ProcessCameraRuntimeOwner.Attachment cameraRuntimeStateAttachment;
 
-        private CaptureRuntime(
-                SharedCameraGateway camera,
-                SharedCameraPreviewView cameraPreview,
-                CameraFlowCoordinator cameraFlow,
-                PhotoCaptureUseCase photos,
-                RecordingCommands videos,
-                AudioRecordingUseCase audio,
-                CaptureEvents captureEvents,
-                AudioPreparationEvents.Binding audioPreparationBinding,
-                Runnable storageNoticeRelease,
-                BooleanSupplier capturePermissionsGranted) {
-            this.camera = camera;
-            this.cameraPreview = cameraPreview;
-            this.cameraFlow = cameraFlow;
-            this.photos = photos;
-            this.videos = videos;
-            this.audio = audio;
-            this.captureEvents = captureEvents;
-            this.audioPreparationBinding = audioPreparationBinding;
-            this.storageNoticeRelease = storageNoticeRelease;
-            this.capturePermissionsGranted = capturePermissionsGranted;
+        private CaptureRuntime(CaptureRuntimeCameraDependencies cameraDependencies,
+                CaptureRuntimeCaptureDependencies captureDependencies,
+                CaptureRuntimeLifecycleDependencies lifecycleDependencies) {
+            this.camera = cameraDependencies.camera();
+            this.cameraPreview = cameraDependencies.cameraPreview();
+            this.cameraFlow = cameraDependencies.cameraFlow();
+            this.photos = captureDependencies.photos();
+            this.videos = captureDependencies.videos();
+            this.audio = captureDependencies.audio();
+            this.captureEvents = captureDependencies.captureEvents();
+            this.audioPreparationBinding = lifecycleDependencies.audioPreparationBinding();
+            this.storageNoticeRelease = lifecycleDependencies.storageNoticeRelease();
+            this.capturePermissionsGranted = lifecycleDependencies.capturePermissionsGranted();
         }
 
         public View cameraPreview() {

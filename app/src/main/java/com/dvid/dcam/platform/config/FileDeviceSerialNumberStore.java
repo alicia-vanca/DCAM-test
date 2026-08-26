@@ -31,7 +31,7 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
     private final Supplier<List<File>> identityBackupFiles;
 
     public FileDeviceSerialNumberStore(File target) {
-        this(target, null, "", () -> List.of());
+        this(target, null, "", List::of);
     }
 
     public FileDeviceSerialNumberStore(
@@ -43,7 +43,7 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
         this.target = target;
         this.identityDao = identityDao;
         this.hardwareId = hardwareId == null || hardwareId.isBlank() ? "unknown" : hardwareId.trim();
-        this.identityBackupFiles = identityBackupFiles == null ? () -> List.of() : identityBackupFiles;
+        this.identityBackupFiles = identityBackupFiles == null ? List::of : identityBackupFiles;
     }
 
     @Override public String load() {
@@ -248,7 +248,9 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
             }
             try (FileChannel directory = FileChannel.open(parent.toPath())) {
                 directory.force(true);
-            } catch (IOException ignored) { }
+            } catch (IOException ignored) {
+                // The replacement is durable enough; directory metadata sync is best effort.
+            }
         } finally {
             Files.deleteIfExists(partial.toPath());
         }
@@ -363,16 +365,14 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
             switch (key) {
                 case "schema_version" -> schemaVersion = readInteger();
                 case "identity_type" -> identityType = readString();
-                case "serial_number" -> serialNumber = readString();
+                case KEY -> serialNumber = readString();
                 default -> skipSimpleValue();
             }
         }
 
         private int readInteger() {
             int start = index;
-            if (consume('-')) {
-                if (index >= text.length()) throw invalid();
-            }
+            if (consume('-') && index >= text.length()) throw invalid();
             while (index < text.length() && Character.isDigit(text.charAt(index))) index++;
             if (index == start || index == start + 1 && text.charAt(start) == '-') throw invalid();
             try {

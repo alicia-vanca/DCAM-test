@@ -102,16 +102,15 @@ public final class HardwareButtonRouter {
                 return true;
             case PHOTO_CAPTURE:
                 if (repeatCount == 0) {
-                    commandHaptic.run();
                     runIfEnabled(FeatureGate.IMAGE_CAPTURE, () -> {
                         currentLocationRequest.run();
                         photos.takePhoto();
+                        commandHaptic.run();
                     });
                 }
                 return true;
             case AUDIO_CAPTURE:
                 if (repeatCount == 0) {
-                    commandHaptic.run();
                     if (audio.isAudioRecording()) toggleAudioRecording();
                     else runIfEnabled(FeatureGate.AUDIO_CAPTURE, this::toggleAudioRecording);
                 }
@@ -146,7 +145,6 @@ public final class HardwareButtonRouter {
         if (binding.role() == ButtonRole.RECORD
                 && binding.type() == PhysicalButtonType.SWITCH) {
             if (canceled) return true;
-            commandHaptic.run();
             if (activeRecordSwitch == binding) {
                 activeRecordSwitch = null;
                 stopVideoRecording();
@@ -194,7 +192,6 @@ public final class HardwareButtonRouter {
 
     private boolean onSosHoldThreshold(HardwareButtonBinding binding) {
         if (binding != null && !holdHandled && heldButton == binding) {
-            commandHaptic.run();
             holdHandled = runIfEnabledOrStop(FeatureGate.VIDEO_CAPTURE, this::startImpRecording);
             return holdHandled;
         }
@@ -203,19 +200,16 @@ public final class HardwareButtonRouter {
 
     private boolean handleRecordDown(HardwareButtonBinding binding, int repeatCount) {
         if (binding.type() == PhysicalButtonType.SWITCH) {
-            commandHaptic.run();
             if (activeRecordSwitch == binding) return true;
             activeRecordSwitch = binding;
             runIfEnabled(FeatureGate.VIDEO_CAPTURE, this::startVideoRecording);
         } else if (repeatCount == 0) {
-            commandHaptic.run();
             runIfEnabledOrStop(FeatureGate.VIDEO_CAPTURE, this::startVideoRecording);
         }
         return true;
     }
 
     private void handleImportantRecording() {
-        commandHaptic.run();
         runIfEnabledOrStop(FeatureGate.VIDEO_CAPTURE, this::startImpRecording);
     }
 
@@ -228,7 +222,6 @@ public final class HardwareButtonRouter {
         }
         if (!holdHandled && heldButton == binding
                 && eventTimeMs - holdStartedAtMs >= SOS_HOLD_MS) {
-            commandHaptic.run();
             holdHandled = runIfEnabledOrStop(FeatureGate.VIDEO_CAPTURE, this::startImpRecording);
         }
         return true;
@@ -243,16 +236,19 @@ public final class HardwareButtonRouter {
     private void startVideoRecording() {
         currentLocationRequest.run();
         videos.startVideo();
+        commandHaptic.run();
     }
 
     private void startImpRecording() {
         currentLocationRequest.run();
         videos.startImp();
+        commandHaptic.run();
     }
 
     private void toggleAudioRecording() {
         boolean starting = !audio.isAudioRecording();
         if (!audio.toggleAudioAsync()) return;
+        commandHaptic.run();
         if (starting) currentLocationRequest.run();
     }
 
@@ -267,6 +263,7 @@ public final class HardwareButtonRouter {
 
     private void stopVideoRecording() {
         videos.stopRecording();
+        commandHaptic.run();
     }
 
     private boolean runIfEnabled(FeatureGate feature, Runnable action) {

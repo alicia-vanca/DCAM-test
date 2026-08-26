@@ -20,7 +20,7 @@ public final class CameraFlowCoordinator {
 
     public record RecheckUpdate(RecheckStatus status, String detail) {
         public RecheckUpdate {
-            status = Objects.requireNonNull(status, "status");
+            Objects.requireNonNull(status, "status");
             if (detail == null || detail.isBlank()) {
                 throw new IllegalArgumentException("detail is required");
             }
@@ -270,10 +270,20 @@ public final class CameraFlowCoordinator {
     }
 
     public synchronized boolean select(String stableId, int selectedIndex) {
+        CameraSettingControlId control;
+        try {
+            control = CameraSettingControlId.parse(stableId);
+        } catch (IllegalArgumentException error) {
+            return false;
+        }
         if (!canOpenSetting(stableId)) return false;
         Optional<CandidateKey> resolved = backend.resolveSetting(stableId, selectedIndex);
         if (resolved.isEmpty()) return false;
         CandidateKey requested = resolved.orElseThrow();
+        if (control.kind() == CameraSettingControlId.Kind.IMAGE_RESOLUTION) {
+            target = null;
+            return true;
+        }
         Optional<CandidateKey> active = backend.activeCandidate();
         if (active.isPresent()
                 && !active.orElseThrow().cameraId().equals(requested.cameraId())) {
@@ -391,7 +401,8 @@ public final class CameraFlowCoordinator {
             boolean preserveVerifiedCapabilities, TransitionResult result) {
         synchronized (this) {
             if (run != generation) return;
-            if (result.ready() && result.activeCandidate().filter(candidate::equals).isPresent()) {
+            if (result.ready() && result.activeCandidate()
+                    .filter(value -> Objects.equals(candidate, value)).isPresent()) {
                 target = null;
                 optionsReady = true;
                 state = State.READY;
@@ -416,10 +427,7 @@ public final class CameraFlowCoordinator {
 
     private void verifyStartup(long run, List<CandidateKey> ordered, int index) {
         CandidateKey candidate = ordered.get(index);
-        Optional<CandidateKey> active = backend.activeCandidate();
-        Transition transition = active.isEmpty() ? Transition.INITIALIZE
-                : active.orElseThrow().cameraId().equals(candidate.cameraId())
-                        ? Transition.VERIFY_SETTING : Transition.SWITCH_CAMERA;
+        Transition transition = startupTransition(backend.activeCandidate(), candidate);
         backend.submit(transition, candidate, result -> {
             synchronized (CameraFlowCoordinator.this) {
                 if (run != generation) return;
@@ -458,6 +466,13 @@ public final class CameraFlowCoordinator {
             unique.putIfAbsent(candidate.cameraId(), candidate);
         }
         return List.copyOf(unique.values());
+    }
+
+    private static Transition startupTransition(Optional<CandidateKey> active,
+            CandidateKey candidate) {
+        if (active.isEmpty()) return Transition.INITIALIZE;
+        return active.orElseThrow().cameraId().equals(candidate.cameraId())
+                ? Transition.VERIFY_SETTING : Transition.SWITCH_CAMERA;
     }
 
     private static boolean sameRuntimePipeline(CandidateKey requested, CandidateKey active) {
@@ -528,7 +543,8 @@ public final class CameraFlowCoordinator {
             if (run != generation) return;
             transitionInFlight = false;
             target = null;
-            ready = result.ready() && result.activeCandidate().filter(candidate::equals).isPresent();
+            ready = result.ready() && result.activeCandidate()
+                    .filter(value -> Objects.equals(candidate, value)).isPresent();
             state = ready ? State.READY : State.IDLE;
             if (!ready) {
                 idleReleaseCandidate = null;
@@ -555,16 +571,8 @@ public final class CameraFlowCoordinator {
         boolean restart;
         synchronized (this) {
             if (run != generation) return;
-            if (!released) {
-                state = State.UNAVAILABLE;
-                restart = false;
-            } else if (!backend.invalidateCapabilities()) {
-                state = State.UNAVAILABLE;
-                restart = false;
-            } else {
-                state = State.IDLE;
-                restart = true;
-            }
+            restart = released && backend.invalidateCapabilities();
+            state = restart ? State.IDLE : State.UNAVAILABLE;
         }
         if (!restart) {
             publishState();
@@ -588,7 +596,8 @@ public final class CameraFlowCoordinator {
             }
             boolean inactiveCamera = previous != null
                     && !previous.cameraId().equals(requested.cameraId());
-            if (!inactiveCamera || result.activeCandidate().filter(previous::equals).isPresent()) {
+            if (!inactiveCamera || result.activeCandidate()
+                    .filter(value -> Objects.equals(previous, value)).isPresent()) {
                 transitionInFlight = false;
                 target = null;
                 state = State.READY;

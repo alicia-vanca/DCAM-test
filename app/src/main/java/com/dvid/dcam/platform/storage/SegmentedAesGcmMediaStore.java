@@ -24,12 +24,12 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
 
     private static final int RECORD_OVERHEAD_BYTES =
             DcamSegmentedGcmFormat.RECORD_HEADER_BYTES + DcamSegmentedGcmFormat.TAG_BYTES;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final RandomAccessFile physicalFile;
     private final FileChannel physicalChannel;
     private final DcamSegmentedGcmFormat.Header header;
     private final byte[] key;
-    private final SecureRandom random;
     private final Map<Long, BlockRef> blocks = new HashMap<>();
     private final Set<NonceKey> usedNonces = new HashSet<>();
     private final TreeMap<Long, TransactionBlock> transactionBlocks = new TreeMap<>();
@@ -71,17 +71,16 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         boolean success = false;
         try {
             physical.setLength(0L);
-            SecureRandom random = new SecureRandom();
             byte[] salt = new byte[DcamSegmentedGcmFormat.SALT_BYTES];
             byte[] fileId = new byte[DcamSegmentedGcmFormat.FILE_ID_BYTES];
-            random.nextBytes(salt);
-            random.nextBytes(fileId);
+            RANDOM.nextBytes(salt);
+            RANDOM.nextBytes(fileId);
             DcamSegmentedGcmFormat.Header header = DcamSegmentedGcmFormat.createHeader(
                     blockBytes, DcamSegmentedGcmFormat.DEFAULT_KDF_ITERATIONS,
                     salt, fileId);
             key = DcamSegmentedGcmFormat.deriveKey(header, password);
             SegmentedAesGcmMediaStore store = new SegmentedAesGcmMediaStore(
-                    physical, header, key, random);
+                    physical, header, key);
             store.writePhysical(0L, header.encoded);
             store.physicalChannel.force(true);
             success = true;
@@ -134,7 +133,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
                     DcamSegmentedGcmFormat.readHeader(encodedHeader);
             key = DcamSegmentedGcmFormat.deriveKey(header, password);
             SegmentedAesGcmMediaStore store = new SegmentedAesGcmMediaStore(
-                    physical, header, key, new SecureRandom());
+                    physical, header, key);
             store.scan(recoverTail, requireFinal);
             success = true;
             return store;
@@ -149,138 +148,171 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
     private SegmentedAesGcmMediaStore(
             RandomAccessFile physicalFile,
             DcamSegmentedGcmFormat.Header header,
-            byte[] key,
-            SecureRandom random) {
+            byte[] key) {
         this.physicalFile = physicalFile;
         this.physicalChannel = physicalFile.getChannel();
         this.header = header;
         this.key = key;
-        this.random = random;
     }
 
     private void scan(boolean recoverTail, boolean requireFinal) throws IOException {
         long fileBytes = physicalChannel.size();
-        long offset = DcamSegmentedGcmFormat.FILE_HEADER_BYTES;
-        long expectedSequence = 1L;
-        long retainedNextSequence = 1L;
-        long pendingStart = -1L;
-        long pendingTransactionId = 0L;
-        int authenticatedRecords = 0;
-        List<BlockRef> pending = new ArrayList<>();
-
-        while (offset < fileBytes) {
-            if (finalized) {
-                throw new IOException("Segmented AES-GCM file contains bytes after FINAL.");
-            }
-            long recordStart = offset;
-            try {
-                if (fileBytes - offset < DcamSegmentedGcmFormat.RECORD_HEADER_BYTES) {
-                    throw new IOException("Segmented AES-GCM record header is truncated.");
-                }
-                byte[] encodedHeader = readPhysical(
-                        offset, DcamSegmentedGcmFormat.RECORD_HEADER_BYTES);
-                DcamSegmentedGcmFormat.RecordMetadata metadata =
-                        DcamSegmentedGcmFormat.readRecordHeader(header, encodedHeader);
-                if (metadata.logicalLength > fileBytes) {
-                    throw new IOException(
-                            "Segmented AES-GCM logical length exceeds physical file size.");
-                }
-                if (metadata.sequence != expectedSequence) {
-                    throw new IOException("Segmented AES-GCM record sequence is not contiguous.");
-                }
-                long recordEnd = Math.addExact(offset, metadata.totalBytes);
-                if (recordEnd > fileBytes) {
-                    throw new IOException("Segmented AES-GCM record payload is truncated.");
-                }
-                if (!usedNonces.add(new NonceKey(metadata.nonce))) {
-                    throw new IOException("Segmented AES-GCM nonce is duplicated.");
-                }
-
-                byte[] encoded = readPhysical(offset, metadata.totalBytes);
-                byte[] plaintext = null;
-                try {
-                    DcamSegmentedGcmFormat.DecodedRecord decoded =
-                            DcamSegmentedGcmFormat.decodeRecord(header, key, encoded);
-                    plaintext = decoded.plaintext;
-                    authenticatedRecords++;
-                    BlockRef ref = new BlockRef(offset, metadata);
-                    switch (metadata.type) {
-                        case DcamSegmentedGcmFormat.TYPE_DATA -> {
-                            if (metadata.transactionId == 0L) {
-                                requireNoPending(pending, pendingTransactionId);
-                                acceptAutocommit(ref, plaintext);
-                                retainedNextSequence = metadata.sequence + 1L;
-                            } else {
-                                if (pending.isEmpty()) {
-                                    if (metadata.transactionId != metadata.sequence) {
-                                        throw new IOException(
-                                                "Segmented AES-GCM transaction ID must match first DATA sequence.");
-                                    }
-                                    pendingStart = offset;
-                                    pendingTransactionId = metadata.transactionId;
-                                } else if (metadata.transactionId != pendingTransactionId) {
-                                    throw new IOException(
-                                            "Segmented AES-GCM transactions must not interleave.");
-                                }
-                                pending.add(ref);
-                            }
-                        }
-                        case DcamSegmentedGcmFormat.TYPE_COMMIT -> {
-                            acceptCommit(metadata, pending, pendingTransactionId);
-                            pending.clear();
-                            pendingStart = -1L;
-                            pendingTransactionId = 0L;
-                            retainedNextSequence = metadata.sequence + 1L;
-                        }
-                        case DcamSegmentedGcmFormat.TYPE_CHECKPOINT -> {
-                            requireNoPending(pending, pendingTransactionId);
-                            if (metadata.logicalLength != logicalLength) {
-                                throw new IOException(
-                                        "Segmented AES-GCM CHECKPOINT length is invalid.");
-                            }
-                            requireCompleteCoverage();
-                            retainedNextSequence = metadata.sequence + 1L;
-                        }
-                        case DcamSegmentedGcmFormat.TYPE_FINAL -> {
-                            requireNoPending(pending, pendingTransactionId);
-                            if (metadata.logicalLength != logicalLength || logicalLength <= 0L) {
-                                throw new IOException("Segmented AES-GCM FINAL length is invalid.");
-                            }
-                            requireCompleteCoverage();
-                            finalized = true;
-                            retainedNextSequence = metadata.sequence + 1L;
-                        }
-                        default -> throw new IOException(
-                                "Segmented AES-GCM record type is unsupported.");
-                    }
-                } finally {
-                    if (plaintext != null) Arrays.fill(plaintext, (byte) 0);
-                }
-                expectedSequence++;
-                offset = recordEnd;
-            } catch (IOException | ArithmeticException failure) {
-                IOException error = failure instanceof IOException io
-                        ? io : new IOException("Segmented AES-GCM record offset overflow.", failure);
-                if (!recoverTail || authenticatedRecords == 0 && isAuthenticationFailure(error)) {
-                    throw error;
-                }
-                long truncateOffset = pendingStart >= 0L ? pendingStart : recordStart;
-                physicalChannel.truncate(truncateOffset);
-                nextSequence = retainedNextSequence;
-                logicalPosition = Math.min(logicalPosition, logicalLength);
-                return;
-            }
+        ScanState state = new ScanState();
+        while (state.offset < fileBytes) {
+            if (!scanNextRecord(fileBytes, state, recoverTail)) return;
         }
+        completeScan(recoverTail, requireFinal, state);
+    }
 
-        if (!pending.isEmpty()) {
-            if (!recoverTail) {
+    private boolean scanNextRecord(long fileBytes, ScanState state, boolean recoverTail)
+            throws IOException {
+        if (finalized) {
+            throw new IOException("Segmented AES-GCM file contains bytes after FINAL.");
+        }
+        long recordStart = state.offset;
+        try {
+            ScannedRecord scanned = readScannedRecord(fileBytes, state);
+            acceptScannedRecord(scanned.ref, state);
+            state.expectedSequence++;
+            state.offset = scanned.end;
+            return true;
+        } catch (IOException | ArithmeticException failure) {
+            return recoverScanFailure(failure, recoverTail, state, recordStart);
+        }
+    }
+
+    private ScannedRecord readScannedRecord(long fileBytes, ScanState state) throws IOException {
+        if (fileBytes - state.offset < DcamSegmentedGcmFormat.RECORD_HEADER_BYTES) {
+            throw new IOException("Segmented AES-GCM record header is truncated.");
+        }
+        byte[] encodedHeader = readPhysical(
+                state.offset, DcamSegmentedGcmFormat.RECORD_HEADER_BYTES);
+        DcamSegmentedGcmFormat.RecordMetadata metadata =
+                DcamSegmentedGcmFormat.readRecordHeader(header, encodedHeader);
+        if (metadata.logicalLength > fileBytes) {
+            throw new IOException("Segmented AES-GCM logical length exceeds physical file size.");
+        }
+        if (metadata.sequence != state.expectedSequence) {
+            throw new IOException("Segmented AES-GCM record sequence is not contiguous.");
+        }
+        long recordEnd = Math.addExact(state.offset, metadata.totalBytes);
+        if (recordEnd > fileBytes) {
+            throw new IOException("Segmented AES-GCM record payload is truncated.");
+        }
+        if (!usedNonces.add(new NonceKey(metadata.nonce))) {
+            throw new IOException("Segmented AES-GCM nonce is duplicated.");
+        }
+        return new ScannedRecord(new BlockRef(state.offset, metadata), recordEnd);
+    }
+
+    private void acceptScannedRecord(BlockRef ref, ScanState state) throws IOException {
+        byte[] encoded = readPhysical(ref.offset, ref.metadata.totalBytes);
+        byte[] plaintext = null;
+        try {
+            DcamSegmentedGcmFormat.DecodedRecord decoded =
+                    DcamSegmentedGcmFormat.decodeRecord(header, key, encoded);
+            plaintext = decoded.plaintext;
+            state.authenticatedRecords++;
+            acceptScannedRecord(ref, plaintext, state);
+        } finally {
+            if (plaintext != null) Arrays.fill(plaintext, (byte) 0);
+        }
+    }
+
+    private void acceptScannedRecord(BlockRef ref, byte[] plaintext, ScanState state)
+            throws IOException {
+        DcamSegmentedGcmFormat.RecordMetadata metadata = ref.metadata;
+        switch (metadata.type) {
+            case DcamSegmentedGcmFormat.TYPE_DATA -> acceptScannedData(ref, plaintext, state);
+            case DcamSegmentedGcmFormat.TYPE_COMMIT -> acceptScannedCommit(metadata, state);
+            case DcamSegmentedGcmFormat.TYPE_CHECKPOINT -> acceptScannedCheckpoint(metadata, state);
+            case DcamSegmentedGcmFormat.TYPE_FINAL -> acceptScannedFinal(metadata, state);
+            default -> throw new IOException("Segmented AES-GCM record type is unsupported.");
+        }
+    }
+
+    private void acceptScannedData(BlockRef ref, byte[] plaintext, ScanState state)
+            throws IOException {
+        DcamSegmentedGcmFormat.RecordMetadata metadata = ref.metadata;
+        if (metadata.transactionId == 0L) {
+            requireNoPending(state.pending, state.pendingTransactionId);
+            acceptAutocommit(ref, plaintext);
+            state.retainedNextSequence = metadata.sequence + 1L;
+            return;
+        }
+        acceptPendingData(ref, state);
+    }
+
+    private void acceptPendingData(BlockRef ref, ScanState state) throws IOException {
+        DcamSegmentedGcmFormat.RecordMetadata metadata = ref.metadata;
+        if (state.pending.isEmpty()) {
+            if (metadata.transactionId != metadata.sequence) {
                 throw new IOException(
-                        "Segmented AES-GCM file ended with an uncommitted transaction.");
+                        "Segmented AES-GCM transaction ID must match first DATA sequence.");
             }
-            physicalChannel.truncate(pendingStart);
-            nextSequence = retainedNextSequence;
+            state.pendingStart = ref.offset;
+            state.pendingTransactionId = metadata.transactionId;
+        } else if (metadata.transactionId != state.pendingTransactionId) {
+            throw new IOException("Segmented AES-GCM transactions must not interleave.");
+        }
+        state.pending.add(ref);
+    }
+
+    private void acceptScannedCommit(
+            DcamSegmentedGcmFormat.RecordMetadata metadata, ScanState state) throws IOException {
+        acceptCommit(metadata, state.pending, state.pendingTransactionId);
+        state.pending.clear();
+        state.pendingStart = -1L;
+        state.pendingTransactionId = 0L;
+        state.retainedNextSequence = metadata.sequence + 1L;
+    }
+
+    private void acceptScannedCheckpoint(
+            DcamSegmentedGcmFormat.RecordMetadata metadata, ScanState state) throws IOException {
+        requireNoPending(state.pending, state.pendingTransactionId);
+        if (metadata.logicalLength != logicalLength) {
+            throw new IOException("Segmented AES-GCM CHECKPOINT length is invalid.");
+        }
+        requireCompleteCoverage();
+        state.retainedNextSequence = metadata.sequence + 1L;
+    }
+
+    private void acceptScannedFinal(
+            DcamSegmentedGcmFormat.RecordMetadata metadata, ScanState state) throws IOException {
+        requireNoPending(state.pending, state.pendingTransactionId);
+        if (metadata.logicalLength != logicalLength || logicalLength <= 0L) {
+            throw new IOException("Segmented AES-GCM FINAL length is invalid.");
+        }
+        requireCompleteCoverage();
+        finalized = true;
+        state.retainedNextSequence = metadata.sequence + 1L;
+    }
+
+    private boolean recoverScanFailure(
+            Throwable failure, boolean recoverTail, ScanState state, long recordStart)
+            throws IOException {
+        IOException error = failure instanceof IOException io
+                ? io : new IOException("Segmented AES-GCM record offset overflow.", failure);
+        if (!recoverTail || (state.authenticatedRecords == 0 && isAuthenticationFailure(error))) {
+            throw error;
+        }
+        long truncateOffset = state.pendingStart >= 0L ? state.pendingStart : recordStart;
+        physicalChannel.truncate(truncateOffset);
+        nextSequence = state.retainedNextSequence;
+        logicalPosition = Math.min(logicalPosition, logicalLength);
+        return false;
+    }
+
+    private void completeScan(boolean recoverTail, boolean requireFinal, ScanState state)
+            throws IOException {
+        if (!state.pending.isEmpty()) {
+            if (!recoverTail) {
+                throw new IOException("Segmented AES-GCM file ended with an uncommitted transaction.");
+            }
+            physicalChannel.truncate(state.pendingStart);
+            nextSequence = state.retainedNextSequence;
         } else {
-            nextSequence = expectedSequence;
+            nextSequence = state.expectedSequence;
         }
         if (requireFinal && !finalized) {
             throw new IOException("Segmented AES-GCM published media is missing FINAL.");
@@ -290,25 +322,25 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
 
     private void acceptAutocommit(BlockRef ref, byte[] plaintext) throws IOException {
         requireCompleteCoverage();
-        DcamSegmentedGcmFormat.RecordMetadata record = ref.record;
+        DcamSegmentedGcmFormat.RecordMetadata metadata = ref.metadata;
         long expectedBlockIndex = logicalLength / header.blockBytes;
         int existingTailBytes = (int) (logicalLength % header.blockBytes);
         long expectedLength;
         try {
             expectedLength = Math.addExact(
-                    Math.multiplyExact(record.blockIndex, (long) header.blockBytes),
-                    record.plaintextBytes);
+                    Math.multiplyExact(metadata.blockIndex, (long) header.blockBytes),
+                    metadata.plaintextBytes);
         } catch (ArithmeticException failure) {
             throw new IOException("Segmented AES-GCM logical length overflow.", failure);
         }
-        if (record.blockIndex != expectedBlockIndex
-                || record.plaintextBytes < existingTailBytes
-                || record.logicalLength != expectedLength
-                || record.logicalLength < logicalLength) {
+        if (metadata.blockIndex != expectedBlockIndex
+                || metadata.plaintextBytes < existingTailBytes
+                || metadata.logicalLength != expectedLength
+                || metadata.logicalLength < logicalLength) {
             throw new IOException("Segmented AES-GCM autocommit DATA is not a tail write.");
         }
         if (existingTailBytes > 0) {
-            byte[] previous = committedBlock(record.blockIndex);
+            byte[] previous = committedBlock(metadata.blockIndex);
             for (int index = 0; index < existingTailBytes; index++) {
                 if (previous[index] != plaintext[index]) {
                     throw new IOException(
@@ -316,36 +348,36 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
                 }
             }
         }
-        blocks.put(record.blockIndex, ref);
-        invalidateCache(record.blockIndex);
-        logicalLength = record.logicalLength;
+        blocks.put(metadata.blockIndex, ref);
+        invalidateCache(metadata.blockIndex);
+        logicalLength = metadata.logicalLength;
         coveredLength = logicalLength;
         requireCompleteCoverage();
     }
 
     private void acceptCommit(
-            DcamSegmentedGcmFormat.RecordMetadata record,
+            DcamSegmentedGcmFormat.RecordMetadata metadata,
             List<BlockRef> pending,
             long pendingTransactionId) throws IOException {
-        if (record.relatedCount == 0) {
-            if (!pending.isEmpty() || record.transactionId != record.sequence
-                    || record.logicalLength > logicalLength) {
+        if (metadata.relatedCount == 0) {
+            if (!pending.isEmpty() || metadata.transactionId != metadata.sequence
+                    || metadata.logicalLength > logicalLength) {
                 throw new IOException("Segmented AES-GCM zero-DATA COMMIT is invalid.");
             }
-        } else if (pending.size() != record.relatedCount
-                || pendingTransactionId != record.transactionId) {
+        } else if (pending.size() != metadata.relatedCount
+                || pendingTransactionId != metadata.transactionId) {
             throw new IOException("Segmented AES-GCM COMMIT does not match pending DATA.");
         }
 
         Map<Long, BlockRef> changed = new HashMap<>();
-        for (BlockRef block : pending) changed.put(block.record.blockIndex, block);
-        validateCommittedTransaction(changed, record.logicalLength);
-        long nextBlockCount = blockCount(record.logicalLength);
+        for (BlockRef block : pending) changed.put(block.metadata.blockIndex, block);
+        validateCommittedTransaction(changed, metadata.logicalLength);
+        long nextBlockCount = blockCount(metadata.logicalLength);
         for (Map.Entry<Long, BlockRef> entry : changed.entrySet()) {
             if (entry.getKey() < nextBlockCount) blocks.put(entry.getKey(), entry.getValue());
         }
-        if (record.logicalLength < logicalLength) trimBlocks(blocks, record.logicalLength);
-        logicalLength = record.logicalLength;
+        if (metadata.logicalLength < logicalLength) trimBlocks(blocks, metadata.logicalLength);
+        logicalLength = metadata.logicalLength;
         coveredLength = logicalLength;
         requireCompleteCoverage();
     }
@@ -357,7 +389,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         for (Map.Entry<Long, BlockRef> entry : changed.entrySet()) {
             if (entry.getKey() >= nextBlockCount) continue;
             int expected = expectedBlockBytes(nextLength, entry.getKey());
-            if (entry.getValue().record.plaintextBytes < expected) {
+            if (entry.getValue().metadata.plaintextBytes < expected) {
                 throw new IOException(
                         "Segmented AES-GCM transaction block coverage is invalid: "
                                 + entry.getKey());
@@ -370,7 +402,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             BlockRef block = changed.get(blockIndex);
             if (block == null) block = blocks.get(blockIndex);
             int expected = expectedBlockBytes(nextLength, blockIndex);
-            if (block == null || block.record.plaintextBytes < expected) {
+            if (block == null || block.metadata.plaintextBytes < expected) {
                 throw new IOException(
                         "Segmented AES-GCM transaction block coverage is invalid: "
                                 + blockIndex);
@@ -536,13 +568,15 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
 
     @Override public long estimatedPhysicalSize() throws IOException {
         long estimated = physicalSize();
-        if (tailDirty) estimated = Math.addExact(estimated, RECORD_OVERHEAD_BYTES + tailBytes);
+        if (tailDirty) {
+            estimated = Math.addExact(estimated, (long) RECORD_OVERHEAD_BYTES + tailBytes);
+        }
         if (transactionActive) {
             for (Map.Entry<Long, TransactionBlock> entry : transactionBlocks.entrySet()) {
                 int bytes = expectedBlockBytes(transactionLength, entry.getKey());
                 int previous = expectedBlockBytes(logicalLength, entry.getKey());
                 if (bytes > 0 && (entry.getValue().changed || bytes > previous)) {
-                    estimated = Math.addExact(estimated, RECORD_OVERHEAD_BYTES + bytes);
+                    estimated = Math.addExact(estimated, (long) RECORD_OVERHEAD_BYTES + bytes);
                 }
             }
             if (transactionLength != logicalLength || !transactionBlocks.isEmpty()) {
@@ -656,7 +690,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             throw failure;
         }
 
-        for (BlockRef block : committed) blocks.put(block.record.blockIndex, block);
+        for (BlockRef block : committed) blocks.put(block.metadata.blockIndex, block);
         if (transactionLength < logicalLength) trimBlocks(blocks, transactionLength);
         logicalLength = transactionLength;
         coveredLength = logicalLength;
@@ -775,7 +809,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             BlockRef committed = changed == null ? blocks.get(blockIndex) : null;
             int expected = expectedBlockBytes(length, blockIndex);
             if (changed == null
-                    && (committed == null || committed.record.plaintextBytes < expected)) {
+                    && (committed == null || committed.metadata.plaintextBytes < expected)) {
                 throw new IOException(
                         "Segmented AES-GCM transaction block coverage is invalid: " + blockIndex);
             }
@@ -823,7 +857,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
     private byte[] nextNonce() {
         while (true) {
             byte[] nonce = new byte[DcamSegmentedGcmFormat.NONCE_BYTES];
-            random.nextBytes(nonce);
+            RANDOM.nextBytes(nonce);
             if (!isAllZero(nonce) && usedNonces.add(new NonceKey(nonce))) return nonce;
         }
     }
@@ -838,7 +872,7 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         if (cachedBlock != null && cachedBlockIndex == blockIndex) return cachedBlock;
         BlockRef ref = blocks.get(blockIndex);
         if (ref == null) throw new IOException("Logical media block is missing: " + blockIndex);
-        byte[] encoded = readPhysical(ref.offset, ref.record.totalBytes);
+        byte[] encoded = readPhysical(ref.offset, ref.metadata.totalBytes);
         DcamSegmentedGcmFormat.DecodedRecord decoded =
                 DcamSegmentedGcmFormat.decodeRecord(header, key, encoded);
         invalidateCache(-1L);
@@ -852,14 +886,14 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
             throw new IOException("Segmented AES-GCM logical coverage is not committed.");
         }
         long count = blockCount(logicalLength);
-        if ((long) blocks.size() != count) {
+        if (blocks.size() != count) {
             throw new IOException("Segmented AES-GCM logical block coverage is incomplete.");
         }
         if (count == 0L) return;
         long lastBlockIndex = count - 1L;
         BlockRef last = blocks.get(lastBlockIndex);
         int expected = expectedBlockBytes(logicalLength, lastBlockIndex);
-        if (last == null || last.record.plaintextBytes < expected) {
+        if (last == null || last.metadata.plaintextBytes < expected) {
             throw new IOException(
                     "Segmented AES-GCM logical block coverage is invalid: " + lastBlockIndex);
         }
@@ -994,7 +1028,19 @@ final class SegmentedAesGcmMediaStore implements DcamRandomAccessMedia {
         return true;
     }
 
-    private record BlockRef(long offset, DcamSegmentedGcmFormat.RecordMetadata record) {}
+    private static final class ScanState {
+        private long offset = DcamSegmentedGcmFormat.FILE_HEADER_BYTES;
+        private long expectedSequence = 1L;
+        private long retainedNextSequence = 1L;
+        private long pendingStart = -1L;
+        private long pendingTransactionId;
+        private int authenticatedRecords;
+        private final List<BlockRef> pending = new ArrayList<>();
+    }
+
+    private record ScannedRecord(BlockRef ref, long end) {}
+
+    private record BlockRef(long offset, DcamSegmentedGcmFormat.RecordMetadata metadata) {}
 
     private static final class TransactionBlock {
         private final byte[] data;

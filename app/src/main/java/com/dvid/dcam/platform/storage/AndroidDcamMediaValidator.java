@@ -12,6 +12,7 @@ import java.nio.ByteBuffer;
 /** Uses container checks and Android decoders to reject unsafe recovery candidates. */
 final class AndroidDcamMediaValidator implements DcamMediaValidator {
     private static final int BOX_MOOV = 0x6d6f6f76;
+    private static final String AUDIO_TRACK = "audio";
 
     @Override public DcamMediaValidationResult validate(DcamFileType type, File file) {
         if (!file.isFile()) {
@@ -23,7 +24,7 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
         }
         if (type == DcamFileType.IMAGE) return validateImage(file);
         if (type.usesFragmentedMp4Container()) {
-            String trackKind = type.isVideo() ? "video" : "audio";
+            String trackKind = type.isVideo() ? "video" : AUDIO_TRACK;
             int metadataKey = type.isVideo()
                     ? MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO
                     : MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO;
@@ -33,7 +34,7 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
                     : DcamMediaValidationResult.rejected(structureIssue);
         }
         if (type == DcamFileType.AUDIO) {
-            return validateTrack(file, MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO, "audio");
+            return validateTrack(file, MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO, AUDIO_TRACK);
         }
         return DcamMediaValidationResult.rejected("Unsupported media type: " + type + ".");
     }
@@ -46,7 +47,7 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
             }
             if (type == DcamFileType.IMAGE) return validateImage(media);
             if (type.usesFragmentedMp4Container()) {
-                String trackKind = type.isVideo() ? "video" : "audio";
+                String trackKind = type.isVideo() ? "video" : AUDIO_TRACK;
                 int metadataKey = type.isVideo()
                         ? MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO
                         : MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO;
@@ -57,7 +58,7 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
             }
             if (type == DcamFileType.AUDIO) {
                 return validateTrack(
-                        media, MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO, "audio");
+                        media, MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO, AUDIO_TRACK);
             }
             return DcamMediaValidationResult.rejected(
                     "Unsupported logical media type: " + type + ".");
@@ -86,66 +87,95 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
         if (media.readUnsignedByte() != 0xff || media.readUnsignedByte() != 0xd8) {
             return DcamMediaValidationResult.rejected("Logical image has no JPEG SOI marker.");
         }
-        int width = 0;
-        int height = 0;
-        boolean scanStarted = false;
-        int pendingMarker = -1;
-        while (pendingMarker >= 0 || media.position() < media.size()) {
-            int marker = pendingMarker >= 0 ? pendingMarker : readJpegMarker(media);
-            pendingMarker = -1;
-            if (marker == 0xd9) {
-                if (width <= 0 || height <= 0 || !scanStarted) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG ended before complete image metadata and scan data.");
-                }
-                return DcamMediaValidationResult.accepted(
-                        "Logical JPEG reports complete dimensions "
-                                + width + "x" + height + ".");
-            }
-            if (marker == 0xda) {
-                int segmentBytes = readJpegSegmentLength(media);
-                if (segmentBytes < 8) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG scan header is truncated.");
-                }
-                int componentCount = media.readUnsignedByte();
-                if (componentCount <= 0 || segmentBytes != 6 + componentCount * 2) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG scan header length is invalid.");
-                }
-                media.position(media.position() + segmentBytes - 3L);
-                scanStarted = true;
-                pendingMarker = scanToNextJpegMarker(media);
-                continue;
-            }
-            if (marker == 0x01 || marker == 0xd8 || marker >= 0xd0 && marker <= 0xd7) {
-                continue;
-            }
-            int segmentBytes = readJpegSegmentLength(media);
-            if (isJpegStartOfFrame(marker)) {
-                if (segmentBytes < 8) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG start-of-frame segment is truncated.");
-                }
-                media.readUnsignedByte();
-                height = media.readUnsignedByte() << 8 | media.readUnsignedByte();
-                width = media.readUnsignedByte() << 8 | media.readUnsignedByte();
-                int componentCount = media.readUnsignedByte();
-                if (width <= 0 || height <= 0 || componentCount <= 0) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG reports invalid image dimensions or components.");
-                }
-                if (segmentBytes != 8 + componentCount * 3) {
-                    return DcamMediaValidationResult.rejected(
-                            "Logical JPEG start-of-frame length is invalid.");
-                }
-                media.position(media.position() + segmentBytes - 8L);
-            } else {
-                media.position(media.position() + segmentBytes - 2L);
-            }
+        LogicalJpegState state = new LogicalJpegState();
+        while (hasNextJpegMarker(media, state)) {
+            DcamMediaValidationResult result = validateJpegMarker(
+                    media, state, nextJpegMarker(media, state));
+            if (result != null) return result;
         }
         return DcamMediaValidationResult.rejected(
                 "Logical JPEG ended before the EOI marker.");
+    }
+
+    private static boolean hasNextJpegMarker(DcamRandomAccessMedia media, LogicalJpegState state)
+            throws IOException {
+        return state.pendingMarker >= 0 || media.position() < media.size();
+    }
+
+    private static int nextJpegMarker(DcamRandomAccessMedia media, LogicalJpegState state)
+            throws IOException {
+        if (state.pendingMarker < 0) return readJpegMarker(media);
+        int marker = state.pendingMarker;
+        state.pendingMarker = -1;
+        return marker;
+    }
+
+    private static DcamMediaValidationResult validateJpegMarker(
+            DcamRandomAccessMedia media, LogicalJpegState state, int marker) throws IOException {
+        if (marker == 0xd9) return jpegEndResult(state);
+        if (marker == 0xda) return validateJpegScan(media, state);
+        if (isJpegStandaloneMarker(marker)) return null;
+        return validateJpegSegment(media, state, marker);
+    }
+
+    private static DcamMediaValidationResult jpegEndResult(LogicalJpegState state) {
+        if (!state.hasCompleteImage()) {
+            return DcamMediaValidationResult.rejected(
+                    "Logical JPEG ended before complete image metadata and scan data.");
+        }
+        return DcamMediaValidationResult.accepted(
+                "Logical JPEG reports complete dimensions "
+                        + state.width + "x" + state.height + ".");
+    }
+
+    private static DcamMediaValidationResult validateJpegScan(
+            DcamRandomAccessMedia media, LogicalJpegState state) throws IOException {
+        int segmentBytes = readJpegSegmentLength(media);
+        if (segmentBytes < 8) {
+            return DcamMediaValidationResult.rejected("Logical JPEG scan header is truncated.");
+        }
+        int componentCount = media.readUnsignedByte();
+        if (componentCount <= 0 || segmentBytes != 6 + componentCount * 2) {
+            return DcamMediaValidationResult.rejected("Logical JPEG scan header length is invalid.");
+        }
+        media.position(media.position() + segmentBytes - 3L);
+        state.scanStarted = true;
+        state.pendingMarker = scanToNextJpegMarker(media);
+        return null;
+    }
+
+    private static DcamMediaValidationResult validateJpegSegment(
+            DcamRandomAccessMedia media, LogicalJpegState state, int marker) throws IOException {
+        int segmentBytes = readJpegSegmentLength(media);
+        if (isJpegStartOfFrame(marker)) return validateJpegStartOfFrame(media, state, segmentBytes);
+        media.position(media.position() + segmentBytes - 2L);
+        return null;
+    }
+
+    private static DcamMediaValidationResult validateJpegStartOfFrame(
+            DcamRandomAccessMedia media, LogicalJpegState state, int segmentBytes) throws IOException {
+        if (segmentBytes < 8) {
+            return DcamMediaValidationResult.rejected(
+                    "Logical JPEG start-of-frame segment is truncated.");
+        }
+        media.readUnsignedByte();
+        state.height = media.readUnsignedByte() << 8 | media.readUnsignedByte();
+        state.width = media.readUnsignedByte() << 8 | media.readUnsignedByte();
+        int componentCount = media.readUnsignedByte();
+        if (state.width <= 0 || state.height <= 0 || componentCount <= 0) {
+            return DcamMediaValidationResult.rejected(
+                    "Logical JPEG reports invalid image dimensions or components.");
+        }
+        if (segmentBytes != 8 + componentCount * 3) {
+            return DcamMediaValidationResult.rejected(
+                    "Logical JPEG start-of-frame length is invalid.");
+        }
+        media.position(media.position() + segmentBytes - 8L);
+        return null;
+    }
+
+    private static boolean isJpegStandaloneMarker(int marker) {
+        return marker == 0x01 || marker == 0xd8 || marker >= 0xd0 && marker <= 0xd7;
     }
 
     private static int readJpegMarker(DcamRandomAccessMedia media) throws IOException {
@@ -167,11 +197,11 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
 
     private static int scanToNextJpegMarker(DcamRandomAccessMedia media) throws IOException {
         while (media.position() < media.size()) {
-            if (media.readUnsignedByte() != 0xff) continue;
-            int marker;
-            do { marker = media.readUnsignedByte(); } while (marker == 0xff);
-            if (marker == 0x00 || marker >= 0xd0 && marker <= 0xd7) continue;
-            return marker;
+            if (media.readUnsignedByte() == 0xff) {
+                int marker;
+                do { marker = media.readUnsignedByte(); } while (marker == 0xff);
+                if (marker != 0x00 && (marker < 0xd0 || marker > 0xd7)) return marker;
+            }
         }
         throw new IOException("Logical JPEG scan ended before the EOI marker.");
     }
@@ -189,7 +219,11 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
         } catch (RuntimeException invalid) {
             return metadataFailure(mediaKind, invalid);
         } finally {
-            try { retriever.release(); } catch (Exception ignored) { }
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
+                // Release is best effort and must not hide the validation result.
+            }
         }
     }
 
@@ -202,7 +236,11 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
         } catch (RuntimeException invalid) {
             return metadataFailure(mediaKind, invalid);
         } finally {
-            try { retriever.release(); } catch (Exception ignored) { }
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
+                // Release is best effort and must not hide the validation result.
+            }
         }
     }
 
@@ -342,7 +380,7 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
             synchronized (media) {
                 long length = media.size();
                 if (position >= length) return -1;
-                int requested = (int) Math.min((long) size, length - position);
+                int requested = (int) Math.min(size, length - position);
                 ByteBuffer target = ByteBuffer.wrap(buffer, offset, requested);
                 media.position(position);
                 int total = 0;
@@ -363,6 +401,18 @@ final class AndroidDcamMediaValidator implements DcamMediaValidator {
         }
 
         @Override public void close() {
+            // The caller owns the supplied logical media.
+        }
+    }
+
+    private static final class LogicalJpegState {
+        private int width;
+        private int height;
+        private boolean scanStarted;
+        private int pendingMarker = -1;
+
+        private boolean hasCompleteImage() {
+            return width > 0 && height > 0 && scanStarted;
         }
     }
 }

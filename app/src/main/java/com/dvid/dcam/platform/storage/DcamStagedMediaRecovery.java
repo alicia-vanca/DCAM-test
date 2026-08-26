@@ -22,8 +22,10 @@ import java.util.regex.Pattern;
 /** Conservative startup recovery. Invalid, encrypted or ambiguous artifacts remain in Temp. */
 final class DcamStagedMediaRecovery {
     private static final Pattern CONTRACT_NAME = Pattern.compile(
-            "^DCAM_[^_]+_[^_]+_[0-9]{8}_[0-9]{6}(_IMP)?(_enc)?\\.(mp4|jpg|aac|m4a)$",
+            "^DCAM_[^_]+_[^_]+_\\d{8}_\\d{6}(_IMP)?(_enc)?\\.(mp4|jpg|aac|m4a)$",
             Pattern.CASE_INSENSITIVE);
+    private static final String FILE_NOUN = " file ";
+    private static final String QUOTED_FILE_NOUN = " file '";
 
     private final DcamStorage storage;
     private final DcamMediaFinalizer finalizer;
@@ -98,6 +100,8 @@ final class DcamStagedMediaRecovery {
                 DcamStagedMediaRecovery::writeMd5Immediately, logger);
     }
 
+    // Each argument is a distinct recovery collaborator used by tests and production composition.
+    @SuppressWarnings("java:S107")
     DcamStagedMediaRecovery(
             DcamStorage storage,
             DcamMediaFinalizer finalizer,
@@ -145,184 +149,10 @@ final class DcamStagedMediaRecovery {
     }
 
     StagedMediaRecoveryReport recover(File[][] snapshots) {
-        int recovered = 0;
-        int preserved = 0;
-        int duplicates = 0;
-        Set<String> resolvedFileNames = new HashSet<>();
+        RecoveryState state = new RecoveryState();
         for (File[] candidates : snapshots) {
             for (File candidate : candidates) {
-                if (!candidate.isFile()) continue;
-                if (DcamEncryptionJournal.isMarker(candidate)) {
-                    logger.debug("Skipped encryption completion marker '"
-                            + candidate.getAbsolutePath() + "'. It is recovery metadata, not media.");
-                    continue;
-                }
-                Matcher matcher = CONTRACT_NAME.matcher(candidate.getName());
-                if (!matcher.matches()) {
-                    logger.warn("Skipped Temp file '" + candidate.getName()
-                            + "'. Reason: filename does not match the DCAM media contract. "
-                            + "File remains unchanged at '" + candidate.getAbsolutePath() + "'.", null);
-                    continue;
-                }
-                DcamFileType type = type(matcher, candidate.getName());
-                boolean encrypted = matcher.group(2) != null;
-                DcamMediaFile mediaFile = new DcamMediaFile(
-                        type, candidate.getName(), candidate, createdAt(candidate), encrypted);
-                File target = storage.finalFile(mediaFile);
-                removeIncompletePublicationCopies(candidate, target);
-                if (target.exists()) {
-                    duplicates++;
-                    if (removeRedundantStaging(type, mediaFile, target)) {
-                        resolvedFileNames.add(candidate.getName());
-                        continue;
-                    }
-                    logger.warn("Skipped recovery for staged " + mediaKind(type) + " file "
-                            + fileDescription(candidate) + ". Reason: final media already exists at '"
-                            + target.getAbsolutePath() + "'. Staged duplicate differs from final media "
-                            + "or could not be checked, so it remains in Temp and was not overwritten.",
-                            null);
-                    continue;
-                }
-                if (candidate.length() == 0L) {
-                    if (removeEmptyStaging(mediaFile)) {
-                        resolvedFileNames.add(candidate.getName());
-                    } else {
-                        preserved++;
-                    }
-                    continue;
-                }
-                boolean segmentedAesGcm;
-                try {
-                    segmentedAesGcm = encrypted
-                            && SegmentedAesGcmMediaStore.hasFamilyMagic(candidate);
-                } catch (IOException failure) {
-                    preserved++;
-                    logPreserved(type, candidate,
-                            "Could not inspect encryption format: " + message(failure) + ".");
-                    continue;
-                }
-                DcamMediaValidationResult validation;
-                if (segmentedAesGcm) {
-                    try (SegmentedAesGcmMediaStore store =
-                                 SegmentedAesGcmMediaStore.openForRecovery(
-                                         candidate, mediaEncryptionPassword.get())) {
-                        if (store.size() == 0L) {
-                            store.close();
-                            if (removeEmptyStaging(mediaFile)) {
-                                resolvedFileNames.add(candidate.getName());
-                            } else {
-                                preserved++;
-                            }
-                            continue;
-                        }
-                        if (!store.isFinalized()) {
-                            if (usesFragmentedMp4Container(type)) {
-                                logger.info("Found staged segmented-GCM " + mediaKind(type)
-                                        + " file " + fileDescription(candidate)
-                                        + ". Starting interrupted recording finalization.");
-                                DcamInterruptedMp4Finalizer.Result mp4Finalization =
-                                        interruptedMp4Finalizer.finalizeInterrupted(store);
-                                if (mp4Finalization.finalized()) {
-                                    logger.info("Finalized interrupted staged segmented-GCM "
-                                            + mediaKind(type) + " file '" + candidate.getName()
-                                            + "'. " + mp4Finalization.detail());
-                                }
-                            } else if (type == DcamFileType.AUDIO) {
-                                finalizeInterruptedAdts(store);
-                            }
-                        }
-                        validation = validator.validate(type, store);
-                        if (!validation.playable()) {
-                            preserved++;
-                            logPreserved(type, candidate,
-                                    "Playback validation failed after segmented-GCM recovery: "
-                                            + validation.detail());
-                            continue;
-                        }
-                        if (!store.isFinalized()) store.finish();
-                    } catch (IOException failure) {
-                        preserved++;
-                        logger.error("Could not recover staged segmented-GCM "
-                                + mediaKind(type) + " file " + fileDescription(candidate)
-                                + ". File remains in Temp for later recovery. Reason: "
-                                + message(failure) + ".", failure);
-                        continue;
-                    }
-                } else if (encrypted) {
-                    // Legacy encryption happens after capture writer closes. Without its journal,
-                    // content may be plaintext, ciphertext, or a partial in-place transformation.
-                    if (!DcamEncryptionJournal.isComplete(candidate)) {
-                        preserved++;
-                        logPreserved(type, candidate,
-                                "Encryption completion was not recorded. Content may be plaintext, "
-                                        + "ciphertext, or a partial in-place transformation.");
-                        continue;
-                    }
-                    validation = DcamMediaValidationResult.accepted(
-                            "Legacy encryption journal confirms transformation completed.");
-                } else {
-                    DcamInterruptedMp4Finalizer.Result mp4Finalization = null;
-                    if (usesFragmentedMp4Container(type)) {
-                        logger.info("Found staged " + mediaKind(type) + " file "
-                                + fileDescription(candidate)
-                                + ". Starting interrupted recording finalization.");
-                        try {
-                            mp4Finalization = interruptedMp4Finalizer.finalizeInterrupted(candidate);
-                            if (mp4Finalization.finalized()) {
-                                logger.info("Finalized interrupted staged " + mediaKind(type)
-                                        + " file '" + candidate.getName() + "'. "
-                                        + mp4Finalization.detail());
-                            } else {
-                                logger.info("Container finalization made no file change for staged "
-                                        + mediaKind(type) + " file '" + candidate.getName() + "'. "
-                                        + mp4Finalization.detail());
-                            }
-                        } catch (java.io.IOException failure) {
-                            preserved++;
-                            logger.error("Could not finalize staged " + mediaKind(type) + " file "
-                                    + fileDescription(candidate) + ". Reason: " + message(failure)
-                                    + ". File remains in Temp for later recovery.", failure);
-                            continue;
-                        }
-                    }
-                    validation = validator.validate(type, candidate);
-                }
-                if (!validation.playable()) {
-                    preserved++;
-                    logPreserved(type, candidate,
-                            "Playback validation failed after finalization: " + validation.detail());
-                    continue;
-                }
-                boolean createMd5 = segmentedAesGcm && shouldCreateMd5(type);
-                try {
-                    File published;
-                    if (segmentedAesGcm) {
-                        published = finalizer.finalizeCleanMedia(mediaFile);
-                        finalizer.cleanupCleanMedia(mediaFile);
-                    } else {
-                        published = finalizer.finalizeMedia(mediaFile, shouldCreateMd5(type));
-                    }
-                    DcamEncryptionJournal.clear(mediaFile);
-                    recovered++;
-                    resolvedFileNames.add(candidate.getName());
-                    logger.info("Recovered staged " + mediaKind(type) + " file '"
-                            + candidate.getName() + "'. Published to '" + published.getAbsolutePath()
-                            + "'. Validation: " + validation.detail());
-                    if (createMd5) {
-                        try {
-                            md5RetryCallback.create(published);
-                        } catch (Exception failure) {
-                            logger.error("Video MD5 failed after staged media publication. Final media remains published at '"
-                                    + published.getAbsolutePath() + "'.", failure);
-                        }
-                    }
-                } catch (Exception failure) {
-                    preserved++;
-                    logger.error("Preserved staged " + mediaKind(type) + " file "
-                            + fileDescription(candidate) + ". Reason: recovery publication failed: "
-                            + message(failure) + ". File remains in Temp for support or later recovery.",
-                            failure);
-                }
+                recoverCandidate(candidate, state);
             }
         }
         int deletedDirectories = storage.deleteEmptyRecoveryDateDirectories();
@@ -330,51 +160,300 @@ final class DcamStagedMediaRecovery {
             logger.info("Removed empty staged-media date directories after recovery. Count: "
                     + deletedDirectories + ".");
         }
-        return new StagedMediaRecoveryReport(recovered, preserved, duplicates, resolvedFileNames);
+        return state.report();
+    }
+
+    private void recoverCandidate(File candidate, RecoveryState state) {
+        if (!candidate.isFile()) return;
+        if (DcamEncryptionJournal.isMarker(candidate)) {
+            logger.debug("Skipped encryption completion marker '"
+                    + candidate.getAbsolutePath() + "'. It is recovery metadata, not media.");
+            return;
+        }
+        Matcher matcher = CONTRACT_NAME.matcher(candidate.getName());
+        if (!matcher.matches()) {
+            logger.warn("Skipped Temp file '" + candidate.getName()
+                    + "'. Reason: filename does not match the DCAM media contract. "
+                    + "File remains unchanged at '" + candidate.getAbsolutePath() + "'.", null);
+            return;
+        }
+        DcamFileType type = type(matcher);
+        DcamMediaFile mediaFile = new DcamMediaFile(
+                type, candidate.getName(), candidate, createdAt(candidate), matcher.group(2) != null);
+        File target = storage.finalFile(mediaFile);
+        removeIncompletePublicationCopies(candidate, target);
+        if (target.exists()) {
+            recoverDuplicateCandidate(type, mediaFile, target, state);
+            return;
+        }
+        if (candidate.length() == 0L) {
+            recoverEmptyCandidate(mediaFile, state);
+            return;
+        }
+        recoverNonEmptyCandidate(type, mediaFile, state);
+    }
+
+    private void recoverDuplicateCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, File target, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        state.duplicates++;
+        if (removeRedundantStaging(type, mediaFile, target)) {
+            state.markResolved(candidate);
+            return;
+        }
+        logger.warn("Skipped recovery for staged " + mediaKind(type) + FILE_NOUN
+                + fileDescription(candidate) + ". Reason: final media already exists at '"
+                + target.getAbsolutePath() + "'. Staged duplicate differs from final media "
+                + "or could not be checked, so it remains in Temp and was not overwritten.", null);
+    }
+
+    private void recoverEmptyCandidate(DcamMediaFile mediaFile, RecoveryState state) {
+        if (removeEmptyStaging(mediaFile)) {
+            state.markResolved(mediaFile.getFile());
+        } else {
+            state.preserved++;
+        }
+    }
+
+    private void recoverNonEmptyCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        boolean segmentedAesGcm;
+        try {
+            segmentedAesGcm = mediaFile.isEncrypted()
+                    && SegmentedAesGcmMediaStore.hasFamilyMagic(candidate);
+        } catch (IOException failure) {
+            state.preserved++;
+            logPreserved(type, candidate,
+                    "Could not inspect encryption format: " + message(failure) + ".");
+            return;
+        }
+        if (segmentedAesGcm) {
+            recoverSegmentedCandidate(type, mediaFile, state);
+            return;
+        }
+        if (mediaFile.isEncrypted()) {
+            recoverLegacyEncryptedCandidate(type, mediaFile, state);
+            return;
+        }
+        recoverPlainCandidate(type, mediaFile, state);
+    }
+
+    private void recoverSegmentedCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        DcamMediaValidationResult validation;
+        try (SegmentedAesGcmMediaStore store = SegmentedAesGcmMediaStore.openForRecovery(
+                candidate, mediaEncryptionPassword.get())) {
+            if (store.size() == 0L) {
+                store.close();
+                recoverEmptyCandidate(mediaFile, state);
+                return;
+            }
+            finalizeSegmentedContainerIfNeeded(type, candidate, store);
+            validation = validator.validate(type, store);
+            if (!validation.playable()) {
+                state.preserved++;
+                logPreserved(type, candidate,
+                        "Playback validation failed after segmented-GCM recovery: "
+                                + validation.detail());
+                return;
+            }
+            if (!store.isFinalized()) store.finish();
+        } catch (IOException failure) {
+            state.preserved++;
+            logger.error("Could not recover staged segmented-GCM " + mediaKind(type) + FILE_NOUN
+                    + fileDescription(candidate) + ". File remains in Temp for later recovery. Reason: "
+                    + message(failure) + ".", failure);
+            return;
+        }
+        publishRecoveredCandidate(type, mediaFile, true, validation, state);
+    }
+
+    private void finalizeSegmentedContainerIfNeeded(
+            DcamFileType type, File candidate, SegmentedAesGcmMediaStore store) throws IOException {
+        if (store.isFinalized()) return;
+        if (usesFragmentedMp4Container(type)) {
+            logger.info("Found staged segmented-GCM " + mediaKind(type) + FILE_NOUN
+                    + fileDescription(candidate) + ". Starting interrupted recording finalization.");
+            DcamInterruptedMp4Finalizer.Result mp4Finalization =
+                    interruptedMp4Finalizer.finalizeInterrupted(store);
+            if (mp4Finalization.finalized()) {
+                logger.info("Finalized interrupted staged segmented-GCM " + mediaKind(type)
+                        + QUOTED_FILE_NOUN + candidate.getName() + "'. "
+                        + mp4Finalization.detail());
+            }
+        } else if (type == DcamFileType.AUDIO) {
+            finalizeInterruptedAdts(store);
+        }
+    }
+
+    private void recoverLegacyEncryptedCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        // Legacy encryption happens after capture writer closes. Without its journal,
+        // content may be plaintext, ciphertext, or a partial in-place transformation.
+        if (!DcamEncryptionJournal.isComplete(candidate)) {
+            state.preserved++;
+            logPreserved(type, candidate,
+                    "Encryption completion was not recorded. Content may be plaintext, "
+                            + "ciphertext, or a partial in-place transformation.");
+            return;
+        }
+        publishRecoveredCandidate(type, mediaFile, false, DcamMediaValidationResult.accepted(
+                "Legacy encryption journal confirms transformation completed."), state);
+    }
+
+    private void recoverPlainCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        if (usesFragmentedMp4Container(type) && !finalizePlainContainer(type, candidate, state)) {
+            return;
+        }
+        recoverValidatedCandidate(type, mediaFile, false, validator.validate(type, candidate), state);
+    }
+
+    private boolean finalizePlainContainer(DcamFileType type, File candidate, RecoveryState state) {
+        logger.info("Found staged " + mediaKind(type) + FILE_NOUN + fileDescription(candidate)
+                + ". Starting interrupted recording finalization.");
+        try {
+            DcamInterruptedMp4Finalizer.Result mp4Finalization =
+                    interruptedMp4Finalizer.finalizeInterrupted(candidate);
+            logPlainContainerFinalization(type, candidate, mp4Finalization);
+            return true;
+        } catch (IOException failure) {
+            state.preserved++;
+            logger.error("Could not finalize staged " + mediaKind(type) + FILE_NOUN
+                    + fileDescription(candidate) + ". Reason: " + message(failure)
+                    + ". File remains in Temp for later recovery.", failure);
+            return false;
+        }
+    }
+
+    private void logPlainContainerFinalization(
+            DcamFileType type, File candidate, DcamInterruptedMp4Finalizer.Result finalization) {
+        if (finalization.finalized()) {
+            logger.info("Finalized interrupted staged " + mediaKind(type) + QUOTED_FILE_NOUN
+                    + candidate.getName() + "'. " + finalization.detail());
+        } else {
+            logger.info("Container finalization made no file change for staged " + mediaKind(type)
+                    + QUOTED_FILE_NOUN + candidate.getName() + "'. " + finalization.detail());
+        }
+    }
+
+    private void recoverValidatedCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, boolean segmentedAesGcm,
+            DcamMediaValidationResult validation, RecoveryState state) {
+        if (!validation.playable()) {
+            state.preserved++;
+            String stage = segmentedAesGcm ? "segmented-GCM recovery" : "finalization";
+            logPreserved(type, mediaFile.getFile(),
+                    "Playback validation failed after " + stage + ": " + validation.detail());
+            return;
+        }
+        publishRecoveredCandidate(type, mediaFile, segmentedAesGcm, validation, state);
+    }
+
+    private void publishRecoveredCandidate(
+            DcamFileType type, DcamMediaFile mediaFile, boolean segmentedAesGcm,
+            DcamMediaValidationResult validation, RecoveryState state) {
+        File candidate = mediaFile.getFile();
+        boolean createMd5 = segmentedAesGcm && shouldCreateMd5(type);
+        try {
+            File published = segmentedAesGcm
+                    ? publishCleanRecoveredMedia(mediaFile)
+                    : finalizer.finalizeMedia(mediaFile, shouldCreateMd5(type));
+            DcamEncryptionJournal.clear(mediaFile);
+            state.recovered++;
+            state.markResolved(candidate);
+            logger.info("Recovered staged " + mediaKind(type) + QUOTED_FILE_NOUN
+                    + candidate.getName() + "'. Published to '" + published.getAbsolutePath()
+                    + "'. Validation: " + validation.detail());
+            if (createMd5) createMd5AfterPublication(published);
+        } catch (Exception failure) {
+            state.preserved++;
+            logger.error("Preserved staged " + mediaKind(type) + FILE_NOUN
+                    + fileDescription(candidate) + ". Reason: recovery publication failed: "
+                    + message(failure) + ". File remains in Temp for support or later recovery.",
+                    failure);
+        }
+    }
+
+    private File publishCleanRecoveredMedia(DcamMediaFile mediaFile) throws IOException {
+        File published = finalizer.finalizeCleanMedia(mediaFile);
+        finalizer.cleanupCleanMedia(mediaFile);
+        return published;
+    }
+
+    private void createMd5AfterPublication(File published) {
+        try {
+            md5RetryCallback.create(published);
+        } catch (Exception failure) {
+            logger.error("Video MD5 failed after staged media publication. Final media remains published at '"
+                    + published.getAbsolutePath() + "'.", failure);
+        }
     }
 
     private static void finalizeInterruptedAdts(DcamRandomAccessMedia media) throws IOException {
         long length = media.size();
-        long offset = 0L;
-        while (offset < length) {
-            long remaining = length - offset;
-            if (remaining < 7L) break;
-            byte[] header = new byte[7];
-            media.position(offset);
-            ByteBuffer bytes = ByteBuffer.wrap(header);
-            while (bytes.hasRemaining()) {
-                int read = media.read(bytes);
-                if (read < 0) throw new IOException("Truncated AAC frame header.");
-                if (read == 0) throw new IOException("AAC frame header read stopped.");
-            }
-            int first = header[0] & 0xff;
-            int second = header[1] & 0xff;
-            if (first != 0xff || (second & 0xf6) != 0xf0) {
-                throw new IOException("AAC frame header is invalid after an authenticated frame.");
-            }
-            int headerBytes = (second & 1) == 0 ? 9 : 7;
-            int frameLength = ((header[3] & 3) << 11)
-                    | ((header[4] & 0xff) << 3)
-                    | ((header[5] & 0xe0) >>> 5);
-            if (frameLength < headerBytes || frameLength > remaining) break;
-            offset += frameLength;
-        }
-        if (offset <= 0L) {
+        long recoveredLength = completeAdtsFrameLength(media, length);
+        if (recoveredLength <= 0L) {
             throw new IOException("No complete AAC frame is available for recovery.");
         }
-        if (offset < length) media.truncate(offset);
+        if (recoveredLength < length) media.truncate(recoveredLength);
     }
+
+    private static long completeAdtsFrameLength(DcamRandomAccessMedia media, long length)
+            throws IOException {
+        long offset = 0L;
+        while (offset < length) {
+            int frameLength = completeAdtsFrameLength(media, offset, length);
+            if (frameLength == 0) return offset;
+            offset += frameLength;
+        }
+        return offset;
+    }
+
+    private static int completeAdtsFrameLength(DcamRandomAccessMedia media, long offset, long length)
+            throws IOException {
+        long remaining = length - offset;
+        if (remaining < 7L) return 0;
+        byte[] header = new byte[7];
+        readAdtsHeader(media, offset, header);
+        int first = header[0] & 0xff;
+        int second = header[1] & 0xff;
+        if (first != 0xff || (second & 0xf6) != 0xf0) {
+            throw new IOException("AAC frame header is invalid after an authenticated frame.");
+        }
+        int headerBytes = (second & 1) == 0 ? 9 : 7;
+        int frameLength = ((header[3] & 3) << 11)
+                | ((header[4] & 0xff) << 3)
+                | ((header[5] & 0xe0) >>> 5);
+        return frameLength < headerBytes || frameLength > remaining ? 0 : frameLength;
+    }
+
+    private static void readAdtsHeader(DcamRandomAccessMedia media, long offset, byte[] header)
+            throws IOException {
+        media.position(offset);
+        ByteBuffer bytes = ByteBuffer.wrap(header);
+        while (bytes.hasRemaining()) {
+            int read = media.read(bytes);
+            if (read < 0) throw new IOException("Truncated AAC frame header.");
+            if (read == 0) throw new IOException("AAC frame header read stopped.");
+        }
+    }
+
     private boolean removeEmptyStaging(DcamMediaFile mediaFile) {
         File staged = mediaFile.getFile();
         try {
             if (!Files.deleteIfExists(staged.toPath()) && staged.exists()) return false;
             storage.deleteEmptyStagingDateDirectory(mediaFile);
-            logger.info("Removed empty staged " + mediaKind(mediaFile.getType()) + " file '"
+            logger.info("Removed empty staged " + mediaKind(mediaFile.getType()) + QUOTED_FILE_NOUN
                     + staged.getName() + "'. No media data was available to recover.");
             return true;
         } catch (IOException failure) {
             logger.error("Could not remove empty staged " + mediaKind(mediaFile.getType())
-                    + " file " + fileDescription(staged)
+                    + FILE_NOUN + fileDescription(staged)
                     + ". File remains in Temp. Reason: " + message(failure) + ".", failure);
             return false;
         }
@@ -390,7 +469,7 @@ final class DcamStagedMediaRecovery {
             }
             if (!Files.deleteIfExists(staged.toPath()) && staged.exists()) return false;
             storage.deleteEmptyStagingDateDirectory(mediaFile);
-            logger.info("Removed redundant staged " + mediaKind(type) + " file '"
+            logger.info("Removed redundant staged " + mediaKind(type) + QUOTED_FILE_NOUN
                     + staged.getName() + "'. Reason: " + (empty
                     ? "staged file contained no media data"
                     : "staged audio exactly matched final media") + ". Final media remains at '"
@@ -398,7 +477,7 @@ final class DcamStagedMediaRecovery {
             return true;
         } catch (IOException failure) {
             logger.warn("Could not verify or remove redundant staged " + mediaKind(type)
-                    + " file " + fileDescription(staged) + ". Final media remains at '"
+                    + FILE_NOUN + fileDescription(staged) + ". Final media remains at '"
                     + target.getAbsolutePath() + "'. Reason: " + message(failure) + ".", failure);
             return false;
         }
@@ -465,7 +544,7 @@ final class DcamStagedMediaRecovery {
     }
 
     private void logPreserved(DcamFileType type, File candidate, String reason) {
-        logger.warn("Preserved staged " + mediaKind(type) + " file "
+        logger.warn("Preserved staged " + mediaKind(type) + FILE_NOUN
                 + fileDescription(candidate) + ". Reason: " + reason
                 + " File remains in Temp for support or later recovery.", null);
     }
@@ -502,7 +581,7 @@ final class DcamStagedMediaRecovery {
                 ? failure.getClass().getSimpleName() : detail;
     }
 
-    private static DcamFileType type(Matcher matcher, String name) {
+    private static DcamFileType type(Matcher matcher) {
         String extension = matcher.group(3).toLowerCase(Locale.ROOT);
         if ("jpg".equals(extension)) return DcamFileType.IMAGE;
         if ("aac".equals(extension)) return DcamFileType.AUDIO;
@@ -513,5 +592,21 @@ final class DcamStagedMediaRecovery {
     private static LocalDateTime createdAt(File file) {
         return LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
+    }
+
+    private static final class RecoveryState {
+        private int recovered;
+        private int preserved;
+        private int duplicates;
+        private final Set<String> resolvedFileNames = new HashSet<>();
+
+        private void markResolved(File candidate) {
+            resolvedFileNames.add(candidate.getName());
+        }
+
+        private StagedMediaRecoveryReport report() {
+            return new StagedMediaRecoveryReport(
+                    recovered, preserved, duplicates, resolvedFileNames);
+        }
     }
 }

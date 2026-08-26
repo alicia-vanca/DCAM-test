@@ -19,6 +19,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Range;
 import android.view.Surface;
+import androidx.annotation.RequiresApi;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
@@ -38,6 +39,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
@@ -55,6 +57,9 @@ public final class NativeSurfaceSharingFastProbe {
     private static final long RELEASE_TIMEOUT_MILLIS = 2_000;
     private static final String SURFACE_SOURCE_CLASSES =
             "SurfaceTexture+MediaCodec|ImageReader";
+    private static final String MAX_SHARED_SURFACE_COUNT = "maxSharedSurfaceCount";
+    private static final String DETAIL = "detail";
+    private static final String OPEN_THREAD = "open_thread";
 
     private final Context context;
     private final Logger logger;
@@ -77,9 +82,9 @@ public final class NativeSurfaceSharingFastProbe {
         OptionalInt maxSharedSurfaceCount = OptionalInt.empty();
 
         if (apiLevel < Build.VERSION_CODES.O) {
-            Result result = unavailable(cameraId, apiLevel, maxSharedSurfaceCount,
-                    pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, true),
-                    startedNanos);
+            Result result = unavailable(new ResultContext(cameraId, apiLevel,
+                    maxSharedSurfaceCount, startedNanos),
+                    pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, true));
             logComplete(result, imageProfileCount);
             return result;
         }
@@ -88,10 +93,10 @@ public final class NativeSurfaceSharingFastProbe {
             try {
                 maxSharedSurfaceCount = OptionalInt.of(maxSharedSurfaceCount());
             } catch (RuntimeException error) {
-                Result result = incomplete(cameraId, apiLevel, maxSharedSurfaceCount,
+                Result result = incomplete(new ResultContext(cameraId, apiLevel,
+                                maxSharedSurfaceCount, startedNanos),
                         List.of(), List.of(), Completion.INCOMPLETE_GLOBAL,
-                        "shared_surface_count_query:" + error.getClass().getSimpleName(),
-                        startedNanos);
+                        "shared_surface_count_query:" + error.getClass().getSimpleName());
                 logger.warn(logPrefix(cameraId)
                         + " stage=eligibility result=incomplete_global apiLevel=" + apiLevel,
                         error);
@@ -99,9 +104,9 @@ public final class NativeSurfaceSharingFastProbe {
                 return result;
             }
             if (maxSharedSurfaceCount.orElseThrow() < 2) {
-                Result result = unavailable(cameraId, apiLevel, maxSharedSurfaceCount,
-                        pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, true),
-                        startedNanos);
+                Result result = unavailable(new ResultContext(cameraId, apiLevel,
+                                maxSharedSurfaceCount, startedNanos),
+                        pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, true));
                 logComplete(result, imageProfileCount);
                 return result;
             }
@@ -109,16 +114,17 @@ public final class NativeSurfaceSharingFastProbe {
 
         try {
             if (!hasH264Encoder()) {
-                Result result = unavailable(cameraId, apiLevel, maxSharedSurfaceCount,
-                        pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, false),
-                        startedNanos);
+                Result result = unavailable(new ResultContext(cameraId, apiLevel,
+                                maxSharedSurfaceCount, startedNanos),
+                        pipelineUnavailableReason(apiLevel, maxSharedSurfaceCount, false));
                 logComplete(result, imageProfileCount);
                 return result;
             }
         } catch (RuntimeException error) {
-            Result result = incomplete(cameraId, apiLevel, maxSharedSurfaceCount,
+            Result result = incomplete(new ResultContext(cameraId, apiLevel,
+                            maxSharedSurfaceCount, startedNanos),
                     List.of(), List.of(), Completion.INCOMPLETE_GLOBAL,
-                    "encoder_catalog:" + error.getClass().getSimpleName(), startedNanos);
+                    "encoder_catalog:" + error.getClass().getSimpleName());
             logger.warn(logPrefix(cameraId)
                     + " stage=eligibility result=incomplete_global apiLevel=" + apiLevel,
                     error);
@@ -130,8 +136,9 @@ public final class NativeSurfaceSharingFastProbe {
         try {
             camera = OpenedCamera.open(context, cameraId);
         } catch (ProbeFailure failure) {
-            Result result = incomplete(cameraId, apiLevel, maxSharedSurfaceCount,
-                    List.of(), List.of(), failure.completion(), failure.detail(), startedNanos);
+            Result result = incomplete(new ResultContext(cameraId, apiLevel,
+                            maxSharedSurfaceCount, startedNanos),
+                    List.of(), List.of(), failure.completion(), failure.detail());
             logFailure(cameraId, "open", failure);
             logComplete(result, imageProfileCount);
             return result;
@@ -139,14 +146,14 @@ public final class NativeSurfaceSharingFastProbe {
 
         Result result = runMatrix(apiLevel, maxSharedSurfaceCount, cameraId,
                 videoModes, imageModes,
-                (tuple, attempt, confirmation) -> queryTuple(camera, tuple, apiLevel),
-                logger, startedNanos);
+                (tuple, attempt, confirmation) -> queryTuple(camera, tuple), startedNanos);
 
         ProbeFailure releaseFailure = camera.release();
         if (releaseFailure != null) {
-            result = incomplete(cameraId, apiLevel, maxSharedSurfaceCount,
+            result = incomplete(new ResultContext(cameraId, apiLevel,
+                            maxSharedSurfaceCount, startedNanos),
                     result.evidence().rawFastCandidates(), result.attempts(),
-                    releaseFailure.completion(), releaseFailure.detail(), startedNanos);
+                    releaseFailure.completion(), releaseFailure.detail());
             logFailure(cameraId, "release", releaseFailure);
         }
         logComplete(result, imageProfileCount);
@@ -154,95 +161,110 @@ public final class NativeSurfaceSharingFastProbe {
     }
     static Result runMatrix(int apiLevel, OptionalInt maxSharedSurfaceCount,
             CameraId cameraId, Collection<VideoMode> videoModes,
-            Collection<ImageMode> imageModes, TupleQuery query, Logger logger,
-            long startedNanos) {
-        Objects.requireNonNull(maxSharedSurfaceCount, "maxSharedSurfaceCount");
-        Objects.requireNonNull(cameraId, "cameraId");
-        Objects.requireNonNull(query, "query");
-        Objects.requireNonNull(logger, "logger");
-
+            Collection<ImageMode> imageModes, TupleQuery query, long startedNanos) {
+        MatrixContext context = new MatrixContext(apiLevel, maxSharedSurfaceCount,
+                cameraId, query, startedNanos);
         TreeSet<VideoMode> videos = immutableSorted(videoModes, "videoModes");
         TreeSet<ImageMode> images = immutableSorted(imageModes, "imageModes");
-        List<CaptureModeTuple> universe = new ArrayList<>();
-        for (VideoMode video : videos) {
-            for (ImageMode image : images) universe.add(new CaptureModeTuple(video, image));
-        }
-
-        Map<CaptureModeTuple, AttemptResult> states = new TreeMap<>();
-        List<Attempt> attempts = new ArrayList<>();
-        for (CaptureModeTuple tuple : universe) {
-            Result incomplete = attempt(cameraId, apiLevel, maxSharedSurfaceCount,
-                    tuple, 1, "initial", query, logger, states, attempts, startedNanos);
-            if (incomplete != null) return incomplete;
-        }
-
-        Set<CaptureModeTuple> confirmed = new HashSet<>();
-        for (VideoMode video : videos) {
-            List<CaptureModeTuple> row = universe.stream()
-                    .filter(tuple -> tuple.videoMode().equals(video))
-                    .collect(java.util.stream.Collectors.toList());
-            if (!allRejected(row, states)) continue;
-            Result incomplete = confirmRejected(cameraId, apiLevel, maxSharedSurfaceCount,
-                    row, "fps_row", query, logger, states, attempts, confirmed, startedNanos);
-            if (incomplete != null) return incomplete;
-        }
-
-        TreeSet<StandardResolution> resolutions = new TreeSet<>();
-        for (VideoMode video : videos) resolutions.add(video.resolution());
-        for (StandardResolution resolution : resolutions) {
-            List<CaptureModeTuple> mode = universe.stream()
-                    .filter(tuple -> tuple.videoMode().resolution().equals(resolution))
-                    .collect(java.util.stream.Collectors.toList());
-            if (!allRejected(mode, states)) continue;
-            Result incomplete = confirmRejected(cameraId, apiLevel, maxSharedSurfaceCount,
-                    mode, "video_mode", query, logger, states, attempts, confirmed, startedNanos);
-            if (incomplete != null) return incomplete;
-        }
-
-        return complete(cameraId, apiLevel, maxSharedSurfaceCount,
-                supportedCandidates(cameraId, states), attempts, startedNanos);
+        List<CaptureModeTuple> universe = universe(videos, images);
+        Result incomplete = runInitialAttempts(context, universe);
+        if (incomplete != null) return incomplete;
+        incomplete = confirmFpsRows(context, videos, universe);
+        if (incomplete != null) return incomplete;
+        incomplete = confirmVideoModes(context, videos, universe);
+        if (incomplete != null) return incomplete;
+        return complete(context, supportedCandidates(context.cameraId, context.states));
     }
 
-    private static Result confirmRejected(CameraId cameraId, int apiLevel,
-            OptionalInt maxSharedSurfaceCount, List<CaptureModeTuple> tuples,
-            String confirmation, TupleQuery query, Logger logger,
-            Map<CaptureModeTuple, AttemptResult> states, List<Attempt> attempts,
-            Set<CaptureModeTuple> confirmed, long startedNanos) {
-        for (CaptureModeTuple tuple : tuples) {
-            if (states.get(tuple) != AttemptResult.REJECTED || !confirmed.add(tuple)) continue;
-            Result incomplete = attempt(cameraId, apiLevel, maxSharedSurfaceCount,
-                    tuple, 2, confirmation, query, logger, states, attempts, startedNanos);
+    private static List<CaptureModeTuple> universe(
+            Collection<VideoMode> videos, Collection<ImageMode> images) {
+        List<CaptureModeTuple> result = new ArrayList<>();
+        for (VideoMode video : videos) {
+            for (ImageMode image : images) result.add(new CaptureModeTuple(video, image));
+        }
+        return result;
+    }
+
+    private static Result runInitialAttempts(MatrixContext context,
+            List<CaptureModeTuple> universe) {
+        for (CaptureModeTuple tuple : universe) {
+            Result incomplete = attempt(context, tuple, 1, "initial");
             if (incomplete != null) return incomplete;
         }
         return null;
     }
 
-    private static Result attempt(CameraId cameraId, int apiLevel,
-            OptionalInt maxSharedSurfaceCount, CaptureModeTuple tuple, int attempt,
-            String confirmation, TupleQuery query, Logger logger,
-            Map<CaptureModeTuple, AttemptResult> states, List<Attempt> attempts,
-            long startedNanos) {
+    private static Result confirmFpsRows(MatrixContext context,
+            Collection<VideoMode> videos, List<CaptureModeTuple> universe) {
+        for (VideoMode video : videos) {
+            List<CaptureModeTuple> row = tuplesForVideo(universe, video);
+            if (!allRejected(row, context.states)) continue;
+            Result incomplete = confirmRejected(context, row, "fps_row");
+            if (incomplete != null) return incomplete;
+        }
+        return null;
+    }
+
+    private static Result confirmVideoModes(MatrixContext context,
+            Collection<VideoMode> videos, List<CaptureModeTuple> universe) {
+        TreeSet<StandardResolution> resolutions = new TreeSet<>();
+        for (VideoMode video : videos) resolutions.add(video.resolution());
+        for (StandardResolution resolution : resolutions) {
+            List<CaptureModeTuple> mode = tuplesForResolution(universe, resolution);
+            if (!allRejected(mode, context.states)) continue;
+            Result incomplete = confirmRejected(context, mode, "video_mode");
+            if (incomplete != null) return incomplete;
+        }
+        return null;
+    }
+
+    private static List<CaptureModeTuple> tuplesForVideo(
+            List<CaptureModeTuple> universe, VideoMode video) {
+        return universe.stream()
+                .filter(tuple -> tuple.videoMode().equals(video))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private static List<CaptureModeTuple> tuplesForResolution(
+            List<CaptureModeTuple> universe, StandardResolution resolution) {
+        return universe.stream()
+                .filter(tuple -> tuple.videoMode().resolution().equals(resolution))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private static Result confirmRejected(MatrixContext context,
+            List<CaptureModeTuple> tuples, String confirmation) {
+        for (CaptureModeTuple tuple : tuples) {
+            if (context.states.get(tuple) != AttemptResult.REJECTED
+                    || !context.confirmed.add(tuple)) continue;
+            Result incomplete = attempt(context, tuple, 2, confirmation);
+            if (incomplete != null) return incomplete;
+        }
+        return null;
+    }
+
+    private static Result attempt(MatrixContext context, CaptureModeTuple tuple,
+            int attempt, String confirmation) {
         long attemptStartedNanos = System.nanoTime();
         ProbeDecision decision = Objects.requireNonNull(
-                query.query(tuple, attempt, confirmation), "probe decision");
+                context.query.query(tuple, attempt, confirmation), "probe decision");
         long elapsedMillis = elapsedMillis(attemptStartedNanos);
         Attempt recorded = new Attempt(tuple, decision.result(), attempt, confirmation,
                 decision.cameraOutputCount(), decision.sharedSurfaceCount(),
                 decision.surfaceSourceClasses(), elapsedMillis, decision.detail());
-        attempts.add(recorded);
+        context.attempts.add(recorded);
 
         if (decision.result() == AttemptResult.SUPPORTED
                 || decision.result() == AttemptResult.REJECTED) {
-            states.put(tuple, decision.result());
+            context.states.put(tuple, decision.result());
             return null;
         }
-        return incomplete(cameraId, apiLevel, maxSharedSurfaceCount,
-                supportedCandidates(cameraId, states), attempts,
-                completion(decision.result()), decision.detail(), startedNanos);
+        return incomplete(context.resultContext,
+                supportedCandidates(context.cameraId, context.states), context.attempts,
+                completion(decision.result()), decision.detail());
     }
 
-    private ProbeDecision queryTuple(OpenedCamera camera, CaptureModeTuple tuple,
-            int apiLevel) {
+    private ProbeDecision queryTuple(OpenedCamera camera, CaptureModeTuple tuple) {
         TupleResources resources;
         try {
             camera.ensureAvailable();
@@ -261,7 +283,7 @@ public final class NativeSurfaceSharingFastProbe {
 
         ProbeDecision decision;
         try {
-            boolean supported = apiLevel >= Build.VERSION_CODES.P
+            boolean supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                     ? camera.supports(resources.outputs())
                     : camera.configures(resources.outputs());
             camera.ensureAvailable();
@@ -309,37 +331,32 @@ public final class NativeSurfaceSharingFastProbe {
         }
         return result;
     }
-    private static Result complete(CameraId cameraId, int apiLevel,
-            OptionalInt maxSharedSurfaceCount, Collection<CandidateKey> candidates,
-            Collection<Attempt> attempts, long startedNanos) {
-        return result(cameraId, PipelineAvailability.AVAILABLE, Completion.COMPLETE,
-                apiLevel, maxSharedSurfaceCount, candidates, attempts,
-                "matrix_complete", startedNanos);
+    private static Result complete(MatrixContext context,
+            Collection<CandidateKey> candidates) {
+        return result(context.resultContext, PipelineAvailability.AVAILABLE,
+                Completion.COMPLETE, candidates, context.attempts, "matrix_complete");
     }
 
-    private static Result unavailable(CameraId cameraId, int apiLevel,
-            OptionalInt maxSharedSurfaceCount, String detail, long startedNanos) {
-        return result(cameraId, PipelineAvailability.UNAVAILABLE,
-                Completion.PIPELINE_UNAVAILABLE, apiLevel, maxSharedSurfaceCount,
-                List.of(), List.of(), detail, startedNanos);
+    private static Result unavailable(ResultContext context, String detail) {
+        return result(context, PipelineAvailability.UNAVAILABLE,
+                Completion.PIPELINE_UNAVAILABLE, List.of(), List.of(), detail);
     }
 
-    private static Result incomplete(CameraId cameraId, int apiLevel,
-            OptionalInt maxSharedSurfaceCount, Collection<CandidateKey> candidates,
-            Collection<Attempt> attempts, Completion completion, String detail,
-            long startedNanos) {
-        return result(cameraId, PipelineAvailability.UNKNOWN, completion,
-                apiLevel, maxSharedSurfaceCount, candidates, attempts, detail, startedNanos);
-    }
-
-    private static Result result(CameraId cameraId, PipelineAvailability availability,
-            Completion completion, int apiLevel, OptionalInt maxSharedSurfaceCount,
+    private static Result incomplete(ResultContext context,
             Collection<CandidateKey> candidates, Collection<Attempt> attempts,
-            String detail, long startedNanos) {
-        PipelineEvidence evidence = new PipelineEvidence(cameraId, VideoCodec.H264,
+            Completion completion, String detail) {
+        return result(context, PipelineAvailability.UNKNOWN, completion,
+                candidates, attempts, detail);
+    }
+
+    private static Result result(ResultContext context, PipelineAvailability availability,
+            Completion completion, Collection<CandidateKey> candidates,
+            Collection<Attempt> attempts, String detail) {
+        PipelineEvidence evidence = new PipelineEvidence(context.cameraId, VideoCodec.H264,
                 PIPELINE_ID, availability, candidates, List.of());
-        return new Result(evidence, completion, apiLevel, maxSharedSurfaceCount,
-                List.copyOf(attempts), elapsedMillis(startedNanos), detail);
+        return new Result(evidence, completion, context.apiLevel,
+                context.maxSharedSurfaceCount, List.copyOf(attempts),
+                elapsedMillis(context.startedNanos), detail);
     }
 
     private static Completion completion(AttemptResult result) {
@@ -354,7 +371,7 @@ public final class NativeSurfaceSharingFastProbe {
 
     static String pipelineUnavailableReason(int apiLevel,
             OptionalInt maxSharedSurfaceCount, boolean h264EncoderAvailable) {
-        Objects.requireNonNull(maxSharedSurfaceCount, "maxSharedSurfaceCount");
+        Objects.requireNonNull(maxSharedSurfaceCount, MAX_SHARED_SURFACE_COUNT);
         if (apiLevel < Build.VERSION_CODES.O) return "api_below_26";
         if (apiLevel >= Build.VERSION_CODES.P
                 && maxSharedSurfaceCount.isPresent()
@@ -364,6 +381,7 @@ public final class NativeSurfaceSharingFastProbe {
         return h264EncoderAvailable ? null : "h264_encoder_unavailable";
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     private int maxSharedSurfaceCount() {
         SurfaceTexture texture = new SurfaceTexture(false);
         texture.setDefaultBufferSize(1, 1);
@@ -464,21 +482,6 @@ public final class NativeSurfaceSharingFastProbe {
         };
     }
 
-    private static ProbeFailure cameraStateFailure(String stage, int errorCode) {
-        return switch (errorCode) {
-            case CameraDevice.StateCallback.ERROR_CAMERA_DISABLED -> ProbeFailure.blocked(
-                    stage + ":camera_disabled", null);
-            case CameraDevice.StateCallback.ERROR_CAMERA_IN_USE,
-                    CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ->
-                    ProbeFailure.transientFailure(stage + ":camera_error_" + errorCode, null);
-            default -> ProbeFailure.global(stage + ":camera_error_" + errorCode, null);
-        };
-    }
-
-    private static ProbeFailure firstFailure(ProbeFailure first, ProbeFailure second) {
-        return first == null ? second : first;
-    }
-
     public enum Completion {
         COMPLETE,
         PIPELINE_UNAVAILABLE,
@@ -509,15 +512,15 @@ public final class NativeSurfaceSharingFastProbe {
             Objects.requireNonNull(tuple, "tuple");
             Objects.requireNonNull(result, "result");
             if (attempt <= 0) throw new IllegalArgumentException("attempt must be positive");
-            confirmation = required(confirmation, "confirmation");
+            required(confirmation, "confirmation");
             if (cameraOutputCount < 0 || sharedSurfaceCount < 0) {
                 throw new IllegalArgumentException("surface counts must not be negative");
             }
-            surfaceSourceClasses = required(surfaceSourceClasses, "surfaceSourceClasses");
+            required(surfaceSourceClasses, "surfaceSourceClasses");
             if (elapsedMillis < 0) {
                 throw new IllegalArgumentException("elapsedMillis must not be negative");
             }
-            detail = required(detail, "detail");
+            required(detail, DETAIL);
         }
     }
 
@@ -533,12 +536,12 @@ public final class NativeSurfaceSharingFastProbe {
             Objects.requireNonNull(evidence, "evidence");
             Objects.requireNonNull(completion, "completion");
             if (apiLevel <= 0) throw new IllegalArgumentException("apiLevel must be positive");
-            Objects.requireNonNull(maxSharedSurfaceCount, "maxSharedSurfaceCount");
+            Objects.requireNonNull(maxSharedSurfaceCount, MAX_SHARED_SURFACE_COUNT);
             attempts = List.copyOf(Objects.requireNonNull(attempts, "attempts"));
             if (elapsedMillis < 0) {
                 throw new IllegalArgumentException("elapsedMillis must not be negative");
             }
-            detail = required(detail, "detail");
+            required(detail, DETAIL);
         }
 
         public boolean complete() { return completion == Completion.COMPLETE; }
@@ -547,6 +550,33 @@ public final class NativeSurfaceSharingFastProbe {
     @FunctionalInterface
     interface TupleQuery {
         ProbeDecision query(CaptureModeTuple tuple, int attempt, String confirmation);
+    }
+
+    private record ResultContext(
+            CameraId cameraId,
+            int apiLevel,
+            OptionalInt maxSharedSurfaceCount,
+            long startedNanos) {
+    }
+
+    private static final class MatrixContext {
+        private final ResultContext resultContext;
+        private final CameraId cameraId;
+        private final TupleQuery query;
+        private final Map<CaptureModeTuple, AttemptResult> states = new TreeMap<>();
+        private final List<Attempt> attempts = new ArrayList<>();
+        private final Set<CaptureModeTuple> confirmed = new HashSet<>();
+
+        private MatrixContext(int apiLevel, OptionalInt maxSharedSurfaceCount,
+                CameraId cameraId, TupleQuery query, long startedNanos) {
+            OptionalInt checkedMaxSharedSurfaceCount = Objects.requireNonNull(
+                    maxSharedSurfaceCount, MAX_SHARED_SURFACE_COUNT);
+            this.cameraId = Objects.requireNonNull(cameraId, "cameraId");
+            this.query = Objects.requireNonNull(query, "query");
+            this.resultContext = new ResultContext(this.cameraId, apiLevel,
+                    checkedMaxSharedSurfaceCount,
+                    startedNanos);
+        }
     }
 
     record ProbeDecision(
@@ -560,8 +590,8 @@ public final class NativeSurfaceSharingFastProbe {
             if (cameraOutputCount < 0 || sharedSurfaceCount < 0) {
                 throw new IllegalArgumentException("surface counts must not be negative");
             }
-            surfaceSourceClasses = required(surfaceSourceClasses, "surfaceSourceClasses");
-            detail = required(detail, "detail");
+            required(surfaceSourceClasses, "surfaceSourceClasses");
+            required(detail, DETAIL);
         }
 
         static ProbeDecision supported(String detail) {
@@ -657,20 +687,75 @@ public final class NativeSurfaceSharingFastProbe {
             this.closed = closed;
         }
 
+        private static ProbeFailure firstFailure(ProbeFailure first, ProbeFailure second) {
+            return first == null ? second : first;
+        }
+
         private static OpenedCamera open(Context context, CameraId cameraId) throws ProbeFailure {
             CameraManager manager = context.getSystemService(CameraManager.class);
             if (manager == null) throw ProbeFailure.global("open:camera_manager_unavailable", null);
 
-            HandlerThread thread = new HandlerThread("dcam-native-fast-" + cameraId.value());
-            thread.start();
-            Handler handler = new Handler(thread.getLooper());
-            CountDownLatch opened = new CountDownLatch(1);
-            CountDownLatch closed = new CountDownLatch(1);
-            OpenGuard<CameraDevice> guard = new OpenGuard<>();
-            AtomicReference<ProbeFailure> failure = new AtomicReference<>();
-            boolean requestSubmitted = false;
+            OpenRequest request = new OpenRequest(cameraId);
             try {
-                manager.openCamera(cameraId.value(), new CameraDevice.StateCallback() {
+                manager.openCamera(cameraId.value(), request.callback(), request.handler);
+                request.requestSubmitted = true;
+                return request.awaitOpened();
+            } catch (SecurityException error) {
+                return failOpen(request, ProbeFailure.blocked("open:camera_permission", error));
+            } catch (CameraAccessException error) {
+                return failOpen(request, cameraAccessFailure("open", error));
+            } catch (InterruptedException error) {
+                return failOpenInterrupted(request, error);
+            } catch (RuntimeException error) {
+                return failOpen(request,
+                        ProbeFailure.global("open:" + error.getClass().getSimpleName(), error));
+            }
+        }
+
+        private static OpenedCamera failOpen(OpenRequest request, ProbeFailure failure)
+                throws ProbeFailure {
+            ProbeFailure cleanup = request.cleanupAfterFailure();
+            if (cleanup != null) throw cleanup;
+            throw failure;
+        }
+
+        private static OpenedCamera failOpenInterrupted(OpenRequest request,
+                InterruptedException error) throws ProbeFailure {
+            ProbeFailure cleanup = request.cleanupAfterFailure();
+            Thread.currentThread().interrupt();
+            if (cleanup != null) throw cleanup;
+            throw ProbeFailure.transientFailure("open:interrupted", error);
+        }
+
+        private static final class OpenRequest {
+            private final HandlerThread thread;
+            private final Handler handler;
+            private final CountDownLatch opened = new CountDownLatch(1);
+            private final CountDownLatch closed = new CountDownLatch(1);
+            private final OpenGuard<CameraDevice> guard = new OpenGuard<>();
+            private final AtomicReference<ProbeFailure> failure = new AtomicReference<>();
+            private boolean requestSubmitted;
+
+            private OpenRequest(CameraId cameraId) {
+                thread = new HandlerThread("dcam-native-fast-" + cameraId.value());
+                thread.start();
+                handler = new Handler(thread.getLooper());
+            }
+
+            private static ProbeFailure cameraStateFailure(String stage, int errorCode) {
+                return switch (errorCode) {
+                    case CameraDevice.StateCallback.ERROR_CAMERA_DISABLED -> ProbeFailure.blocked(
+                            stage + ":camera_disabled", null);
+                    case CameraDevice.StateCallback.ERROR_CAMERA_IN_USE,
+                            CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE ->
+                            ProbeFailure.transientFailure(
+                                    stage + ":camera_error_" + errorCode, null);
+                    default -> ProbeFailure.global(stage + ":camera_error_" + errorCode, null);
+                };
+            }
+
+            private CameraDevice.StateCallback callback() {
+                return new CameraDevice.StateCallback() {
                     @Override public void onOpened(CameraDevice value) {
                         if (!guard.accept(value)) value.close();
                         opened.countDown();
@@ -694,69 +779,53 @@ public final class NativeSurfaceSharingFastProbe {
                         closed.countDown();
                         if (guard.abandoned()) thread.quitSafely();
                     }
-                }, handler);
-                requestSubmitted = true;
+                };
+            }
+
+            private OpenedCamera awaitOpened() throws ProbeFailure, InterruptedException {
                 if (!opened.await(OPEN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                    ProbeFailure cleanup = abandonOpen(guard, closed, thread);
+                    ProbeFailure cleanup = abandonOpen();
                     if (cleanup != null) throw cleanup;
                     throw ProbeFailure.transientFailure("open:timeout", null);
                 }
                 CameraDevice openedCamera = guard.value();
                 ProbeFailure openFailure = failure.get();
                 if (openedCamera == null || openFailure != null) {
-                    ProbeFailure cleanup = abandonOpen(guard, closed, thread);
+                    ProbeFailure cleanup = abandonOpen();
                     if (cleanup != null) throw cleanup;
                     throw openFailure == null
                             ? ProbeFailure.global("open:unknown_failure", null)
                             : openFailure;
                 }
                 return new OpenedCamera(openedCamera, thread, handler, failure, closed);
-            } catch (SecurityException error) {
-                ProbeFailure cleanup = requestSubmitted
-                        ? abandonOpen(guard, closed, thread)
-                        : stopThread(thread, "open_thread");
-                if (cleanup != null) throw cleanup;
-                throw ProbeFailure.blocked("open:camera_permission", error);
-            } catch (CameraAccessException error) {
-                ProbeFailure cleanup = requestSubmitted
-                        ? abandonOpen(guard, closed, thread)
-                        : stopThread(thread, "open_thread");
-                if (cleanup != null) throw cleanup;
-                throw cameraAccessFailure("open", error);
-            } catch (InterruptedException error) {
-                ProbeFailure cleanup = requestSubmitted
-                        ? abandonOpen(guard, closed, thread)
-                        : stopThread(thread, "open_thread");
-                Thread.currentThread().interrupt();
-                if (cleanup != null) throw cleanup;
-                throw ProbeFailure.transientFailure("open:interrupted", error);
-            } catch (RuntimeException error) {
-                ProbeFailure cleanup = requestSubmitted
-                        ? abandonOpen(guard, closed, thread)
-                        : stopThread(thread, "open_thread");
-                if (cleanup != null) throw cleanup;
-                throw ProbeFailure.global("open:" + error.getClass().getSimpleName(), error);
             }
-        }
 
-        private static ProbeFailure abandonOpen(OpenGuard<CameraDevice> guard,
-                CountDownLatch closed, HandlerThread thread) {
-            ProbeFailure failure = null;
-            CameraDevice owned = guard.abandon();
-            if (owned != null) {
-                try {
-                    owned.close();
-                } catch (RuntimeException error) {
-                    failure = ProbeFailure.transientFailure(
-                            "open_cleanup:" + error.getClass().getSimpleName(), error);
+            private ProbeFailure cleanupAfterFailure() {
+                return requestSubmitted
+                        ? abandonOpen()
+                        : stopThread(thread, OPEN_THREAD);
+            }
+
+            private ProbeFailure abandonOpen() {
+                ProbeFailure cleanupFailure = null;
+                CameraDevice owned = guard.abandon();
+                if (owned != null) {
+                    try {
+                        owned.close();
+                    } catch (RuntimeException error) {
+                        cleanupFailure = ProbeFailure.transientFailure(
+                                "open_cleanup:" + error.getClass().getSimpleName(), error);
+                    }
                 }
+                if (closed.getCount() == 0) {
+                    cleanupFailure = firstFailure(
+                            cleanupFailure, stopThread(thread, OPEN_THREAD));
+                }
+                return cleanupFailure;
             }
-            if (closed.getCount() == 0) {
-                failure = firstFailure(failure, stopThread(thread, "open_thread"));
-            }
-            return failure;
         }
 
+        @RequiresApi(Build.VERSION_CODES.Q)
         private boolean supports(List<OutputConfiguration> outputs)
                 throws CameraAccessException, ProbeFailure {
             ensureAvailable();
@@ -765,8 +834,12 @@ public final class NativeSurfaceSharingFastProbe {
                     outputs,
                     command -> handler.post(command),
                     new CameraCaptureSession.StateCallback() {
-                        @Override public void onConfigured(CameraCaptureSession session) { }
-                        @Override public void onConfigureFailed(CameraCaptureSession session) { }
+                        @Override public void onConfigured(CameraCaptureSession session) {
+                            // The support query does not create a live session.
+                        }
+                        @Override public void onConfigureFailed(CameraCaptureSession session) {
+                            // The support query does not create a live session.
+                        }
                     });
             return camera.isSessionConfigurationSupported(configuration);
         }
@@ -823,21 +896,21 @@ public final class NativeSurfaceSharingFastProbe {
         }
 
         private ProbeFailure release() {
-            ProbeFailure failure = null;
+            ProbeFailure releaseFailure = null;
             try {
                 camera.close();
                 if (!closed.await(RELEASE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-                    failure = ProbeFailure.transientFailure(
+                    releaseFailure = ProbeFailure.transientFailure(
                             "release:camera_close_timeout", null);
                 }
             } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
-                failure = ProbeFailure.transientFailure("release:interrupted", error);
+                releaseFailure = ProbeFailure.transientFailure("release:interrupted", error);
             } catch (RuntimeException error) {
-                failure = ProbeFailure.transientFailure(
+                releaseFailure = ProbeFailure.transientFailure(
                         "release:" + error.getClass().getSimpleName(), error);
             }
-            return firstFailure(failure, stopThread(thread, "release_thread"));
+            return firstFailure(releaseFailure, stopThread(thread, "release_thread"));
         }
 
         private static ProbeFailure stopThread(HandlerThread thread, String detail) {
@@ -941,29 +1014,39 @@ public final class NativeSurfaceSharingFastProbe {
             int framesPerSecond = videoMode.framesPerSecond();
             for (MediaCodecInfo codec : new MediaCodecList(MediaCodecList.ALL_CODECS)
                     .getCodecInfos()) {
-                if (!codec.isEncoder()) continue;
-                MediaCodecInfo.CodecCapabilities capabilities;
-                try {
-                    capabilities = codec.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
-                } catch (IllegalArgumentException ignored) {
-                    continue;
-                }
-                MediaCodecInfo.VideoCapabilities video = capabilities.getVideoCapabilities();
-                if (video == null) continue;
-                try {
-                    if (!video.areSizeAndRateSupported(
-                            width, height, framesPerSecond)) continue;
-                } catch (IllegalArgumentException ignored) {
-                    continue;
-                }
-                Range<Integer> bitrates = video.getBitrateRange();
-                long target = Math.max(1L,
-                        (long) width * height * framesPerSecond / 4L);
-                int bitrate = (int) Math.max(bitrates.getLower(),
-                        Math.min((long) bitrates.getUpper(), target));
-                return new EncoderSelection(codec.getName(), bitrate);
+                Optional<EncoderSelection> selection = supportedEncoderSelection(
+                        codec, width, height, framesPerSecond);
+                if (selection.isPresent()) return selection.orElseThrow();
             }
             throw new TupleRejected("encoder_setup:no_matching_h264_encoder");
+        }
+
+        private static Optional<EncoderSelection> supportedEncoderSelection(
+                MediaCodecInfo codec, int width, int height, int framesPerSecond) {
+            if (!codec.isEncoder()) return Optional.empty();
+            MediaCodecInfo.CodecCapabilities capabilities;
+            try {
+                capabilities = codec.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC);
+            } catch (IllegalArgumentException ignored) {
+                return Optional.empty();
+            }
+            MediaCodecInfo.VideoCapabilities video = capabilities.getVideoCapabilities();
+            if (video == null) return Optional.empty();
+            try {
+                if (!video.areSizeAndRateSupported(width, height, framesPerSecond)) {
+                    return Optional.empty();
+                }
+            } catch (IllegalArgumentException ignored) {
+                return Optional.empty();
+            }
+            Range<Integer> bitrates = video.getBitrateRange();
+            long target = (long) width * height * framesPerSecond / 4L;
+            if (target < 1L) target = 1L;
+            long upperBoundedTarget = target > bitrates.getUpper()
+                    ? bitrates.getUpper() : target;
+            long boundedTarget = upperBoundedTarget < bitrates.getLower()
+                    ? bitrates.getLower() : upperBoundedTarget;
+            return Optional.of(new EncoderSelection(codec.getName(), (int) boundedTarget));
         }
 
         private List<OutputConfiguration> outputs() { return outputs; }
@@ -980,34 +1063,63 @@ public final class NativeSurfaceSharingFastProbe {
 
         private static void release(Surface previewSurface, SurfaceTexture previewTexture,
                 Surface encoderSurface, MediaCodec encoder, ImageReader imageReader) {
-            RuntimeException failure = null;
-            if (previewSurface != null) {
-                try { previewSurface.release(); }
-                catch (RuntimeException error) { failure = error; }
-            }
-            if (previewTexture != null) {
-                try { previewTexture.release(); }
-                catch (RuntimeException error) { if (failure == null) failure = error; }
-            }
-            if (encoderSurface != null) {
-                try { encoderSurface.release(); }
-                catch (RuntimeException error) { if (failure == null) failure = error; }
-            }
-            if (encoder != null) {
-                try { encoder.release(); }
-                catch (RuntimeException error) { if (failure == null) failure = error; }
-            }
-            if (imageReader != null) {
-                try { imageReader.close(); }
-                catch (RuntimeException error) { if (failure == null) failure = error; }
-            }
+            RuntimeException failure = release(previewSurface);
+            failure = firstRuntimeFailure(failure, release(previewTexture));
+            failure = firstRuntimeFailure(failure, release(encoderSurface));
+            failure = firstRuntimeFailure(failure, release(encoder));
+            failure = firstRuntimeFailure(failure, release(imageReader));
             if (failure != null) throw failure;
+        }
+
+        private static RuntimeException release(Surface surface) {
+            if (surface == null) return null;
+            try {
+                surface.release();
+                return null;
+            } catch (RuntimeException error) {
+                return error;
+            }
+        }
+
+        private static RuntimeException release(SurfaceTexture texture) {
+            if (texture == null) return null;
+            try {
+                texture.release();
+                return null;
+            } catch (RuntimeException error) {
+                return error;
+            }
+        }
+
+        private static RuntimeException release(MediaCodec encoder) {
+            if (encoder == null) return null;
+            try {
+                encoder.release();
+                return null;
+            } catch (RuntimeException error) {
+                return error;
+            }
+        }
+
+        private static RuntimeException release(ImageReader imageReader) {
+            if (imageReader == null) return null;
+            try {
+                imageReader.close();
+                return null;
+            } catch (RuntimeException error) {
+                return error;
+            }
+        }
+
+        private static RuntimeException firstRuntimeFailure(
+                RuntimeException first, RuntimeException second) {
+            return first == null ? second : first;
         }
     }
 
     private record EncoderSelection(String name, int bitrate) {
         private EncoderSelection {
-            name = required(name, "name");
+            required(name, "name");
             if (bitrate <= 0) throw new IllegalArgumentException("bitrate must be positive");
         }
     }

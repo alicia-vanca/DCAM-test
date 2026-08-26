@@ -15,6 +15,14 @@ final class CaptureStorageCapacityPolicyTest {
                 CaptureStorageCapacityPolicy.MIN_NEW_CAPTURE_AVAILABLE_BYTES);
     }
 
+    @Test void runtimeHardFreeSpaceFloorStopsOnlyBelowThreshold() {
+        long floor = CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES;
+
+        assertFalse(CaptureStorageCapacityPolicy.isBelowCaptureSafetyFloor(floor + 1L));
+        assertFalse(CaptureStorageCapacityPolicy.isBelowCaptureSafetyFloor(floor));
+        assertTrue(CaptureStorageCapacityPolicy.isBelowCaptureSafetyFloor(floor - 1L));
+    }
+
     @Test void rejectsUnavailableUnwritableAndLowCapacityStorage() {
         CaptureStorageCheck unavailable = policy.check(false, true, 0L);
         CaptureStorageCheck unwritable = policy.check(true, false, 0L);

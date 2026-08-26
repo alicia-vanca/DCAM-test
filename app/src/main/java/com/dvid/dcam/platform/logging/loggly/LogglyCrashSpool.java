@@ -11,6 +11,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,7 +29,9 @@ public final class LogglyCrashSpool {
     private static final long RETRY_DELAY_MS = 10_000L;
     private static final Object UPLOAD_LOCK = new Object();
 
-    private LogglyCrashSpool() { }
+    private LogglyCrashSpool() {
+        // Static utility class.
+    }
 
     public static boolean enqueue(Context context, String payload) {
         if (context == null || payload == null || payload.isBlank()) return false;
@@ -84,29 +87,38 @@ public final class LogglyCrashSpool {
         Long retryAtMillis = null;
         for (File file : pending) {
             if (uploadStopped.getAsBoolean()) {
-                return retryAtMillis == null
-                        ? System.currentTimeMillis() + RETRY_DELAY_MS : retryAtMillis;
+                return nextRetryAt(retryAtMillis);
             }
             String payload;
             try {
                 payload = read(file);
             } catch (IOException error) {
                 Log.e(TAG, "Could not read crash spool " + file.getName(), error);
-                retryAtMillis = retryAtMillis == null
-                        ? System.currentTimeMillis() + RETRY_DELAY_MS : retryAtMillis;
+                retryAtMillis = nextRetryAt(retryAtMillis);
                 continue;
             }
             String failure = sender.apply(payload);
             if (failure != null) {
-                retryAtMillis = retryAtMillis == null
-                        ? System.currentTimeMillis() + RETRY_DELAY_MS : retryAtMillis;
-                continue;
+                retryAtMillis = nextRetryAt(retryAtMillis);
+            } else {
+                retryAtMillis = deleteDelivered(file, retryAtMillis);
             }
-            if (!file.delete() && file.exists()) {
-                Log.w(TAG, "Could not delete delivered crash spool " + file.getName());
-                retryAtMillis = retryAtMillis == null
-                        ? System.currentTimeMillis() + RETRY_DELAY_MS : retryAtMillis;
-            }
+        }
+        return retryAtMillis;
+    }
+
+    private static Long nextRetryAt(Long retryAtMillis) {
+        return retryAtMillis == null ? System.currentTimeMillis() + RETRY_DELAY_MS : retryAtMillis;
+    }
+
+    private static Long deleteDelivered(File file, Long retryAtMillis) {
+        try {
+            Files.delete(file.toPath());
+        } catch (NoSuchFileException ignored) {
+            // Another process already removed the delivered spool file.
+        } catch (IOException error) {
+            Log.w(TAG, "Could not delete delivered crash spool " + file.getName(), error);
+            return nextRetryAt(retryAtMillis);
         }
         return retryAtMillis;
     }
@@ -139,10 +151,22 @@ public final class LogglyCrashSpool {
         List<File> files = pendingFiles(directory);
         for (int index = 0; index < files.size() - MAX_PENDING_FILES; index++) {
             File file = files.get(index);
-            if (!file.delete() && file.exists()) {
-                Log.w(TAG, "Could not prune crash spool " + file.getName());
+            if (!deletePruned(file)) {
                 return;
             }
+        }
+    }
+
+    private static boolean deletePruned(File file) {
+        try {
+            Files.delete(file.toPath());
+            return true;
+        } catch (NoSuchFileException ignored) {
+            // Another process already removed this old spool file.
+            return true;
+        } catch (IOException error) {
+            Log.w(TAG, "Could not prune crash spool " + file.getName(), error);
+            return false;
         }
     }
 
@@ -158,6 +182,7 @@ public final class LogglyCrashSpool {
         try (FileChannel channel = FileChannel.open(directory.toPath())) {
             channel.force(true);
         } catch (IOException ignored) {
+            // The file payload is already synced; directory metadata sync is best effort.
         }
     }
 }

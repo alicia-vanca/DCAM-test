@@ -30,7 +30,6 @@ import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.TupleOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.TupleStage;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineDiagnostics;
-import com.dvid.dcam.feature.device.domain.camera.CameraPipelineOperation;
 import com.dvid.dcam.feature.device.domain.camera.CandidateEvidence;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
@@ -58,6 +57,11 @@ import java.util.function.Consumer;
 
 public final class SharedCameraPipelineBenchmarkRunner
         extends CompareCameraPipelinesUseCase.PipelineRunner {
+    private static final String COMPLETE = "complete";
+    private static final String ENVIRONMENT_PREFIX = "environment=";
+    private static final String CAMERA_FIELD_PREFIX = " camera=";
+    private static final String TUPLE_FIELD_PREFIX = " tuple=";
+    private static final String OUTCOME_FIELD_PREFIX = " outcome=";
     private final BuildFastCameraCapabilitiesUseCase fastUseCase;
     private final FastCameraCapabilityProbe fastProbe;
     private final VerificationPipelineId pipelineId;
@@ -148,7 +152,6 @@ public final class SharedCameraPipelineBenchmarkRunner
         requireNoActiveOwner();
         EnvironmentValidation environment = validateFrozenEnvironment(plan);
         if (!environment.ready()) return environmentBlocked(plan, environment.detail());
-        long startedNanos = System.nanoTime();
         fastMillisByCamera.clear();
         sensorOrientationDegreesByCamera.clear();
         if (frozenFastCoverage != null) {
@@ -187,13 +190,18 @@ public final class SharedCameraPipelineBenchmarkRunner
             complete &= camera.coverage.status() == PipelineRunStatus.COMPLETE;
             if (cancellationSignal.getAsBoolean()) break;
         }
-        PipelineRunStatus status = cancellationSignal.getAsBoolean()
-                ? PipelineRunStatus.CANCELLED
-                : complete && cleanupComplete ? PipelineRunStatus.COMPLETE
-                : PipelineRunStatus.INCOMPLETE;
+        PipelineRunStatus status = coverageStatus(
+                cancellationSignal.getAsBoolean(), complete, cleanupComplete);
         return new PipelineRun(pipelineId(), status, coverages,
                 fast.benchmark().totalElapsedMillis(), realTotal, cleanupComplete,
-                status == PipelineRunStatus.COMPLETE ? "complete" : "coverage_incomplete");
+                status == PipelineRunStatus.COMPLETE ? COMPLETE : "coverage_incomplete");
+    }
+
+    private static PipelineRunStatus coverageStatus(
+            boolean cancelled, boolean complete, boolean cleanupComplete) {
+        if (cancelled) return PipelineRunStatus.CANCELLED;
+        if (complete && cleanupComplete) return PipelineRunStatus.COMPLETE;
+        return PipelineRunStatus.INCOMPLETE;
     }
 
     private EnvironmentValidation validateFrozenEnvironment(
@@ -217,7 +225,7 @@ public final class SharedCameraPipelineBenchmarkRunner
         requireNoActiveOwner();
         EnvironmentValidation environment = validateFrozenEnvironment(plan);
         if (!environment.ready()) {
-            return Measurement.incomplete("environment=" + environment.detail());
+            return Measurement.incomplete(ENVIRONMENT_PREFIX + environment.detail());
         }
         if (cancellationSignal.getAsBoolean()) {
             return Measurement.incomplete("cancelled_before_measurement");
@@ -233,14 +241,14 @@ public final class SharedCameraPipelineBenchmarkRunner
         PipelineEvidence evidence = new PipelineEvidence(cameraId, VideoCodec.H264,
                 pipelineId(), PipelineAvailability.AVAILABLE, List.of(candidate), List.of());
         logger.info("camera_pipeline_benchmark measurement_start pipeline=" + pipelineId()
-                + " camera=" + cameraId + " tuple=" + tuple
+                + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
                 + " warmup=" + invocation.warmup() + " block=" + invocation.block());
         ExactResult exact = verifyExact(plan, scope, evidence, candidate, true);
         if (exact.outcome != VerificationOutcome.VERIFIED_PASS
                 || exact.activeContext.isEmpty()) {
             logger.info("camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
-                    + " camera=" + cameraId + " tuple=" + tuple
-                    + " outcome=" + exact.outcome + " stage=" + exact.stage
+                    + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
+                    + OUTCOME_FIELD_PREFIX + exact.outcome + " stage=" + exact.stage
                     + " reason=" + exact.reason);
             return Measurement.incomplete("measurement_verify=" + exact.outcome);
         }
@@ -256,9 +264,10 @@ public final class SharedCameraPipelineBenchmarkRunner
                 OptionalLong.of(exact.elapsedMillis), runtime.measuredFps(),
                 runtime.droppedFrames(), resources);
         logger.info("camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
-                + " camera=" + cameraId + " tuple=" + tuple + " outcome=pass"
+                + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
+                + OUTCOME_FIELD_PREFIX + "pass"
                 + " totalVerifyMillis=" + exact.elapsedMillis);
-        return new Measurement(true, Optional.of(sample), "complete");
+        return new Measurement(true, Optional.of(sample), COMPLETE);
     }
 
     @Override public boolean release() {
@@ -267,7 +276,7 @@ public final class SharedCameraPipelineBenchmarkRunner
         CameraOperationResult result = runtime.release(context);
         if (result.outcome() == CameraOperationOutcome.PASS) activeContext = null;
         logger.info("camera_pipeline_benchmark release pipeline=" + pipelineId()
-                + " outcome=" + result.outcome() + " detail=" + result.detail());
+                + OUTCOME_FIELD_PREFIX + result.outcome() + " detail=" + result.detail());
         return result.outcome() == CameraOperationOutcome.PASS;
     }
 
@@ -297,13 +306,13 @@ public final class SharedCameraPipelineBenchmarkRunner
             EnvironmentValidation environment = validateFrozenEnvironment(plan);
             if (!environment.ready()) {
                 imageCoverageComplete = false;
-                unfinishedReason = "environment=" + environment.detail();
+                unfinishedReason = ENVIRONMENT_PREFIX + environment.detail();
                 break;
             }
             completed++;
             progress.accept(new CompareCameraPipelinesUseCase.Progress(
                     "standalone_image_verify", completed, total,
-                    "pipeline=" + pipelineId() + " camera=" + scope.cameraId()
+                    "pipeline=" + pipelineId() + CAMERA_FIELD_PREFIX + scope.cameraId()
                             + " image=" + image.imageMode().orElseThrow()));
             if (cancellation.getAsBoolean()) {
                 imageCoverageComplete = false;
@@ -340,7 +349,7 @@ public final class SharedCameraPipelineBenchmarkRunner
             for (CaptureModeTuple tuple : scope.candidateUniverse()) {
                 EnvironmentValidation environment = validateFrozenEnvironment(plan);
                 if (!environment.ready()) {
-                    unfinishedReason = "environment=" + environment.detail();
+                    unfinishedReason = ENVIRONMENT_PREFIX + environment.detail();
                     break;
                 }
                 completed++;
@@ -348,10 +357,10 @@ public final class SharedCameraPipelineBenchmarkRunner
                         pipelineId(), tuple);
                 progress.accept(new CompareCameraPipelinesUseCase.Progress(
                         "exhaustive_real_verify", completed, total,
-                        "pipeline=" + pipelineId() + " camera=" + scope.cameraId()
-                                + " tuple=" + tuple));
+                        "pipeline=" + pipelineId() + CAMERA_FIELD_PREFIX + scope.cameraId()
+                                + TUPLE_FIELD_PREFIX + tuple));
                 logger.info("camera_pipeline_benchmark candidate_start pipeline=" + pipelineId()
-                        + " camera=" + scope.cameraId() + " tuple=" + tuple);
+                        + CAMERA_FIELD_PREFIX + scope.cameraId() + TUPLE_FIELD_PREFIX + tuple);
                 if (cancellation.getAsBoolean()) {
                     outcomes.add(new TupleOutcome(tuple, VerificationOutcome.CANCELLED_UNKNOWN,
                             TupleStage.UNKNOWN, "cancelled"));
@@ -371,8 +380,8 @@ public final class SharedCameraPipelineBenchmarkRunner
                 VerificationOutcome outcome = updated.outcome(tuple);
                 outcomes.add(new TupleOutcome(tuple, outcome, exact.stage, exact.reason));
                 logger.info("camera_pipeline_benchmark candidate_end pipeline=" + pipelineId()
-                        + " camera=" + scope.cameraId() + " tuple=" + tuple
-                        + " outcome=" + outcome + " stage=" + exact.stage
+                        + CAMERA_FIELD_PREFIX + scope.cameraId() + TUPLE_FIELD_PREFIX + tuple
+                        + OUTCOME_FIELD_PREFIX + outcome + " stage=" + exact.stage
                         + " reason=" + exact.reason + " cleanup=" + exact.cleanupComplete);
                 if (!exact.cleanupComplete) {
                     unfinishedReason = "cleanup_incomplete";
@@ -399,7 +408,7 @@ public final class SharedCameraPipelineBenchmarkRunner
         PipelineCoverage coverage = new PipelineCoverage(scope.cameraId(), pipelineId(),
                 status, finalEvidence, outcomes, fastScanMillis,
                 elapsedMillis(startedNanos), cleanupComplete,
-                status == PipelineRunStatus.COMPLETE ? "complete" : "unknown_or_cleanup");
+                status == PipelineRunStatus.COMPLETE ? COMPLETE : "unknown_or_cleanup");
         return new CameraCoverageResult(coverage);
     }
 
@@ -439,7 +448,8 @@ public final class SharedCameraPipelineBenchmarkRunner
             VerifyCameraSelectionUseCase.Result result = Objects.requireNonNull(
                     candidateVerifier.verify(runtime, stagingStore, verifyRequest),
                     "candidateVerifier result");
-            boolean selectedExact = result.selectedCandidate().filter(candidate::equals).isPresent();
+            boolean selectedExact = result.selectedCandidate()
+                    .filter(value -> Objects.equals(candidate, value)).isPresent();
             VerificationOutcome outcome = result.outcome();
             String detail = result.detail();
             if (outcome == VerificationOutcome.VERIFIED_PASS && !selectedExact) {
@@ -454,7 +464,8 @@ public final class SharedCameraPipelineBenchmarkRunner
                 CameraOperationResult preview = runtime.previewProgress(
                         active.orElseThrow());
                 logger.info("camera_pipeline_benchmark preview_progress pipeline=" + pipelineId()
-                        + " camera=" + scope.cameraId() + " outcome=" + preview.outcome()
+                        + CAMERA_FIELD_PREFIX + scope.cameraId()
+                        + OUTCOME_FIELD_PREFIX + preview.outcome()
                         + " detail=" + preview.detail());
                 if (preview.outcome() != CameraOperationOutcome.PASS) {
                     outcome = VerificationOutcome.UNKNOWN;
@@ -517,10 +528,8 @@ public final class SharedCameraPipelineBenchmarkRunner
             cleanupComplete &= camera.coverage().cleanupComplete();
             complete &= camera.coverage().status() == PipelineRunStatus.COMPLETE;
         }
-        PipelineRunStatus status = cancellation.getAsBoolean()
-                ? PipelineRunStatus.CANCELLED
-                : complete && cleanupComplete ? PipelineRunStatus.COMPLETE
-                : PipelineRunStatus.INCOMPLETE;
+        PipelineRunStatus status = coverageStatus(
+                cancellation.getAsBoolean(), complete, cleanupComplete);
         return new PipelineRun(pipelineId(), status, coverages, fastTotal, realTotal,
                 cleanupComplete, status == PipelineRunStatus.COMPLETE
                 ? "complete_frozen_fast" : "frozen_fast_incomplete");
@@ -729,7 +738,7 @@ public final class SharedCameraPipelineBenchmarkRunner
 
     public record EnvironmentValidation(boolean ready, String detail) {
         public EnvironmentValidation {
-            detail = Objects.requireNonNull(detail, "detail");
+            Objects.requireNonNull(detail, "detail");
             if (detail.isBlank()) throw new IllegalArgumentException("detail is required");
         }
     }
@@ -838,11 +847,6 @@ public final class SharedCameraPipelineBenchmarkRunner
             CameraOperationResult result = delegate.bindStandaloneImageSession(context);
             bindMillis = result.elapsedMillis();
             return result;
-        }
-
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            lastContext = context;
-            return delegate.updateSession(context);
         }
 
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {

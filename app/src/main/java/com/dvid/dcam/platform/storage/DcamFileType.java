@@ -7,7 +7,10 @@ public enum DcamFileType {
     AUDIO("Audio", "aac", "", "audio/aac"),
     AUDIO_M4A("Audio", "m4a", "", "audio/mp4");
 
-    private final String folder, extension, marker, mimeType;
+    private final String folder;
+    private final String extension;
+    private final String marker;
+    private final String mimeType;
 
     DcamFileType(String folder, String extension, String marker, String mimeType) {
         this.folder = folder; this.extension = extension; this.marker = marker; this.mimeType = mimeType;

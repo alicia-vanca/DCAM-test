@@ -5,6 +5,8 @@ import com.dvid.dcam.platform.storage.DcamMediaFile;
 import com.dvid.dcam.platform.storage.DcamRecordingOutput;
 import com.dvid.dcam.platform.storage.SegmentedAesGcmJpegOutput;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.Objects;
 
 public interface SharedCameraMediaLifecycle {
@@ -53,8 +55,16 @@ public interface SharedCameraMediaLifecycle {
         }
 
         public void discard() {
-            if (segmentedAesGcmOutput == null) outputFile().delete();
+            if (segmentedAesGcmOutput == null) deletePlainPhotoQuietly(outputFile());
             else segmentedAesGcmOutput.discard();
+        }
+
+        private static void deletePlainPhotoQuietly(File outputFile) {
+            try {
+                Files.delete(outputFile.toPath());
+            } catch (IOException ignored) {
+                // Failed or cancelled capture cleanup must not replace its original outcome.
+            }
         }
     }
 

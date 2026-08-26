@@ -15,7 +15,7 @@ public final class SharedPreferencesDeveloperSettingsStore implements DeveloperS
     private static final String RESOURCE_MONITOR_ENABLED =
             "resource_monitor_enabled";
 
-    private final PreferenceAccess preferences;
+    private final PreferenceAccess preferenceAccess;
     private volatile DeveloperSettingsStore.Mode sessionMode;
 
     public SharedPreferencesDeveloperSettingsStore(Context context) {
@@ -23,50 +23,50 @@ public final class SharedPreferencesDeveloperSettingsStore implements DeveloperS
         Context checkedContext = applicationContext == null ? context : applicationContext;
         SharedPreferences sharedPreferences = checkedContext.getSharedPreferences(
                 PREFERENCES, Context.MODE_PRIVATE);
-        this.preferences = new SharedPreferencesAccess(sharedPreferences);
+        this.preferenceAccess = new SharedPreferencesAccess(sharedPreferences);
     }
 
     SharedPreferencesDeveloperSettingsStore(PreferenceAccess preferences) {
-        this.preferences = Objects.requireNonNull(preferences, "preferences");
+        this.preferenceAccess = Objects.requireNonNull(preferences, "preferences");
     }
 
     @Override public DeveloperSettingsStore.Mode mode() {
         DeveloperSettingsStore.Mode current = sessionMode;
         return current == null
-                ? parseMode(preferences.get(MODE)).orElse(DeveloperSettingsStore.Mode.A)
+                ? parseMode(preferenceAccess.get(MODE)).orElse(DeveloperSettingsStore.Mode.A)
                 : current;
     }
 
     @Override public DeveloperSettingsStore.Mode mode(String cameraId) {
-        return parseMode(preferences.get(cameraModeKey(cameraId))).orElseGet(this::mode);
+        return parseMode(preferenceAccess.get(cameraModeKey(cameraId))).orElseGet(this::mode);
     }
 
     @Override public void setMode(DeveloperSettingsStore.Mode mode) {
         DeveloperSettingsStore.Mode value = Objects.requireNonNull(mode, "mode");
         sessionMode = value;
-        preferences.put(MODE, value.name());
+        preferenceAccess.put(MODE, value.name());
         sessionMode = null;
     }
 
     @Override public void setMode(String cameraId, DeveloperSettingsStore.Mode mode) {
         DeveloperSettingsStore.Mode value = Objects.requireNonNull(mode, "mode");
-        preferences.put(cameraModeKey(cameraId), value.name());
+        preferenceAccess.put(cameraModeKey(cameraId), value.name());
     }
 
     @Override public boolean releaseCameraWhenScreenOff() {
-        return parseBoolean(preferences.get(RELEASE_CAMERA_WHEN_SCREEN_OFF)).orElse(true);
+        return parseBoolean(preferenceAccess.get(RELEASE_CAMERA_WHEN_SCREEN_OFF)).orElse(true);
     }
 
     @Override public void setReleaseCameraWhenScreenOff(boolean enabled) {
-        preferences.put(RELEASE_CAMERA_WHEN_SCREEN_OFF, Boolean.toString(enabled));
+        preferenceAccess.put(RELEASE_CAMERA_WHEN_SCREEN_OFF, Boolean.toString(enabled));
     }
 
     @Override public boolean resourceMonitorEnabled() {
-        return parseBoolean(preferences.get(RESOURCE_MONITOR_ENABLED)).orElse(false);
+        return parseBoolean(preferenceAccess.get(RESOURCE_MONITOR_ENABLED)).orElse(false);
     }
 
     @Override public void setResourceMonitorEnabled(boolean enabled) {
-        preferences.put(RESOURCE_MONITOR_ENABLED, Boolean.toString(enabled));
+        preferenceAccess.put(RESOURCE_MONITOR_ENABLED, Boolean.toString(enabled));
     }
 
     private static String cameraModeKey(String cameraId) {

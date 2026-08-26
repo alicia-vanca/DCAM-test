@@ -83,12 +83,19 @@ public final class SharedMicrophoneCapture {
             throw new IllegalStateException("audio_record_buffer_unavailable:" + minimumBuffer);
         }
         int bufferSize = Math.max(4_096, minimumBuffer * 2) & ~1;
-        AudioRecord next = new AudioRecord(MediaRecorder.AudioSource.CAMCORDER,
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+        AudioRecord next;
+        try {
+            next = new AudioRecord(MediaRecorder.AudioSource.CAMCORDER,
+                    SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, bufferSize);
+        } catch (SecurityException error) {
+            throw new IllegalStateException("audio_record_permission_denied", error);
+        }
         long recorderReadyAt = android.os.SystemClock.elapsedRealtime();
         if (next.getState() != AudioRecord.STATE_INITIALIZED) {
-            try { next.release(); } catch (RuntimeException ignored) {}
+            try { next.release(); } catch (RuntimeException ignored) {
+                // Initialization already failed; releasing the unusable recorder is best effort.
+            }
             throw new IllegalStateException("audio_record_initialization_failed");
         }
         try {
@@ -113,8 +120,12 @@ public final class SharedMicrophoneCapture {
         } catch (RuntimeException error) {
             recorder = null;
             captureThread = null;
-            try { next.stop(); } catch (RuntimeException ignored) {}
-            try { next.release(); } catch (RuntimeException ignored) {}
+            try { next.stop(); } catch (RuntimeException ignored) {
+                // Preserve the original startup failure when stopping is already unsuccessful.
+            }
+            try { next.release(); } catch (RuntimeException ignored) {
+                // Preserve the original startup failure when release is already unsuccessful.
+            }
             throw error;
         }
     }
@@ -123,29 +134,19 @@ public final class SharedMicrophoneCapture {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
         byte[] buffer = new byte[CAPTURE_CHUNK_BYTES];
         try {
-            while (true) {
-                synchronized (lock) {
-                    if (recorder != current) return;
-                }
-                int bytes = current.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
-                if (bytes <= 0) {
-                    failCapture(current, new IOException("audio_record_read_failed:" + bytes));
-                    return;
-                }
-                bytes -= bytes % BYTES_PER_FRAME;
-                if (bytes == 0) continue;
-                List<Subscription> active;
-                synchronized (lock) {
-                    if (recorder != current) return;
-                    active = new ArrayList<>(subscriptions);
-                }
-                for (Subscription subscription : active) subscription.offer(buffer, bytes);
+            boolean capturing = true;
+            while (capturing) {
+                capturing = captureChunk(current, buffer);
             }
         } catch (RuntimeException error) {
             failCapture(current, new IOException("audio_record_capture_failed", error));
         } finally {
-            try { current.stop(); } catch (RuntimeException ignored) {}
-            try { current.release(); } catch (RuntimeException ignored) {}
+            try { current.stop(); } catch (RuntimeException ignored) {
+                // Capture is terminating; stopping an already-failed recorder is best effort.
+            }
+            try { current.release(); } catch (RuntimeException ignored) {
+                // Capture is terminating; releasing the recorder is best effort.
+            }
             CountDownLatch finished;
             synchronized (lock) {
                 finished = stopping;
@@ -156,6 +157,26 @@ public final class SharedMicrophoneCapture {
             }
             if (finished.getCount() > 0L) finished.countDown();
         }
+    }
+
+    private boolean captureChunk(AudioRecord current, byte[] buffer) {
+        synchronized (lock) {
+            if (recorder != current) return false;
+        }
+        int bytes = current.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
+        if (bytes <= 0) {
+            failCapture(current, new IOException("audio_record_read_failed:" + bytes));
+            return false;
+        }
+        bytes -= bytes % BYTES_PER_FRAME;
+        if (bytes == 0) return true;
+        List<Subscription> active;
+        synchronized (lock) {
+            if (recorder != current) return false;
+            active = new ArrayList<>(subscriptions);
+        }
+        for (Subscription subscription : active) subscription.offer(buffer, bytes);
+        return true;
     }
 
     private void failCapture(AudioRecord current, IOException failure) {
@@ -188,7 +209,9 @@ public final class SharedMicrophoneCapture {
             }
         }
         if (current == null) return;
-        try { current.stop(); } catch (RuntimeException ignored) {}
+        try { current.stop(); } catch (RuntimeException ignored) {
+            // The capture thread performs final release; stop is best effort during unsubscribe.
+        }
         if (thread != null && thread != Thread.currentThread()) join(thread);
         logger.info("Shared microphone capture stopped. No consumers remain.");
     }
@@ -214,6 +237,8 @@ public final class SharedMicrophoneCapture {
         private IOException pendingFailure;
         private volatile boolean closed;
 
+        private enum ReadDecision { READY, RETRY, STOP }
+
         private Subscription(SharedMicrophoneCapture owner, long startedAtSystemTimeUs) {
             this.owner = owner;
             this.startedAtSystemTimeUs = startedAtSystemTimeUs;
@@ -226,52 +251,69 @@ public final class SharedMicrophoneCapture {
             if (!target.hasRemaining()) return 0;
             int totalBytes = 0;
             while (target.hasRemaining()) {
-                if (pending == null || pendingOffset == pending.length) {
-                    if (pendingFailure != null) {
-                        if (totalBytes > 0) break;
-                        IOException failure = pendingFailure;
-                        pendingFailure = null;
-                        throw failure;
-                    }
-                    if (ended) return totalBytes > 0 ? totalBytes : -1;
-                    Chunk chunk;
-                    if (totalBytes == 0) {
-                        if (closed && queue.isEmpty()) {
-                            ended = true;
-                            return -1;
-                        }
-                        chunk = queue.poll(100L, TimeUnit.MILLISECONDS);
-                        if (chunk == null) {
-                            if (closed) {
-                                ended = true;
-                                return -1;
-                            }
-                            continue;
-                        }
-                    } else {
-                        chunk = queue.poll();
-                        if (chunk == null) {
-                            if (closed) ended = true;
-                            break;
-                        }
-                    }
-                    if (chunk.failure != null) {
-                        if (totalBytes == 0) throw chunk.failure;
-                        pendingFailure = chunk.failure;
-                        break;
-                    }
-                    if (chunk.end) {
-                        ended = true;
-                        break;
-                    }
-                    pending = chunk.data;
-                    pendingOffset = 0;
+                if (!hasPending()) {
+                    ReadDecision decision = preparePending(totalBytes == 0);
+                    if (decision == ReadDecision.RETRY) continue;
+                    if (decision == ReadDecision.STOP) return readResult(totalBytes);
                 }
-                int bytes = Math.min(target.remaining(), pending.length - pendingOffset);
-                target.put(pending, pendingOffset, bytes);
-                pendingOffset += bytes;
-                totalBytes += bytes;
+                totalBytes += copyPending(target);
             }
+            return readResult(totalBytes);
+        }
+
+        private boolean hasPending() {
+            return pending != null && pendingOffset < pending.length;
+        }
+
+        private ReadDecision preparePending(boolean initialRead)
+                throws IOException, InterruptedException {
+            if (pendingFailure != null) {
+                if (!initialRead) return ReadDecision.STOP;
+                IOException failure = pendingFailure;
+                pendingFailure = null;
+                throw failure;
+            }
+            if (ended) return ReadDecision.STOP;
+            Chunk chunk = pollChunk(initialRead);
+            if (chunk == null) return initialRead && !ended
+                    ? ReadDecision.RETRY : ReadDecision.STOP;
+            if (chunk.failure != null) {
+                if (initialRead) throw chunk.failure;
+                pendingFailure = chunk.failure;
+                return ReadDecision.STOP;
+            }
+            if (chunk.end) {
+                ended = true;
+                return ReadDecision.STOP;
+            }
+            pending = chunk.data;
+            pendingOffset = 0;
+            return ReadDecision.READY;
+        }
+
+        private Chunk pollChunk(boolean initialRead) throws InterruptedException {
+            if (initialRead) {
+                if (closed && queue.isEmpty()) {
+                    ended = true;
+                    return null;
+                }
+                Chunk chunk = queue.poll(100L, TimeUnit.MILLISECONDS);
+                if (chunk == null && closed) ended = true;
+                return chunk;
+            }
+            Chunk chunk = queue.poll();
+            if (chunk == null && closed) ended = true;
+            return chunk;
+        }
+
+        private int copyPending(ByteBuffer target) {
+            int bytes = Math.min(target.remaining(), pending.length - pendingOffset);
+            target.put(pending, pendingOffset, bytes);
+            pendingOffset += bytes;
+            return bytes;
+        }
+
+        private int readResult(int totalBytes) {
             return totalBytes > 0 ? totalBytes : ended ? -1 : 0;
         }
 

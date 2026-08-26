@@ -251,6 +251,8 @@ public class DcamStorageTest {
         assertEquals(MediaPartitionLocation.EXTERNAL, recordingVolume.getMode());
         assertEquals(CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES,
                 recordingVolume.getFreeBytes());
+        assertEquals(CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES,
+                storage.recordingAvailableBytes());
         assertTrue(path(recordingFile.getFile()).contains("external/Temp/"));
         assertEquals(1L, storage.recordingFileSizeLimit());
     }

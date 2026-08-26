@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
@@ -18,7 +17,6 @@ import com.dvid.dcam.feature.device.domain.camera.StandardResolutionLabel;
 import com.dvid.dcam.feature.device.domain.camera.VerificationPipelineId;
 import com.dvid.dcam.feature.device.domain.camera.VideoCodec;
 import com.dvid.dcam.feature.device.domain.camera.VideoMode;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,7 +55,6 @@ final class NativeSurfaceSharingFastProbeTest {
     }
 
     @Test void buildsFullCartesianMatrixWithoutVerifiedPassClaims() {
-        CapturingLogger logger = new CapturingLogger();
         AtomicInteger queryCount = new AtomicInteger();
         CaptureModeTuple first = new CaptureModeTuple(HD_30, SD_IMAGE);
         CaptureModeTuple second = new CaptureModeTuple(HD_60, FHD_IMAGE);
@@ -69,7 +66,7 @@ final class NativeSurfaceSharingFastProbeTest {
                     return tuple.equals(first) || tuple.equals(second)
                             ? NativeSurfaceSharingFastProbe.ProbeDecision.supported("fixture")
                             : NativeSurfaceSharingFastProbe.ProbeDecision.rejected("fixture");
-                }, logger);
+                });
 
         assertTrue(result.complete());
         assertEquals(PipelineAvailability.AVAILABLE, result.evidence().availability());
@@ -81,7 +78,6 @@ final class NativeSurfaceSharingFastProbeTest {
                         NativeSurfaceSharingFastProbe.PIPELINE_ID, second)),
                 result.evidence().rawFastCandidates());
         assertTrue(result.evidence().candidateEvidence().isEmpty());
-        assertTrue(logger.lines.isEmpty());
         String summary = NativeSurfaceSharingFastProbe.completeLog(result, 2);
         assertTrue(summary.contains("cameraId=0")
                 && summary.contains("pipeline=a-camera2-native-surface-sharing-v1")
@@ -101,7 +97,7 @@ final class NativeSurfaceSharingFastProbeTest {
                     return tuple.equals(supported)
                             ? NativeSurfaceSharingFastProbe.ProbeDecision.supported("fixture")
                             : NativeSurfaceSharingFastProbe.ProbeDecision.rejected("fixture");
-                }, new CapturingLogger());
+                });
 
         assertEquals(2, counts.get(new CaptureModeTuple(HD_30, SD_IMAGE)));
         assertEquals(2, counts.get(new CaptureModeTuple(HD_30, FHD_IMAGE)));
@@ -119,7 +115,7 @@ final class NativeSurfaceSharingFastProbeTest {
                 (tuple, attempt, confirmation) -> {
                     counts.merge(tuple, 1, Integer::sum);
                     return NativeSurfaceSharingFastProbe.ProbeDecision.rejected("fixture");
-                }, new CapturingLogger());
+                });
 
         assertTrue(result.complete());
         assertTrue(result.evidence().rawFastCandidates().isEmpty());
@@ -136,8 +132,8 @@ final class NativeSurfaceSharingFastProbeTest {
                 (tuple, attempt, confirmation) -> tuple.equals(supported)
                         ? NativeSurfaceSharingFastProbe.ProbeDecision.supported("fixture")
                         : NativeSurfaceSharingFastProbe.ProbeDecision.transientFailure(
-                                "camera_busy"),
-                new CapturingLogger());
+                                "camera_busy")
+                );
 
         assertEquals(NativeSurfaceSharingFastProbe.Completion.INCOMPLETE_TRANSIENT,
                 result.completion());
@@ -161,8 +157,8 @@ final class NativeSurfaceSharingFastProbeTest {
         NativeSurfaceSharingFastProbe.Result pipelineA = run(
                 List.of(HD_30), List.of(SD_IMAGE),
                 (ignored, attempt, confirmation) ->
-                        NativeSurfaceSharingFastProbe.ProbeDecision.rejected("a_failure"),
-                new CapturingLogger());
+                        NativeSurfaceSharingFastProbe.ProbeDecision.rejected("a_failure")
+                );
 
         assertTrue(pipelineA.evidence().rawFastCandidates().isEmpty());
         assertEquals(before, pipelineBEvidence.rawFastCandidates());
@@ -184,19 +180,9 @@ final class NativeSurfaceSharingFastProbeTest {
     }
     private static NativeSurfaceSharingFastProbe.Result run(
             List<VideoMode> videos, List<ImageMode> images,
-            NativeSurfaceSharingFastProbe.TupleQuery query, CapturingLogger logger) {
+            NativeSurfaceSharingFastProbe.TupleQuery query) {
         return NativeSurfaceSharingFastProbe.runMatrix(
                 31, OptionalInt.of(4), CAMERA, videos, images,
-                query, logger, System.nanoTime());
-    }
-
-    private static final class CapturingLogger implements Logger {
-        private final List<String> lines = new ArrayList<>();
-
-        @Override public void debug(String message) { lines.add(message); }
-        @Override public void info(String message) { lines.add(message); }
-        @Override public void info(String message, Throwable error) { lines.add(message); }
-        @Override public void warn(String message, Throwable error) { lines.add(message); }
-        @Override public void error(String message, Throwable error) { lines.add(message); }
+                query, System.nanoTime());
     }
 }

@@ -29,10 +29,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public final class MainViewModel extends ViewModel {
+    public static final String STORAGE_STOPPED_MESSAGE_PREFIX = "Storage stopped ";
+    private static final String RECORDING_MESSAGE = "Recording";
+    private static final String AUTHENTICATION_STORAGE_UNAVAILABLE_MESSAGE =
+            "Authentication storage unavailable";
+    private static final String SAVING_MESSAGE = "Saving";
+    private static final String SAVED_MESSAGE_PREFIX = "Saved ";
     private final MutableLiveData<MainUiState> state;
     private CaptureEvents captureEvents;
     private volatile long lastSavedNoticeAtMillis;
@@ -50,7 +57,7 @@ public final class MainViewModel extends ViewModel {
         return thread;
     });
     private final AtomicInteger mediaRequestVersion = new AtomicInteger();
-    private volatile Future<?> mediaTask;
+    private final AtomicReference<Future<?>> mediaTask = new AtomicReference<>();
     private final ExecutorService authIo = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "operator-auth");
         thread.setDaemon(true);
@@ -126,7 +133,7 @@ public final class MainViewModel extends ViewModel {
 
     public void onCapturePlatformReleased(CaptureEvents events) {
         if (captureEvents == events && events.currentMode() != RecordingMode.IDLE) {
-            onCaptureEvent(CaptureEvent.error("Recording", "camera lifecycle ended"));
+            onCaptureEvent(CaptureEvent.error(RECORDING_MESSAGE, "camera lifecycle ended"));
         }
     }
 
@@ -232,7 +239,8 @@ public final class MainViewModel extends ViewModel {
                         null));
             } catch (RuntimeException error) {
                 postAuthentication(transition, () -> current().withAuthentication(
-                        null, false, MainScreen.LOGIN, "Authentication storage unavailable"));
+                        null, false, MainScreen.LOGIN,
+                        AUTHENTICATION_STORAGE_UNAVAILABLE_MESSAGE));
             }
         });
     }
@@ -271,7 +279,7 @@ public final class MainViewModel extends ViewModel {
         } catch (RuntimeException error) {
             postDefaultAuthentication(transition, () -> defaultAuthenticationFailure(
                     preserveCurrentScreen ? current().getScreen() : targetScreen,
-                    "Authentication storage unavailable"));
+                    AUTHENTICATION_STORAGE_UNAVAILABLE_MESSAGE));
         }
     }
 
@@ -305,7 +313,7 @@ public final class MainViewModel extends ViewModel {
             case INVALID_INPUT:
                 return "Enter a password";
             case STORAGE_ERROR:
-                return "Authentication storage unavailable";
+                return AUTHENTICATION_STORAGE_UNAVAILABLE_MESSAGE;
             case INVALID_CREDENTIALS:
             default:
                 return "Invalid password";
@@ -325,11 +333,9 @@ public final class MainViewModel extends ViewModel {
         if (!mediaBrowserEnabled.getAsBoolean()) return;
         String path = relativePath == null ? "" : relativePath;
         int requestVersion = mediaRequestVersion.incrementAndGet();
-        Future<?> previousTask = mediaTask;
-        if (previousTask != null) previousTask.cancel(true);
         state.setValue(current().withMediaBrowser(new MediaBrowserState(
                 path, Collections.emptyList(), true, null)));
-        mediaTask = mediaIo.submit(() -> {
+        Future<?> nextTask = mediaIo.submit(() -> {
             try {
                 List<MediaEntry> entries = browseMedia.executeWithoutCounts(path);
                 if (requestVersion != mediaRequestVersion.get()) return;
@@ -345,13 +351,17 @@ public final class MainViewModel extends ViewModel {
                 if (requestVersion != mediaRequestVersion.get()) return;
                 state.postValue(current().withMediaBrowser(
                         new MediaBrowserState(path, countedEntries, false, null)));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
             } catch (Exception error) {
-                if (requestVersion != mediaRequestVersion.get()
-                        || error instanceof InterruptedException) return;
+                if (requestVersion != mediaRequestVersion.get()) return;
                 state.postValue(current().withMediaBrowser(
                         new MediaBrowserState(path, Collections.emptyList(), false, error.getMessage())));
             }
         });
+        Future<?> previousTask = mediaTask.getAndSet(nextTask);
+        if (previousTask != null) previousTask.cancel(true);
     }
 
     private void warmMediaCounts(List<MediaEntry> roots, int requestVersion)
@@ -366,7 +376,9 @@ public final class MainViewModel extends ViewModel {
                 browseMedia.execute(root.getRelativePath());
             } catch (InterruptedException interrupted) {
                 throw interrupted;
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) {
+                // Prewarming is best effort; one inaccessible directory must not stop the remaining counts.
+            }
         }
     }
 
@@ -397,7 +409,7 @@ public final class MainViewModel extends ViewModel {
                         event.getMode(), event.getFileName(),
                         starting.getStartedAtMillis() == null
                                 ? System.currentTimeMillis() : starting.getStartedAtMillis(),
-                        false, null), "Recording", event.isReplay()));
+                        false, null), RECORDING_MESSAGE, event.isReplay()));
                 break;
             case RECORDING_INTERRUPTED:
                 CaptureState interrupted = current().getCapture();
@@ -415,23 +427,24 @@ public final class MainViewModel extends ViewModel {
                 }
                 state.setValue(current().withCapture(paused.withVideo(
                         paused.getMode(), paused.getCurrentFileName(), adjustedStart, false, null),
-                        "Recording", event.isReplay()));
+                        RECORDING_MESSAGE, event.isReplay()));
                 break;
             case RECORDING_STOPPING:
                 CaptureState recording = current().getCapture();
                 state.setValue(current().withCapture(recording.withVideo(
                         event.getMode(), recording.getCurrentFileName(),
-                        recording.getStartedAtMillis(), true, null), "Saving",
+                        recording.getStartedAtMillis(), true, null), SAVING_MESSAGE,
                         event.isReplay()));
                 break;
             case RECORDING_COMPLETED:
                 if (!event.isReplay()) lastSavedNoticeAtMillis = System.currentTimeMillis();
                 state.setValue(current().withCapture(current().getCapture().withoutVideo(),
-                        "Saved " + event.getFileName(), event.isReplay()));
+                        SAVED_MESSAGE_PREFIX + event.getFileName(), event.isReplay()));
                 break;
             case RECORDING_STOPPED_FOR_STORAGE:
+                if (!event.isReplay()) lastSavedNoticeAtMillis = System.currentTimeMillis();
                 state.setValue(current().withCapture(current().getCapture().withoutVideo(),
-                        "Storage stopped " + event.getFileName(), event.isReplay()));
+                        STORAGE_STOPPED_MESSAGE_PREFIX + event.getFileName(), event.isReplay()));
                 break;
             case AUDIO_RECORDING_STARTED:
                 MainUiState audioStarting = current();
@@ -444,13 +457,13 @@ public final class MainViewModel extends ViewModel {
             case AUDIO_RECORDING_STOPPING:
                 MainUiState audioStopping = current();
                 state.setValue(audioStopping.withCapture(
-                        audioStopping.getCapture().withAudio(false, null, true), "Saving",
+                        audioStopping.getCapture().withAudio(false, null, true), SAVING_MESSAGE,
                         event.isReplay()));
                 break;
             case AUDIO_RECORDING_STOPPED:
                 MainUiState audioStopped = current();
                 String audioMessage = event.getFileName() == null
-                        ? audioStopped.getMessage() : "Saved " + event.getFileName();
+                        ? audioStopped.getMessage() : SAVED_MESSAGE_PREFIX + event.getFileName();
                 if (event.getFileName() != null && !event.isReplay())
                     lastSavedNoticeAtMillis = System.currentTimeMillis();
                 state.setValue(audioStopped.withCapture(
@@ -460,7 +473,7 @@ public final class MainViewModel extends ViewModel {
             case PHOTO_SAVING:
                 MainUiState photoSaving = current();
                 state.setValue(photoSaving.withCapture(
-                        photoSaving.getCapture().withPhotoSaving(true), "Saving",
+                        photoSaving.getCapture().withPhotoSaving(true), SAVING_MESSAGE,
                         event.isReplay()));
                 break;
             case PHOTO_SAVED:
@@ -468,7 +481,7 @@ public final class MainViewModel extends ViewModel {
                 if (!event.isReplay()) lastSavedNoticeAtMillis = System.currentTimeMillis();
                 state.setValue(photoSaved.withCapture(
                         photoSaved.getCapture().withPhotoSaving(false),
-                        "Saved " + event.getFileName(), event.isReplay()));
+                        SAVED_MESSAGE_PREFIX + event.getFileName(), event.isReplay()));
                 break;
             case PHOTO_FAILED:
                 MainUiState photoFailed = current();

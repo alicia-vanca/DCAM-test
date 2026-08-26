@@ -66,8 +66,7 @@ public final class DcamMediaFinalizer {
             if (writeMd5) {
                 md5SidecarWriter.write(published, publication.md5);
             }
-            // A leftover staging duplicate is safe; never roll back a valid final file for cleanup failure.
-            try { java.nio.file.Files.deleteIfExists(staging.toPath()); } catch (IOException ignored) { }
+            deleteStagingDuplicate(staging);
             storage.deleteEmptyStagingDateDirectory(mediaFile);
             storage.deleteTargetMarker(mediaFile);
             return published;
@@ -89,6 +88,14 @@ public final class DcamMediaFinalizer {
 
     private static IOException asIOException(String prefix, Throwable failure) {
         return new IOException(prefix + ": " + message(failure), failure);
+    }
+
+    private static void deleteStagingDuplicate(File staging) {
+        try {
+            java.nio.file.Files.deleteIfExists(staging.toPath());
+        } catch (IOException ignored) {
+            // A leftover duplicate is harmless; do not roll back a valid published media file.
+        }
     }
 
     private static String message(Throwable failure) {

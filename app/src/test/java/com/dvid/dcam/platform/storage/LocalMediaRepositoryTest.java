@@ -87,6 +87,27 @@ final class LocalMediaRepositoryTest {
                 .map(MediaEntry::getName).toList());
     }
 
+    @Test void labelsMultipleExternalRootsByStorageIndex() throws Exception {
+        Path root = Files.createTempDirectory("dcam-media-roots");
+        Path internal = Files.createDirectories(root.resolve("internal"));
+        Path firstExternal = Files.createDirectories(root.resolve("external-1"));
+        Path secondExternal = Files.createDirectories(root.resolve("external-2"));
+        DcamStorage storage = new DcamStorage(
+                MediaPartitionLocation.EXTERNAL,
+                internal.toFile(),
+                List.of(firstExternal.toFile(), secondExternal.toFile()),
+                () -> false,
+                ignored -> Environment.MEDIA_MOUNTED,
+                ignored -> 0L);
+        LocalMediaRepository browser = new LocalMediaRepository(storage);
+
+        assertEquals(List.of("Internal", "External 1", "External 2"),
+                browser.listWithoutCounts("").stream().map(MediaEntry::getName).toList());
+        assertEquals(List.of("Audio", "Image", "IMP", "Video"),
+                browser.listWithoutCounts("External 2").stream()
+                        .map(MediaEntry::getName).toList());
+    }
+
     @Test void invalidatesCachedLeafCountWhenDirectoryChanges() throws Exception {
         Path root = Files.createTempDirectory("dcam-media");
         Path date = Files.createDirectories(root.resolve("Media/Video/2026-06-19"));

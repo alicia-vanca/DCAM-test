@@ -236,9 +236,24 @@ final class MainViewModelCaptureBindingTest {
         assertGenuineSavedEventRecordsTime(
                 events -> events.recordingCompleted("video.mp4"));
         assertGenuineSavedEventRecordsTime(
+                events -> events.recordingStoppedForStorage("video.mp4"));
+        assertGenuineSavedEventRecordsTime(
                 events -> events.photoSaved("photo.jpg"));
         assertGenuineSavedEventRecordsTime(
                 events -> events.audioRecordingStopped("audio.aac"));
+    }
+
+    @Test void storageStopUsesDedicatedNoticeMarker() {
+        MainViewModel viewModel = viewModel();
+        TestCaptureEvents events = new TestCaptureEvents();
+        viewModel.bindCaptureEvents(events);
+
+        events.recordingStoppedForStorage("video.mp4");
+
+        assertEquals(MainViewModel.STORAGE_STOPPED_MESSAGE_PREFIX + "video.mp4",
+                viewModel.state().getValue().getMessage());
+        assertTrue(viewModel.lastSavedNoticeAtMillis() > 0L);
+        viewModel.onCleared();
     }
 
     @Test void replayedSavedEventDoesNotRecordNoticeTime() {

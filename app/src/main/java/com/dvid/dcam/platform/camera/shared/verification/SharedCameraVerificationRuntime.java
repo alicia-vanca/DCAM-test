@@ -50,10 +50,6 @@ public final class SharedCameraVerificationRuntime implements CameraRuntimeOpera
                 pipeline.bindStandaloneImageSession(pipelineContext(context)));
     }
 
-    @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-        return mapResult(context, pipeline.updateSession(pipelineContext(context)));
-    }
-
     @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
         return mapResult(context, pipeline.previewProgress(pipelineContext(context)));
     }
@@ -178,7 +174,7 @@ public final class SharedCameraVerificationRuntime implements CameraRuntimeOpera
         if (token.startsWith("encoder") || token.startsWith("first_encoded_sample")
                 || token.startsWith("stop_encoder")) return CameraFailureClass.VIDEO_ENCODER;
         return switch (operation) {
-            case BIND_SESSION, UPDATE_SESSION -> CameraFailureClass.SESSION_CONFIGURATION;
+            case BIND_SESSION -> CameraFailureClass.SESSION_CONFIGURATION;
             case START_ENCODER, STOP_ENCODER -> CameraFailureClass.VIDEO_ENCODER;
             case FINALIZE_ENCODER -> CameraFailureClass.VIDEO_OUTPUT;
             case CAPTURE_JPEG -> CameraFailureClass.JPEG_CAPTURE;

@@ -47,6 +47,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -61,7 +62,14 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private static final long SESSION_TIMEOUT_MILLIS = 5_000;
     private static final long FRAME_TIMEOUT_MILLIS = 3_000;
     private static final long RELEASE_TIMEOUT_MILLIS = 2_000;
+    private static final String UNRESOLVED = "unresolved";
+    private static final String OPERATION_CONTEXT = "operationContext";
+    private static final String OUTPUT_FILE = "outputFile";
+    private static final String LOG_PIPELINE_PREFIX = "pipeline=";
+    private static final String LOG_OUTCOME = " outcome=";
+    private static final String LOG_DETAIL = " detail=";
     private final Object operationLock = new Object();
+    private final Object encoderFinalizationLock = new Object();
     private final Object previewFrameLock = new Object();
     private final Context context;
     private final Logger logger;
@@ -113,9 +121,8 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private int cameraOutputCount;
     private int downstreamSurfaceCount;
     private int jpegSurfaceCount;
-    private String sessionUpdateDetail = "not_requested";
-    private String availablePhysicalCameraIds = "unresolved";
-    private String activePhysicalCameraId = "unresolved";
+    private String availablePhysicalCameraIds = UNRESOLVED;
+    private String activePhysicalCameraId = UNRESOLVED;
     private boolean standaloneImageSession;
 
     protected AbstractSharedCameraPipeline(Context context, Logger logger,
@@ -242,11 +249,6 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             CameraOperationResult invalid = validateIdentity(value,
                     CameraPipelineOperation.BIND_SESSION, started, false);
             if (invalid != null) return invalid;
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-                return result(value, CameraPipelineOperation.BIND_SESSION,
-                        CameraOperationOutcome.BLOCKED_EXTERNAL, started,
-                        "pipeline_unavailable:api_level=" + Build.VERSION.SDK_INT);
-            }
             if (deadlineExpired(value)) return timeout(value,
                     CameraPipelineOperation.BIND_SESSION, started, "deadline_before_bind");
             if (sessionBound && value.matchesCurrentOperation(activeContext)
@@ -263,37 +265,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             resetEvidence();
             standaloneImageSession = standaloneImage;
             try {
-                prepareResources(value, standaloneImage);
-                openCamera(value);
-                createSession(value);
-                startRepeating(false);
-                boolean sourceReady = firstSourceFrame.await(
-                        waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
-                boolean previewReady = awaitPreviewReady(value);
-                CameraOperationResult async = asynchronousFailure(
-                        value, CameraPipelineOperation.BIND_SESSION, started);
-                if (async != null) return releaseAfterBindFailure(value, started, async);
-                if (!sourceReady || !previewReady) {
-                    CameraOperationOutcome outcome = deadlineExpired(value)
-                            ? CameraOperationOutcome.TIMEOUT_UNKNOWN
-                            : CameraOperationOutcome.CANDIDATE_SUSPECT;
-                    CameraOperationResult failure = result(value,
-                            CameraPipelineOperation.BIND_SESSION, outcome, started,
-                            "first_frame_missing:source=" + sourceReady
-                                    + ",preview=" + previewReady
-                                    + ",previewExpected=" + previewExpected);
-                    return releaseAfterBindFailure(value, started, failure);
-                }
-                if (!standaloneImage) primeVideoEncoder(value);
-                sessionBound = true;
-                previewProgressing = previewExpected && hasPreviewEvidence()
-                        && previewFrameCount.get() > 0;
-                return result(value, CameraPipelineOperation.BIND_SESSION,
-                        CameraOperationOutcome.PASS, started,
-                        "bound:cameraOutputs=" + cameraOutputCount
-                                + "," + surfaceMetricName + "=" + downstreamSurfaceCount
-                                + ",jpegSurfaces=" + jpegSurfaceCount
-                                + ",configuredFpsRange=" + configuredFpsRange);
+                return bindPreparedSession(value, standaloneImage, started);
             } catch (CameraAccessException error) {
                 CameraOperationResult failure = cameraAccessFailure(value,
                         CameraPipelineOperation.BIND_SESSION,
@@ -352,22 +324,6 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                 + preRecordGopDurationMillis + " ms.");
     }
 
-    @Override public final CameraOperationResult updateSession(CameraOperationContext value) {
-        synchronized (operationLock) {
-            long started = SystemClock.elapsedRealtime();
-            CameraOperationResult invalid = validateBound(value,
-                    CameraPipelineOperation.UPDATE_SESSION, started);
-            if (invalid != null) return invalid;
-            try {
-                sessionUpdateDetail = updateTopologySession(value, started);
-                return result(value, CameraPipelineOperation.UPDATE_SESSION,
-                        CameraOperationOutcome.PASS, started, sessionUpdateDetail);
-            } catch (CameraAccessException error) {
-                return cameraAccessFailure(value, CameraPipelineOperation.UPDATE_SESSION,
-                        started, "session_update", error);
-            }
-        }
-    }
     @Override public final CameraOperationResult previewProgress(CameraOperationContext value) {
         synchronized (operationLock) {
             long started = SystemClock.elapsedRealtime();
@@ -398,7 +354,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     @Override public final SharedCameraCapturePipeline.HealthSnapshot healthSnapshot(
             CameraOperationContext value) {
         synchronized (operationLock) {
-            Objects.requireNonNull(value, "operationContext");
+            Objects.requireNonNull(value, OPERATION_CONTEXT);
             CameraOperationContext current = activeContext;
             if (!pipelineId().equals(value.verificationPipelineId())
                     || current == null || !value.matchesCurrentOperation(current)) {
@@ -409,15 +365,8 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             String encoderFailure = encoder == null ? null : encoder.callbackError();
             boolean previewSignalAvailable = !previewExpected || hasPreviewEvidence()
                     && asyncOutcome != CameraOperationOutcome.BLOCKED_EXTERNAL;
-            String detail = !sessionBound
-                    ? "session_not_bound"
-                    : encoderFailure != null
-                            ? "encoder_failure:" + encoderFailure
-                            : asyncOutcome != null
-                                    ? (asynchronousDetail == null
-                                            ? "asynchronous_failure" : asynchronousDetail)
-                                    : !previewSignalAvailable
-                                            ? "external_preview_frame_signal_unavailable" : "healthy";
+            String detail = healthDetail(sessionBound, encoderFailure, asyncOutcome,
+                    previewSignalAvailable, asynchronousDetail);
             return new SharedCameraCapturePipeline.HealthSnapshot(
                     sessionBound,
                     encoderFailure != null || asyncOutcome != null
@@ -425,6 +374,54 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                     previewSignalAvailable, sourceFrameCount.get(), previewFrameCount.get(),
                     detail);
         }
+    }
+
+    private CameraOperationResult bindPreparedSession(
+            CameraOperationContext value, boolean standaloneImage, long started)
+            throws CameraAccessException, IOException, InterruptedException, PipelineFailure {
+        prepareResources(value, standaloneImage);
+        openCamera(value);
+        createSession(value);
+        startRepeating(false);
+        boolean sourceReady = firstSourceFrame.await(
+                waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
+        boolean previewReady = awaitPreviewReady(value);
+        CameraOperationResult async = asynchronousFailure(
+                value, CameraPipelineOperation.BIND_SESSION, started);
+        if (async != null) return releaseAfterBindFailure(value, started, async);
+        if (!sourceReady || !previewReady) {
+            CameraOperationOutcome outcome = deadlineExpired(value)
+                    ? CameraOperationOutcome.TIMEOUT_UNKNOWN
+                    : CameraOperationOutcome.CANDIDATE_SUSPECT;
+            CameraOperationResult failure = result(value,
+                    CameraPipelineOperation.BIND_SESSION, outcome, started,
+                    "first_frame_missing:source=" + sourceReady
+                            + ",preview=" + previewReady
+                            + ",previewExpected=" + previewExpected);
+            return releaseAfterBindFailure(value, started, failure);
+        }
+        if (!standaloneImage) primeVideoEncoder(value);
+        sessionBound = true;
+        previewProgressing = previewExpected && hasPreviewEvidence()
+                && previewFrameCount.get() > 0;
+        return result(value, CameraPipelineOperation.BIND_SESSION,
+                CameraOperationOutcome.PASS, started,
+                "bound:cameraOutputs=" + cameraOutputCount
+                        + "," + surfaceMetricName + "=" + downstreamSurfaceCount
+                        + ",jpegSurfaces=" + jpegSurfaceCount
+                        + ",configuredFpsRange=" + configuredFpsRange);
+    }
+
+    private static String healthDetail(boolean sessionBound, String encoderFailure,
+            CameraOperationOutcome asyncOutcome, boolean previewSignalAvailable,
+            String asynchronousDetail) {
+        if (!sessionBound) return "session_not_bound";
+        if (encoderFailure != null) return "encoder_failure:" + encoderFailure;
+        if (asyncOutcome != null) {
+            return asynchronousDetail == null ? "asynchronous_failure" : asynchronousDetail;
+        }
+        return previewSignalAvailable
+                ? "healthy" : "external_preview_frame_signal_unavailable";
     }
 
     private void discardEncoderSegment() {
@@ -467,7 +464,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             long fileSizeLimitBytes,
             RecordingLimitListener limitListener,
             int rotationDegrees) {
-        return startEncoder(value, Objects.requireNonNull(outputFile, "outputFile"), null,
+        return startEncoder(value, Objects.requireNonNull(outputFile, OUTPUT_FILE), null,
                 fileSizeLimitBytes, limitListener, rotationDegrees);
     }
 
@@ -507,82 +504,29 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             if (encoderActive) return result(value, CameraPipelineOperation.START_ENCODER,
                     CameraOperationOutcome.PASS, started, "encoder_already_active");
             try {
-                encoderFinalized = false;
-                finalizedDurationUs = 0L;
-                retainVideoArtifactOnRelease = false;
-                encodedVideoResolution = null;
-                capturedJpegResolution = null;
-                jpegCapturedWhileEncoderActive = false;
-                videoArtifact = Objects.requireNonNull(outputFile, "outputFile");
-                int encoderRotation = CameraOrientation.normalize(requestedRotationDegrees);
-                if (!encoder.setRotation(encoderRotation)) {
-                    return result(value, CameraPipelineOperation.START_ENCODER,
-                            CameraOperationOutcome.GLOBAL_FAILURE, started,
-                            "encoder_rotation_update_failed");
-                }
-
-                boolean includeAudio = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                        == PackageManager.PERMISSION_GRANTED;
-                if (recordingOutput == null) {
-                    encoder.begin(videoArtifact, fileSizeLimitBytes,
-                            limitListener::onLimitReached, includeAudio);
-                } else {
-                    encoder.begin(recordingOutput, fileSizeLimitBytes,
-                            limitListener::onLimitReached, includeAudio);
-                }
-                if (!encoderInputActive) {
-                    startTopologyRecording();
-                    encoderInputActive = true;
-                }
-
-                encoderActive = true;
-                long readyDeadline = SystemClock.elapsedRealtime()
-                        + waitMillis(value, FRAME_TIMEOUT_MILLIS);
-                boolean videoReady = encoder.awaitFirstSample(Math.max(
-                        1L, readyDeadline - SystemClock.elapsedRealtime()));
-                boolean audioReady = !includeAudio || encoder.awaitAudioCaptureReady(Math.max(
-                        1L, readyDeadline - SystemClock.elapsedRealtime()));
-                if (!videoReady || !audioReady) {
-                    encoderActive = false;
-                    discardEncoderSegment();
-                    CameraOperationOutcome outcome = encoder.callbackError() != null
-                            ? CameraOperationOutcome.GLOBAL_FAILURE
-                            : deadlineExpired(value)
-                            ? CameraOperationOutcome.TIMEOUT_UNKNOWN
-                            : CameraOperationOutcome.CANDIDATE_SUSPECT;
-                    String detail = !videoReady
-                            ? "first_encoded_sample_missing" : "audio_capture_not_ready";
-                    return result(value, CameraPipelineOperation.START_ENCODER, outcome, started,
-                            detail + ":codec=" + encoder.callbackError());
-                }
-                return result(value, CameraPipelineOperation.START_ENCODER,
-                        CameraOperationOutcome.PASS, started, encoderStartDetail());
+                return beginEncoderSegment(value, outputFile, recordingOutput, fileSizeLimitBytes,
+                        limitListener, requestedRotationDegrees, started);
             } catch (InterruptedException error) {
-                encoderActive = false;
-                discardEncoderSegment();
+                discardFailedEncoderSegment();
                 Thread.currentThread().interrupt();
                 return result(value, CameraPipelineOperation.START_ENCODER,
                         CameraOperationOutcome.CANCELLED_UNKNOWN, started,
                         "encoder_start_interrupted");
             } catch (PipelineFailure error) {
-                encoderActive = false;
-                discardEncoderSegment();
+                discardFailedEncoderSegment();
                 return result(value, CameraPipelineOperation.START_ENCODER,
                         error.outcome, started, error.getMessage());
             } catch (IOException error) {
-                encoderActive = false;
-                discardEncoderSegment();
+                discardFailedEncoderSegment();
                 return failure(value, CameraPipelineOperation.START_ENCODER,
                         CameraPipelineFailureClassifier.Signal.STORAGE_BLOCKED,
                         started, "encoder_output", error);
             } catch (CameraAccessException error) {
-                encoderActive = false;
-                discardEncoderSegment();
+                discardFailedEncoderSegment();
                 return cameraAccessFailure(value, CameraPipelineOperation.START_ENCODER,
                         started, "encoder_repeating", error);
             } catch (RuntimeException error) {
-                encoderActive = false;
-                discardEncoderSegment();
+                discardFailedEncoderSegment();
                 return failure(value, CameraPipelineOperation.START_ENCODER,
                         CameraPipelineFailureClassifier.Signal.UNKNOWN_GLOBAL,
                         started, "encoder_start", error);
@@ -599,6 +543,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                     CameraOperationOutcome.PASS, started, "encoder_already_stopped");
             encoder.pause();
             encoderActive = false;
+            retainVideoArtifactOnRelease = videoArtifact != null;
             return result(value, CameraPipelineOperation.STOP_ENCODER,
                     CameraOperationOutcome.PASS, started,
                     "encoder_stopped_input_retained");
@@ -610,50 +555,71 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
     @Override public final CameraOperationResult finalizeEncoder(
             CameraOperationContext value, boolean cleanStop) {
-        synchronized (operationLock) {
+        synchronized (encoderFinalizationLock) {
             long started = SystemClock.elapsedRealtime();
-            CameraOperationResult invalid = validateBound(value,
-                    CameraPipelineOperation.FINALIZE_ENCODER, started);
-            if (invalid != null) return invalid;
-            if (encoderActive) return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
-                    CameraOperationOutcome.CANDIDATE_SUSPECT, started,
-                    "stop_encoder_before_finalize");
-            if (encoderFinalized) return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
-                    CameraOperationOutcome.PASS, started, "encoder_already_finalized");
-            SharedAvcEncoder.Segment segment = encoder.finish();
-            if (!"segment_finalized".equals(segment.detail())) {
-                retainVideoArtifactOnRelease = segment.file() != null;
-                return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
-                        CameraOperationOutcome.GLOBAL_FAILURE, started,
-                        "encoder_finalize_failed:" + segment.detail());
-            }
-            VideoInspection inspection = cleanStop
-                    ? SharedCameraPipelineSupport.inspectCleanVideo(
-                            segment.file(), segment.sampleCount(), encoder.encodedVideoResolution())
-                    : SharedCameraPipelineSupport.inspectVideo(segment.file());
-            CameraResolution expected = value.tuple().videoMode().resolution().actual();
-            if (!inspection.valid() || !expected.equals(inspection.resolution())) {
-                if (cleanStop) retainVideoArtifactOnRelease = segment.file() != null;
-                else deleteQuietly(segment.file());
-                return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
+            SharedAvcEncoder currentEncoder;
+            synchronized (operationLock) {
+                CameraOperationResult invalid = validateBound(value,
+                        CameraPipelineOperation.FINALIZE_ENCODER, started);
+                if (invalid != null) return invalid;
+                if (cleanStop) retainVideoArtifactOnRelease = videoArtifact != null;
+                if (encoderActive) return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
                         CameraOperationOutcome.CANDIDATE_SUSPECT, started,
-                        "invalid_video:expected=" + expected + ",actual="
-                                + inspection.resolution() + ",samples=" + inspection.sampleCount()
-                                + ",detail=" + inspection.detail());
+                        "stop_encoder_before_finalize");
+                if (encoderFinalized) {
+                    if (cleanStop) videoArtifact = null;
+                    retainVideoArtifactOnRelease = false;
+                    return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
+                            CameraOperationOutcome.PASS, started, "encoder_already_finalized");
+                }
+                currentEncoder = Objects.requireNonNull(encoder, "encoder");
             }
 
-            encoderFinalized = true;
-            finalizedDurationUs = segment.durationUs();
-            retainVideoArtifactOnRelease = false;
-            encodedVideoResolution = inspection.resolution();
-            return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
-                    CameraOperationOutcome.PASS, started,
-                    "video_finalized:resolution=" + encodedVideoResolution
-                            + ",samples=" + inspection.sampleCount()
-                            + ",durationUs=" + finalizedDurationUs
-                            + ",metadata=" + inspection.detail()
-                            + ",artifact=" + segment.file().getAbsolutePath());
+            SharedAvcEncoder.Segment segment = currentEncoder.finish();
+            VideoInspection inspection = "segment_finalized".equals(segment.detail())
+                    ? inspectFinalizedVideo(segment, currentEncoder, cleanStop) : null;
+            synchronized (operationLock) {
+                if (inspection == null) {
+                    retainVideoArtifactOnRelease = segment.file() != null;
+                    return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
+                            CameraOperationOutcome.GLOBAL_FAILURE, started,
+                            "encoder_finalize_failed:" + segment.detail());
+                }
+                CameraResolution expected = value.tuple().videoMode().resolution().actual();
+                if (!inspection.valid() || !expected.equals(inspection.resolution())) {
+                    if (cleanStop) retainVideoArtifactOnRelease = segment.file() != null;
+                    else deleteQuietly(segment.file());
+                    return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
+                            CameraOperationOutcome.CANDIDATE_SUSPECT, started,
+                            "invalid_video:expected=" + expected + ",actual="
+                                    + inspection.resolution() + ",samples="
+                                    + inspection.sampleCount() + ",detail=" + inspection.detail());
+                }
+
+                encoderFinalized = true;
+                finalizedDurationUs = segment.durationUs();
+                if (cleanStop) videoArtifact = null;
+                retainVideoArtifactOnRelease = false;
+                encodedVideoResolution = inspection.resolution();
+                return result(value, CameraPipelineOperation.FINALIZE_ENCODER,
+                        CameraOperationOutcome.PASS, started,
+                        "video_finalized:resolution=" + encodedVideoResolution
+                                + ",samples=" + inspection.sampleCount()
+                                + ",durationUs=" + finalizedDurationUs
+                                + ",metadata=" + inspection.detail()
+                                + ",artifact=" + segment.file().getAbsolutePath());
+            }
         }
+    }
+
+    private static VideoInspection inspectFinalizedVideo(
+            SharedAvcEncoder.Segment segment,
+            SharedAvcEncoder encoder,
+            boolean cleanStop) {
+        return cleanStop
+                ? SharedCameraPipelineSupport.inspectCleanVideo(
+                        segment.file(), segment.sampleCount(), encoder.encodedVideoResolution())
+                : SharedCameraPipelineSupport.inspectVideo(segment.file());
     }
 
     @Override public final CameraOperationResult captureJpeg(CameraOperationContext value) {
@@ -671,7 +637,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     @Override public final CameraOperationResult captureJpeg(
             CameraOperationContext value, File outputFile, int jpegRotationDegrees) {
         synchronized (operationLock) {
-            return captureJpeg(value, Objects.requireNonNull(outputFile, "outputFile"), null,
+            return captureJpeg(value, Objects.requireNonNull(outputFile, OUTPUT_FILE), null,
                     jpegRotationDegrees, false);
         }
     }
@@ -710,64 +676,13 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                 encoderWasActive, requestedJpegRotation, requestId);
         pendingJpeg = request;
         try {
-            CaptureRequest.Builder builder = camera.createCaptureRequest(
-                    encoderWasActive
-                            ? CameraDevice.TEMPLATE_VIDEO_SNAPSHOT
-                            : CameraDevice.TEMPLATE_STILL_CAPTURE);
-            SharedCameraPipelineSupport.applyFps(builder, configuredFpsRange);
-            int cameraJpegRotation = encoderWasActive ? 0 : requestedJpegRotation;
-            builder.set(CaptureRequest.JPEG_ORIENTATION, cameraJpegRotation);
-            GpsCoordinate location = currentCaptureLocation("photo");
-            if (location != null) {
-                try {
-                    builder.set(CaptureRequest.JPEG_GPS_LOCATION, jpegLocation(location));
-                } catch (RuntimeException error) {
-                    logger.warn("Capture photo without GPS metadata because camera request "
-                            + "rejected current location.", error);
-                }
-            }
-            if (encoderWasActive) {
-                logger.info("Capture recording photo with stable camera orientation. "
-                        + "Requested output rotation: " + requestedJpegRotation
-                        + " degrees. Camera request rotation: 0 degrees.");
-            }
-            builder.setTag(new CaptureTag(value, requestId, true));
-            addJpegTargets(builder, encoderWasActive);
-            builder.addTarget(jpegReader.getSurface());
-            session.capture(builder.build(), captureCallback, cameraHandler);
-            boolean complete = request.completed.await(
-                    waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
-            if (complete) {
-                pendingJpeg = null;
-            } else {
-                cancelPendingJpeg(request);
-            }
-            if (!complete) {
-                CameraOperationOutcome outcome = deadlineExpired(value)
-                        ? CameraOperationOutcome.TIMEOUT_UNKNOWN
-                        : CameraOperationOutcome.CANDIDATE_SUSPECT;
-                return result(value, CameraPipelineOperation.CAPTURE_JPEG, outcome, started,
-                        "jpeg_callback_missing");
-            }
-            if (request.error != null) {
-                request.discardOutput();
-                return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                        request.outcome, started, request.error);
-            }
+            CameraOperationResult captureResult = submitAndAwaitJpegCapture(
+                    value, request, encoderWasActive, requestedJpegRotation, requestId, started);
+            if (captureResult != null) return captureResult;
             if (encoderWasActive && encryptedOutput == null) {
-                try {
-                    CameraOrientation.applyJpegOrientationMetadata(
-                            output, requestedJpegRotation);
-                } catch (IOException error) {
-                    request.discardOutput();
-                    logger.warn("Write recording photo orientation metadata failed. "
-                            + "Requested rotation: " + requestedJpegRotation
-                            + " degrees. Staged JPEG removed.", error);
-                    return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                            CameraOperationOutcome.BLOCKED_EXTERNAL, started,
-                            "jpeg_orientation_metadata:"
-                                    + error.getClass().getSimpleName());
-                }
+                CameraOperationResult orientationResult = applyJpegOrientationMetadata(
+                        value, request, output, requestedJpegRotation, started);
+                if (orientationResult != null) return orientationResult;
             }
             CameraResolution decodedResolution = encryptedOutput == null
                     ? JpegDimensions.read(output)
@@ -799,25 +714,178 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         }
     }
 
+    private CameraOperationResult submitAndAwaitJpegCapture(
+            CameraOperationContext value,
+            PendingJpeg request,
+            boolean encoderWasActive,
+            int requestedJpegRotation,
+            long requestId,
+            long started) throws CameraAccessException, InterruptedException {
+        CaptureRequest.Builder builder = camera.createCaptureRequest(
+                encoderWasActive
+                        ? CameraDevice.TEMPLATE_VIDEO_SNAPSHOT
+                        : CameraDevice.TEMPLATE_STILL_CAPTURE);
+        SharedCameraPipelineSupport.applyFps(builder, configuredFpsRange);
+        int cameraJpegRotation = encoderWasActive ? 0 : requestedJpegRotation;
+        builder.set(CaptureRequest.JPEG_ORIENTATION, cameraJpegRotation);
+        GpsCoordinate location = currentCaptureLocation("photo");
+        if (location != null) applyJpegLocation(builder, location);
+        if (encoderWasActive) {
+            logger.info("Capture recording photo with stable camera orientation. "
+                    + "Requested output rotation: " + requestedJpegRotation
+                    + " degrees. Camera request rotation: 0 degrees.");
+        }
+        builder.setTag(new CaptureTag(value, requestId, true));
+        addJpegTargets(builder, encoderWasActive);
+        builder.addTarget(jpegReader.getSurface());
+        session.capture(builder.build(), captureCallback, cameraHandler);
+        boolean complete = request.completed.await(
+                waitMillis(value, FRAME_TIMEOUT_MILLIS), TimeUnit.MILLISECONDS);
+        if (complete) pendingJpeg = null;
+        else cancelPendingJpeg(request);
+        if (!complete) {
+            CameraOperationOutcome outcome = deadlineExpired(value)
+                    ? CameraOperationOutcome.TIMEOUT_UNKNOWN
+                    : CameraOperationOutcome.CANDIDATE_SUSPECT;
+            return result(value, CameraPipelineOperation.CAPTURE_JPEG, outcome, started,
+                    "jpeg_callback_missing");
+        }
+        if (request.error == null) return null;
+        request.discardOutput();
+        return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                request.outcome, started, request.error);
+    }
+
+    private void beginEncoderOutput(
+            DcamRecordingOutput recordingOutput,
+            long fileSizeLimitBytes,
+            RecordingLimitListener limitListener,
+            boolean includeAudio) throws IOException {
+        if (recordingOutput == null) {
+            encoder.begin(videoArtifact, fileSizeLimitBytes,
+                    limitListener::onLimitReached, includeAudio);
+        } else {
+            encoder.begin(recordingOutput, fileSizeLimitBytes,
+                    limitListener::onLimitReached, includeAudio);
+        }
+    }
+
+    private CameraOperationResult beginEncoderSegment(
+            CameraOperationContext value,
+            File outputFile,
+            DcamRecordingOutput recordingOutput,
+            long fileSizeLimitBytes,
+            RecordingLimitListener limitListener,
+            int requestedRotationDegrees,
+            long started)
+            throws CameraAccessException, IOException, InterruptedException, PipelineFailure {
+        encoderFinalized = false;
+        finalizedDurationUs = 0L;
+        retainVideoArtifactOnRelease = false;
+        encodedVideoResolution = null;
+        capturedJpegResolution = null;
+        jpegCapturedWhileEncoderActive = false;
+        videoArtifact = Objects.requireNonNull(outputFile, OUTPUT_FILE);
+        int encoderRotation = CameraOrientation.normalize(requestedRotationDegrees);
+        if (!encoder.setRotation(encoderRotation)) {
+            return result(value, CameraPipelineOperation.START_ENCODER,
+                    CameraOperationOutcome.GLOBAL_FAILURE, started,
+                    "encoder_rotation_update_failed");
+        }
+
+        boolean includeAudio = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED;
+        beginEncoderOutput(recordingOutput, fileSizeLimitBytes, limitListener, includeAudio);
+        if (!encoderInputActive) {
+            startTopologyRecording();
+            encoderInputActive = true;
+        }
+
+        encoderActive = true;
+        return awaitEncoderReadiness(value, includeAudio, started);
+    }
+
+    private CameraOperationResult awaitEncoderReadiness(
+            CameraOperationContext value, boolean includeAudio, long started)
+            throws InterruptedException {
+        long readyDeadline = SystemClock.elapsedRealtime()
+                + waitMillis(value, FRAME_TIMEOUT_MILLIS);
+        boolean videoReady = encoder.awaitFirstSample(Math.max(
+                1L, readyDeadline - SystemClock.elapsedRealtime()));
+        boolean audioReady = !includeAudio || encoder.awaitAudioCaptureReady(Math.max(
+                1L, readyDeadline - SystemClock.elapsedRealtime()));
+        if (videoReady && audioReady) {
+            return result(value, CameraPipelineOperation.START_ENCODER,
+                    CameraOperationOutcome.PASS, started, encoderStartDetail());
+        }
+        encoderActive = false;
+        discardEncoderSegment();
+        CameraOperationOutcome outcome;
+        if (encoder.callbackError() != null) {
+            outcome = CameraOperationOutcome.GLOBAL_FAILURE;
+        } else if (deadlineExpired(value)) {
+            outcome = CameraOperationOutcome.TIMEOUT_UNKNOWN;
+        } else {
+            outcome = CameraOperationOutcome.CANDIDATE_SUSPECT;
+        }
+        String detail = !videoReady
+                ? "first_encoded_sample_missing" : "audio_capture_not_ready";
+        return result(value, CameraPipelineOperation.START_ENCODER, outcome, started,
+                detail + ":codec=" + encoder.callbackError());
+    }
+
+    private void discardFailedEncoderSegment() {
+        encoderActive = false;
+        discardEncoderSegment();
+    }
+
+    private void applyJpegLocation(CaptureRequest.Builder builder, GpsCoordinate location) {
+        try {
+            builder.set(CaptureRequest.JPEG_GPS_LOCATION, jpegLocation(location));
+        } catch (RuntimeException error) {
+            logger.warn("Capture photo without GPS metadata because camera request "
+                    + "rejected current location.", error);
+        }
+    }
+
+    private CameraOperationResult applyJpegOrientationMetadata(
+            CameraOperationContext value, PendingJpeg request, File output,
+            int requestedJpegRotation, long started) {
+        try {
+            CameraOrientation.applyJpegOrientationMetadata(output, requestedJpegRotation);
+            return null;
+        } catch (IOException error) {
+            request.discardOutput();
+            logger.warn("Write recording photo orientation metadata failed. "
+                    + "Requested rotation: " + requestedJpegRotation
+                    + " degrees. Staged JPEG removed.", error);
+            return result(value, CameraPipelineOperation.CAPTURE_JPEG,
+                    CameraOperationOutcome.BLOCKED_EXTERNAL, started,
+                    "jpeg_orientation_metadata:" + error.getClass().getSimpleName());
+        }
+    }
+
     @Override public final CameraOperationResult release(CameraOperationContext value) {
-        synchronized (operationLock) {
-            long started = SystemClock.elapsedRealtime();
-            Objects.requireNonNull(value, "operationContext");
-            if (activeContext != null && !value.matchesCurrentOperation(activeContext)) {
+        synchronized (encoderFinalizationLock) {
+            synchronized (operationLock) {
+                long started = SystemClock.elapsedRealtime();
+                Objects.requireNonNull(value, OPERATION_CONTEXT);
+                if (activeContext != null && !value.matchesCurrentOperation(activeContext)) {
+                    return result(value, CameraPipelineOperation.RELEASE,
+                            CameraOperationOutcome.STALE, started,
+                            "release_rejected_for_newer_generation");
+                }
+                boolean released = releaseResources(true);
                 return result(value, CameraPipelineOperation.RELEASE,
-                        CameraOperationOutcome.STALE, started,
-                        "release_rejected_for_newer_generation");
+                        released ? CameraOperationOutcome.PASS
+                                : CameraOperationOutcome.TRANSIENT_RETRYABLE,
+                        started, released ? "release_complete" : "release_timeout");
             }
-            boolean released = releaseResources(true);
-            return result(value, CameraPipelineOperation.RELEASE,
-                    released ? CameraOperationOutcome.PASS
-                            : CameraOperationOutcome.TRANSIENT_RETRYABLE,
-                    started, released ? "release_complete" : "release_timeout");
         }
     }
 
     @Override public final CameraPipelineDiagnostics diagnostics(CameraOperationContext value) {
-        Objects.requireNonNull(value, "operationContext");
+        Objects.requireNonNull(value, OPERATION_CONTEXT);
         CameraOperationContext current = activeContext;
         if (!pipelineId().equals(value.verificationPipelineId())
                 || current == null || !value.matchesCurrentOperation(current)) {
@@ -828,13 +896,12 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         long encoded = encoder == null ? 0 : encoder.totalSamples();
         long measuredFps = measuredFps(source);
         logFpsMeasurement(value, measuredFps);
-        String detail = "pipeline=" + pipelineId()
+        String detail = LOG_PIPELINE_PREFIX + pipelineId()
                 + ",cameraOutputs=" + cameraOutputCount
                 + "," + surfaceMetricName + "=" + downstreamSurfaceCount
                 + ",jpegSurfaces=" + jpegSurfaceCount
                 + ",cameraOpenCount=" + cameraOpenCount
                 + ",sessionCreateCount=" + sessionCreateCount
-                + ",sessionUpdate=" + sessionUpdateDetail
                 + ",configuredFpsRange=" + configuredFpsRange
                 + ",measuredFps=" + measuredFps
                 + ",previewDrops=" + previewDropCount.get()
@@ -982,31 +1049,9 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         }
     }
 
-    private void logActivePhysicalCamera(TotalCaptureResult result) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || result == null) return;
-        String reported = result.get(CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
-        String resolved = reported != null ? reported
-                : "[]".equals(availablePhysicalCameraIds) ? "not_applicable" : "unreported";
-        if (resolved.equals(activePhysicalCameraId)) return;
-        activePhysicalCameraId = resolved;
-        CameraOperationContext value = activeContext;
-        if (value == null) return;
-        String cameraId = value.cameraId().value();
-        String pipeline = pipelineId().value();
-        String message;
-        if ("not_applicable".equals(resolved)) {
-            message = "Camera2 opened camera " + cameraId + ".";
-        } else if ("unreported".equals(resolved)) {
-            message = "Camera " + cameraId + " exposes physical sub-cameras "
-                    + availablePhysicalCameraIds
-                    + ", but Camera2 did not report which one is active.";
-        } else {
-            message = "Camera2 selected physical camera " + resolved + " for camera "
-                    + cameraId + ". Available physical cameras: " + availablePhysicalCameraIds + ".";
-        }
-        logger.info(message + " Pipeline: " + pipeline + ".");
-    }
-
+    // Android lint requires the permission-specific catch; keep it separate from the
+    // RuntimeException fallback even though SecurityException is a RuntimeException.
+    @SuppressWarnings("java:S2147")
     private void openCamera(CameraOperationContext value)
             throws PipelineFailure, InterruptedException {
         CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
@@ -1016,55 +1061,14 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         AtomicReference<PipelineFailure> failure = new AtomicReference<>();
         CountDownLatch closeSignal = new CountDownLatch(1);
         cameraClosed = closeSignal;
+        if (context.checkSelfPermission(Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            closeSignal.countDown();
+            throw new SecurityException("camera_permission_denied");
+        }
         try {
-            manager.openCamera(value.cameraId().value(), new CameraDevice.StateCallback() {
-                @Override public void onOpened(CameraDevice openedCamera) {
-                    if (!isCurrent(value)) {
-                        openedCamera.close();
-                        failure.compareAndSet(null,
-                                new PipelineFailure(CameraOperationOutcome.STALE,
-                                        "late_camera_open"));
-                    } else {
-                        camera = openedCamera;
-                        cameraOpenCount++;
-                    }
-                    opened.countDown();
-                }
-
-                @Override public void onDisconnected(CameraDevice disconnectedCamera) {
-                    disconnectedCamera.close();
-                    if (!isCurrent(value)) {
-                        failure.compareAndSet(null, new PipelineFailure(
-                                CameraOperationOutcome.STALE, "late_camera_disconnect"));
-                        opened.countDown();
-                        return;
-                    }
-                    recordAsyncFailure(CameraOperationOutcome.TRANSIENT_RETRYABLE,
-                            "camera_disconnected", null);
-                    failure.compareAndSet(null, new PipelineFailure(
-                            CameraOperationOutcome.TRANSIENT_RETRYABLE, "camera_disconnected"));
-                    opened.countDown();
-                }
-
-                @Override public void onError(CameraDevice errorCamera, int errorCode) {
-                    errorCamera.close();
-                    if (!isCurrent(value)) {
-                        failure.compareAndSet(null, new PipelineFailure(
-                                CameraOperationOutcome.STALE, "late_camera_error"));
-                        opened.countDown();
-                        return;
-                    }
-                    CameraOperationOutcome outcome = CameraPipelineFailureClassifier.classifyCameraStateError(errorCode);
-                    String detail = "camera_state_error:" + errorCode;
-                    recordAsyncFailure(outcome, detail, null);
-                    failure.compareAndSet(null, new PipelineFailure(outcome, detail));
-                    opened.countDown();
-                }
-
-                @Override public void onClosed(CameraDevice closedCamera) {
-                    closeSignal.countDown();
-                }
-            }, cameraHandler);
+            manager.openCamera(value.cameraId().value(), cameraStateCallback(
+                    value, opened, failure, closeSignal), cameraHandler);
         } catch (CameraAccessException error) {
             closeSignal.countDown();
             throw cameraAccessPipelineFailure("camera_open", error);
@@ -1083,6 +1087,62 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         if (failure.get() != null) throw failure.get();
         if (camera == null) throw new PipelineFailure(
                 CameraOperationOutcome.GLOBAL_FAILURE, "camera_open_without_device");
+    }
+
+    private CameraDevice.StateCallback cameraStateCallback(
+            CameraOperationContext value,
+            CountDownLatch opened,
+            AtomicReference<PipelineFailure> failure,
+            CountDownLatch closeSignal) {
+        return new CameraDevice.StateCallback() {
+            @Override public void onOpened(CameraDevice openedCamera) {
+                if (!isCurrent(value)) {
+                    openedCamera.close();
+                    failure.compareAndSet(null,
+                            new PipelineFailure(CameraOperationOutcome.STALE,
+                                    "late_camera_open"));
+                } else {
+                    camera = openedCamera;
+                    cameraOpenCount++;
+                }
+                opened.countDown();
+            }
+
+            @Override public void onDisconnected(CameraDevice disconnectedCamera) {
+                disconnectedCamera.close();
+                if (!isCurrent(value)) {
+                    failure.compareAndSet(null, new PipelineFailure(
+                            CameraOperationOutcome.STALE, "late_camera_disconnect"));
+                    opened.countDown();
+                    return;
+                }
+                recordAsyncFailure(CameraOperationOutcome.TRANSIENT_RETRYABLE,
+                        "camera_disconnected", null);
+                failure.compareAndSet(null, new PipelineFailure(
+                        CameraOperationOutcome.TRANSIENT_RETRYABLE, "camera_disconnected"));
+                opened.countDown();
+            }
+
+            @Override public void onError(CameraDevice errorCamera, int errorCode) {
+                errorCamera.close();
+                if (!isCurrent(value)) {
+                    failure.compareAndSet(null, new PipelineFailure(
+                            CameraOperationOutcome.STALE, "late_camera_error"));
+                    opened.countDown();
+                    return;
+                }
+                CameraOperationOutcome outcome =
+                        CameraPipelineFailureClassifier.classifyCameraStateError(errorCode);
+                String detail = "camera_state_error:" + errorCode;
+                recordAsyncFailure(outcome, detail, null);
+                failure.compareAndSet(null, new PipelineFailure(outcome, detail));
+                opened.countDown();
+            }
+
+            @Override public void onClosed(CameraDevice closedCamera) {
+                closeSignal.countDown();
+            }
+        };
     }
 
     private void createSession(CameraOperationContext value)
@@ -1195,18 +1255,52 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                                 "capture_failed:reason=" + failure.getReason(), null);
                     }
                 }
+
+                private boolean callbackIsCurrent(CaptureRequest request) {
+                    Object tag = request == null ? null : request.getTag();
+                    if (tag instanceof CameraOperationContext operationContext) {
+                        return isCurrent(operationContext);
+                    }
+                    return tag instanceof CaptureTag captureTag && isCurrent(captureTag.context);
+                }
+
+                private void logActivePhysicalCamera(TotalCaptureResult result) {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || result == null) return;
+                    String reported = result.get(
+                            CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID);
+                    String resolved;
+                    if (reported != null) {
+                        resolved = reported;
+                    } else if ("[]".equals(availablePhysicalCameraIds)) {
+                        resolved = "not_applicable";
+                    } else {
+                        resolved = "unreported";
+                    }
+                    if (resolved.equals(activePhysicalCameraId)) return;
+                    activePhysicalCameraId = resolved;
+                    CameraOperationContext value = activeContext;
+                    if (value == null) return;
+                    String cameraId = value.cameraId().value();
+                    String pipeline = pipelineId().value();
+                    String message;
+                    if ("not_applicable".equals(resolved)) {
+                        message = "Camera2 opened camera " + cameraId + ".";
+                    } else if ("unreported".equals(resolved)) {
+                        message = "Camera " + cameraId + " exposes physical sub-cameras "
+                                + availablePhysicalCameraIds
+                                + ", but Camera2 did not report which one is active.";
+                    } else {
+                        message = "Camera2 selected physical camera " + resolved + " for camera "
+                                + cameraId + ". Available physical cameras: "
+                                + availablePhysicalCameraIds + ".";
+                    }
+                    logger.info(message + " Pipeline: " + pipeline + ".");
+                }
             };
-    private boolean callbackIsCurrent(CaptureRequest request) {
-        Object tag = request == null ? null : request.getTag();
-        if (tag instanceof CameraOperationContext) {
-            return isCurrent((CameraOperationContext) tag);
-        }
-        return tag instanceof CaptureTag && isCurrent(((CaptureTag) tag).context);
-    }
 
     private static CaptureTag captureTag(CaptureRequest request) {
         Object tag = request == null ? null : request.getTag();
-        return tag instanceof CaptureTag ? (CaptureTag) tag : null;
+        return tag instanceof CaptureTag captureTag ? captureTag : null;
     }
 
     private void cancelPendingJpeg(PendingJpeg request) {
@@ -1237,19 +1331,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
     private void writeJpeg(PendingJpeg request, JpegPayload payload) {
         try {
-            if (request.encryptedOutput == null) {
-                try (FileOutputStream output = new FileOutputStream(request.file)) {
-                    output.write(payload.bytes());
-                    output.getFD().sync();
-                }
-            } else {
-                byte[] jpeg = request.encoderWasActive
-                        ? JpegExifOrientation.apply(payload.bytes(),
-                                CameraOrientation.exifOrientation(
-                                        request.requestedJpegRotation))
-                        : payload.bytes();
-                request.encryptedOutput.write(jpeg);
-            }
+            writeJpegOutput(request, payload);
             if (!request.isCancelled()) request.complete(payload.resolution());
         } catch (IOException error) {
             request.fail(CameraOperationOutcome.BLOCKED_EXTERNAL,
@@ -1284,7 +1366,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
     private CameraOperationResult validateIdentity(CameraOperationContext value,
             CameraPipelineOperation operation, long started, boolean currentRequired) {
-        Objects.requireNonNull(value, "operationContext");
+        Objects.requireNonNull(value, OPERATION_CONTEXT);
         if (!pipelineId().equals(value.verificationPipelineId())) {
             return result(value, operation, CameraOperationOutcome.STALE, started,
                     "pipeline_identity_mismatch:expected=" + pipelineId());
@@ -1325,10 +1407,10 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         asynchronousOutcome = outcome;
         asynchronousDetail = detail;
         String message = activeContext == null
-                ? "pipeline=" + pipelineId().value() + " stage=asynchronous"
-                        + " outcome=" + outcome + " detail=" + detail
+                ? LOG_PIPELINE_PREFIX + pipelineId().value() + " stage=asynchronous"
+                        + LOG_OUTCOME + outcome + LOG_DETAIL + detail
                 : prefix(activeContext, "asynchronous")
-                        + " outcome=" + outcome + " detail=" + detail;
+                        + LOG_OUTCOME + outcome + LOG_DETAIL + detail;
         if (error == null) logger.info(message); else logger.warn(message, error);
     }
     private CameraOperationResult releaseAfterBindFailure(
@@ -1346,7 +1428,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             CameraPipelineOperation operation, long started,
             String stage, CameraAccessException error) {
         PipelineFailure failure = cameraAccessPipelineFailure(stage, error);
-        logger.warn(prefix(value, stage) + " outcome=" + failure.outcome
+        logger.warn(prefix(value, stage) + LOG_OUTCOME + failure.outcome
                 + " elapsedMs=" + elapsed(started), error);
         return result(value, operation, failure.outcome, started, failure.getMessage());
     }
@@ -1364,8 +1446,8 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             long started, String stage, Throwable error) {
         CameraOperationOutcome outcome = CameraPipelineFailureClassifier.classify(signal);
         String detail = stage + ":" + error.getClass().getSimpleName();
-        logger.warn(prefix(value, stage) + " outcome=" + outcome
-                + " elapsedMs=" + elapsed(started) + " detail=" + detail, error);
+        logger.warn(prefix(value, stage) + LOG_OUTCOME + outcome
+                + " elapsedMs=" + elapsed(started) + LOG_DETAIL + detail, error);
         return result(value, operation, outcome, started, detail);
     }
 
@@ -1398,11 +1480,11 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
     protected final void log(CameraOperationContext value,
             String stage, String outcome, String detail) {
-        logger.info(prefix(value, stage) + " outcome=" + outcome + " detail=" + detail);
+        logger.info(prefix(value, stage) + LOG_OUTCOME + outcome + LOG_DETAIL + detail);
     }
 
     protected final String prefix(CameraOperationContext value, String stage) {
-        return "pipeline=" + pipelineId() + " cameraId=" + value.cameraId()
+        return LOG_PIPELINE_PREFIX + pipelineId() + " cameraId=" + value.cameraId()
                 + operationContextDetail(value) + " codec=" + value.codec().id()
                 + " sessionGeneration=" + value.sessionGeneration()
                 + " cameraHealthGeneration=" + value.cameraHealthGeneration()
@@ -1412,6 +1494,25 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private boolean releaseResources(boolean enforceTimeout) {
         long started = SystemClock.elapsedRealtime();
         long deadline = started + RELEASE_TIMEOUT_MILLIS;
+        CountDownLatch closeSignal = beginRelease();
+        boolean released = closeCameraSession();
+        released &= closeCameraDevice();
+        released &= awaitCameraClose(closeSignal, enforceTimeout, deadline);
+        released &= closeJpegReader();
+        released &= releaseTopology(deadline);
+        released &= closeEncoder(deadline);
+        releaseArtifacts();
+        released &= stopCameraThread(deadline);
+        asynchronousOutcome = null;
+        asynchronousDetail = null;
+        if (!released) {
+            logger.info(LOG_PIPELINE_PREFIX + pipelineId()
+                    + " stage=cleanup outcome=release_timeout elapsedMs=" + elapsed(started));
+        }
+        return released;
+    }
+
+    private CountDownLatch beginRelease() {
         activeContext = null;
         CountDownLatch closeSignal = cameraClosed;
         sessionBound = false;
@@ -1420,40 +1521,74 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         encoderInputActive = false;
         PendingJpeg jpeg = pendingJpeg;
         if (jpeg != null) cancelPendingJpeg(jpeg);
-        boolean released = true;
+        return closeSignal;
+    }
+
+    private boolean closeCameraSession() {
         CameraCaptureSession currentSession = session;
-        if (currentSession != null) {
-            try { currentSession.stopRepeating(); } catch (Exception ignored) {}
-            try { currentSession.abortCaptures(); } catch (Exception ignored) {}
-            try { currentSession.close(); session = null; }
-            catch (RuntimeException error) { released = false; }
+        if (currentSession == null) return true;
+        try { currentSession.stopRepeating(); } catch (Exception ignored) {
+            // Best-effort cleanup continues with abort and close.
         }
+        try { currentSession.abortCaptures(); } catch (Exception ignored) {
+            // Best-effort cleanup continues with close.
+        }
+        try {
+            currentSession.close();
+            session = null;
+            return true;
+        } catch (RuntimeException error) {
+            return false;
+        }
+    }
+
+    private boolean closeCameraDevice() {
         CameraDevice currentCamera = camera;
-        if (currentCamera != null) {
-            try { currentCamera.close(); camera = null; }
-            catch (RuntimeException error) { released = false; }
+        if (currentCamera == null) return true;
+        try {
+            currentCamera.close();
+            camera = null;
+            return true;
+        } catch (RuntimeException error) {
+            return false;
         }
-        if (enforceTimeout && closeSignal.getCount() > 0) {
-            try {
-                released &= closeSignal.await(
-                        remainingReleaseMillis(deadline), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException error) {
-                Thread.currentThread().interrupt();
-                released = false;
-            }
+    }
+
+    private static boolean awaitCameraClose(
+            CountDownLatch closeSignal, boolean enforceTimeout, long deadline) {
+        if (!enforceTimeout || closeSignal.getCount() == 0) return true;
+        try {
+            return closeSignal.await(remainingReleaseMillis(deadline), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return false;
         }
-        if (jpegReader != null) {
-            try { jpegReader.close(); jpegReader = null; }
-            catch (RuntimeException error) { released = false; }
+    }
+
+    private boolean closeJpegReader() {
+        if (jpegReader == null) return true;
+        try {
+            jpegReader.close();
+            jpegReader = null;
+            return true;
+        } catch (RuntimeException error) {
+            return false;
         }
-        released &= releaseTopology(deadline);
-        if (encoder != null) {
-            boolean encoderReleased;
-            try { encoderReleased = encoder.closeAndAwait(remainingReleaseMillis(deadline)); }
-            catch (RuntimeException error) { encoderReleased = false; }
-            released &= encoderReleased;
-            if (encoderReleased) encoder = null;
+    }
+
+    private boolean closeEncoder(long deadline) {
+        if (encoder == null) return true;
+        boolean encoderReleased;
+        try {
+            encoderReleased = encoder.closeAndAwait(remainingReleaseMillis(deadline));
+        } catch (RuntimeException error) {
+            encoderReleased = false;
         }
+        if (encoderReleased) encoder = null;
+        return encoderReleased;
+    }
+
+    private void releaseArtifacts() {
         boolean videoRetained = retainVideoArtifactOnRelease && videoArtifact != null;
         boolean videoDeleted = videoRetained || deleteArtifact(videoArtifact);
         boolean jpegDeleted = deleteArtifact(jpegArtifact);
@@ -1467,28 +1602,23 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         }
         if (jpegDeleted) jpegArtifact = null;
         if (!videoDeleted || !jpegDeleted) {
-            logger.info("pipeline=" + pipelineId()
+            logger.info(LOG_PIPELINE_PREFIX + pipelineId()
                     + " stage=cleanup outcome=artifact_retry"
                     + " videoDeleted=" + videoDeleted + " jpegDeleted=" + jpegDeleted);
         }
-        if (cameraThread != null) {
-            HandlerThread closingThread = cameraThread;
-            closingThread.quitSafely();
-            boolean joined = SharedCameraPipelineSupport.joinThread(
-                    closingThread, remainingReleaseMillis(deadline));
-            released &= joined;
-            if (joined) {
-                cameraThread = null;
-                cameraHandler = null;
-            }
+    }
+
+    private boolean stopCameraThread(long deadline) {
+        if (cameraThread == null) return true;
+        HandlerThread closingThread = cameraThread;
+        closingThread.quitSafely();
+        boolean joined = SharedCameraPipelineSupport.joinThread(
+                closingThread, remainingReleaseMillis(deadline));
+        if (joined) {
+            cameraThread = null;
+            cameraHandler = null;
         }
-        asynchronousOutcome = null;
-        asynchronousDetail = null;
-        if (!released) {
-            logger.info("pipeline=" + pipelineId()
-                    + " stage=cleanup outcome=release_timeout elapsedMs=" + elapsed(started));
-        }
-        return released;
+        return joined;
     }
     private void resetEvidence() {
         sourceFrameCount.set(0);
@@ -1516,9 +1646,8 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         cameraOutputCount = 0;
         downstreamSurfaceCount = 0;
         jpegSurfaceCount = 0;
-        sessionUpdateDetail = "not_requested";
-        availablePhysicalCameraIds = "unresolved";
-        activePhysicalCameraId = "unresolved";
+        availablePhysicalCameraIds = UNRESOLVED;
+        activePhysicalCameraId = UNRESOLVED;
         standaloneImageSession = false;
         resetTopologyEvidence();
     }
@@ -1576,11 +1705,6 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     protected abstract void addJpegTargets(
             CaptureRequest.Builder builder, boolean encoderWasActive);
 
-    protected String updateTopologySession(
-            CameraOperationContext value, long started) throws CameraAccessException {
-        return "downstream_encoder_attach_detach_supported";
-    }
-
     protected abstract void startTopologyRecording()
             throws CameraAccessException, PipelineFailure, InterruptedException;
 
@@ -1606,7 +1730,51 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             CameraOperationContext context, long requestId, boolean jpeg) {}
 
     static record JpegPayload(
-            long timestamp, byte[] bytes, CameraResolution resolution) {}
+            long timestamp, byte[] bytes, CameraResolution resolution) {
+        // Record patterns require Java 21; this Android module compiles with Java 17.
+        @SuppressWarnings("java:S6878")
+        @Override public boolean equals(Object object) {
+            if (this == object) return true;
+            if (!(object instanceof JpegPayload payload)) return false;
+            return timestamp == payload.timestamp
+                    && Arrays.equals(bytes, payload.bytes)
+                    && Objects.equals(resolution, payload.resolution);
+        }
+
+        @Override public int hashCode() {
+            int result = Long.hashCode(timestamp);
+            result = 31 * result + Arrays.hashCode(bytes);
+            return 31 * result + Objects.hashCode(resolution);
+        }
+
+        @Override public String toString() {
+            return "JpegPayload[timestamp=" + timestamp
+                    + ", bytes=" + Arrays.toString(bytes)
+                    + ", resolution=" + resolution + "]";
+        }
+    }
+
+    private void writeJpegOutput(PendingJpeg request, JpegPayload payload) throws IOException {
+        if (request.encryptedOutput == null) {
+            writePlainJpeg(request.file, payload.bytes());
+            return;
+        }
+        request.encryptedOutput.write(jpegBytesForOutput(request, payload));
+    }
+
+    private static void writePlainJpeg(File file, byte[] bytes) throws IOException {
+        try (FileOutputStream output = new FileOutputStream(file)) {
+            output.write(bytes);
+            output.getFD().sync();
+        }
+    }
+
+    private static byte[] jpegBytesForOutput(PendingJpeg request, JpegPayload payload)
+            throws IOException {
+        if (!request.encoderWasActive) return payload.bytes();
+        return JpegExifOrientation.apply(payload.bytes(),
+                CameraOrientation.exifOrientation(request.requestedJpegRotation));
+    }
 
     static final class PendingJpeg {
         private final CameraOperationContext context;

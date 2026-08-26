@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -33,6 +34,9 @@ import java.util.concurrent.Executors;
 public final class AppLogger implements Logger {
     private static final AppLogger INSTANCE = new AppLogger();
     private static final String TAG = "DCAM";
+    private static final String UNKNOWN = "unknown";
+    private static final String ERROR_LEVEL = "ERROR";
+    private static final String CRASH_MESSAGE_PREFIX = "Crash on ";
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     private static final DateTimeFormatter LOG_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final ZoneId BDMA_TIME_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -48,8 +52,8 @@ public final class AppLogger implements Logger {
     private static File logFile;
     private static LocalDate activeLogDate;
     private static RoomLogWriter roomWriter;
-    private static String hardwareId = "unknown";
-    private static String model = "unknown";
+    private static String hardwareId = UNKNOWN;
+    private static String model = UNKNOWN;
     private static String deviceSerial;
     private static boolean crashHandlerInstalled;
 
@@ -80,7 +84,7 @@ public final class AppLogger implements Logger {
             try {
                 roomWriter = new RoomLogWriter(appContext);
             } catch (Exception error) {
-                writeInternal("ERROR", "Room log writer initialization failed", error);
+                writeInternal(ERROR_LEVEL, "Room log writer initialization failed", error);
             }
         }
     }
@@ -107,21 +111,28 @@ public final class AppLogger implements Logger {
         crashHandlerInstalled = true;
     }
 
+    /**
+     * Crash logging is strictly best effort: a failure while recording a fatal crash must not
+     * prevent delegation to the process's previous uncaught-exception handler.
+     */
+    @SuppressWarnings("java:S1181")
     private static void recordCrash(Thread thread, Throwable error) {
-        String threadName = thread == null ? "unknown" : safe(thread.getName());
-        String message = "Crash on " + threadName;
+        String threadName = thread == null ? UNKNOWN : safe(thread.getName());
+        String message = CRASH_MESSAGE_PREFIX + threadName;
         String source = crashSource(error);
         try {
-            write("ERROR", message, error, source);
+            write(ERROR_LEVEL, message, error, source);
         } catch (Throwable loggingFailure) {
             try {
-                writeInternal("ERROR", "Crash persistence failed", loggingFailure);
+                writeInternal(ERROR_LEVEL, "Crash persistence failed", loggingFailure);
             } catch (Throwable ignored) {
+                // A second logging failure must not interfere with crash delegation.
             }
             if (BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) {
                 try {
-                    spoolCrash(json("ERROR", message, error, threadName, source));
+                    spoolCrash(json(ERROR_LEVEL, message, error, threadName, source));
                 } catch (Throwable ignored) {
+                    // The crash spool is optional after primary crash persistence has failed.
                 }
             }
         }
@@ -155,7 +166,7 @@ public final class AppLogger implements Logger {
 
     @Override
     public void error(String message, Throwable error) {
-        write("ERROR", message, error);
+        write(ERROR_LEVEL, message, error);
     }
 
     private static void write(String level, String message, Throwable error) {
@@ -167,7 +178,7 @@ public final class AppLogger implements Logger {
         Log.println(toAndroidLevel(level), TAG, message + (error == null ? "" : "\n" + stackTrace(error)));
         String thread = safe(Thread.currentThread().getName());
         String resolvedSource = safe(source);
-        String line = TIME.format(LocalDateTime.now()) + " " + level + " version=" + BuildConfig.VERSION_NAME
+        String line = TIME.format(LocalDateTime.now(ZoneId.systemDefault())) + " " + level + " version=" + BuildConfig.VERSION_NAME
                 + " thread=\"" + thread + "\" source=" + resolvedSource + " hardwareId=" + hardwareId
                 + " model=\"" + model + "\" deviceSerial="
                 + (deviceSerial == null ? "null" : "\"" + deviceSerial + "\"") + " message:\n" + message + "\n";
@@ -183,9 +194,14 @@ public final class AppLogger implements Logger {
     }
 
     static boolean isCrashPersistence(String level, String message) {
-        return "ERROR".equals(level) && message != null && message.startsWith("Crash on ");
+        return ERROR_LEVEL.equals(level) && message != null && message.startsWith(CRASH_MESSAGE_PREFIX);
     }
 
+    /**
+     * Persistence runs off the caller thread, so every failure is contained to preserve logging
+     * availability for subsequent events.
+     */
+    @SuppressWarnings("java:S1181")
     private static void persistAsync(
             String level, String line, Throwable error, String payload) {
         try {
@@ -194,15 +210,17 @@ public final class AppLogger implements Logger {
                     persist(level, line, error, payload);
                 } catch (Throwable persistenceFailure) {
                     try {
-                        writeInternal("ERROR", "Asynchronous log persistence failed", persistenceFailure);
+                        writeInternal(ERROR_LEVEL, "Asynchronous log persistence failed", persistenceFailure);
                     } catch (Throwable ignored) {
+                        // Reporting a failed log write must not terminate the persistence worker.
                     }
                 }
             });
         } catch (Throwable persistenceFailure) {
             try {
-                writeInternal("ERROR", "Could not queue asynchronous log persistence", persistenceFailure);
+                writeInternal(ERROR_LEVEL, "Could not queue asynchronous log persistence", persistenceFailure);
             } catch (Throwable ignored) {
+                // There is no synchronous fallback when the logging executor is unavailable.
             }
         }
     }
@@ -217,12 +235,15 @@ public final class AppLogger implements Logger {
                     if (error != null)
                         error.printStackTrace(out);
                 } catch (Exception ignored) {
+                    // Local file logging is optional; Room persistence still proceeds.
                 }
             }
         }
         return writeToRoom(level, payload);
     }
 
+    /** Room persistence is optional and must not make the application's logger throw. */
+    @SuppressWarnings("java:S1181")
     private static boolean writeToRoom(String level, String payload) {
         if (roomWriter == null)
             return false;
@@ -230,23 +251,23 @@ public final class AppLogger implements Logger {
             return roomWriter.write(level, payload);
         } catch (Throwable error) {
             try {
-                writeInternal("ERROR", "Room log write failed", error);
+                writeInternal(ERROR_LEVEL, "Room log write failed", error);
             } catch (Throwable ignored) {
+                // A diagnostic write cannot recover a failed Room write.
             }
             return false;
         }
     }
 
     static String crashSource(Throwable error) {
-        if (error != null) {
-            for (StackTraceElement frame : error.getStackTrace()) {
-                if (frame == null)
-                    continue;
+        if (error == null) return "UncaughtException";
+        for (StackTraceElement frame : error.getStackTrace()) {
+            if (frame != null) {
                 String className = frame.getClassName();
-                if (className == null || className.isBlank())
-                    continue;
-                int lastDot = className.lastIndexOf('.');
-                return lastDot < 0 ? className : className.substring(lastDot + 1);
+                if (className != null && !className.isBlank()) {
+                    int lastDot = className.lastIndexOf('.');
+                    return lastDot < 0 ? className : className.substring(lastDot + 1);
+                }
             }
         }
         return "UncaughtException";
@@ -254,15 +275,15 @@ public final class AppLogger implements Logger {
 
     static boolean shouldSpoolCrash(
             String level, String message, boolean logglyConfigured, boolean savedToRoom) {
-        return logglyConfigured && !savedToRoom && "ERROR".equals(level)
-                && message != null && message.startsWith("Crash on ");
+        return logglyConfigured && !savedToRoom && ERROR_LEVEL.equals(level)
+                && message != null && message.startsWith(CRASH_MESSAGE_PREFIX);
     }
 
     private static void spoolCrash(String payload) {
         if (appContext == null || payload == null || payload.isBlank())
             return;
         if (!LogglyCrashSpool.enqueue(appContext, payload)) {
-            writeInternal("ERROR", "Could not queue crash for Loggly upload", null);
+            writeInternal(ERROR_LEVEL, "Could not queue crash for Loggly upload", null);
         }
     }
 
@@ -289,7 +310,7 @@ public final class AppLogger implements Logger {
     }
 
     private static String safe(String text) {
-        return text == null || text.isBlank() ? "unknown" : text.trim().replaceAll("\\s+", " ");
+        return text == null || text.isBlank() ? UNKNOWN : text.trim().replaceAll("\\s+", " ");
     }
 
     private static String callerClass() {
@@ -307,7 +328,7 @@ public final class AppLogger implements Logger {
             int lastDot = className.lastIndexOf('.');
             return lastDot < 0 ? className : className.substring(lastDot + 1);
         }
-        return "unknown";
+        return UNKNOWN;
     }
 
     private static String stackTrace(Throwable error) {
@@ -325,15 +346,16 @@ public final class AppLogger implements Logger {
             return;
         prepareLocalLog();
         try (PrintWriter out = new PrintWriter(new FileWriter(logFile, true))) {
-            out.println(TIME.format(LocalDateTime.now()) + " " + level + " message:\n" + message + "\n");
+            out.println(TIME.format(LocalDateTime.now(ZoneId.systemDefault())) + " " + level + " message:\n" + message + "\n");
             if (error != null)
                 error.printStackTrace(out);
         } catch (Exception ignored) {
+            // Internal diagnostics must not throw back to the original logging operation.
         }
     }
 
     private static int toAndroidLevel(String level) {
-        if ("ERROR".equals(level))
+        if (ERROR_LEVEL.equals(level))
             return Log.ERROR;
         if ("WARN".equals(level))
             return Log.WARN;
@@ -345,7 +367,7 @@ public final class AppLogger implements Logger {
     private static void prepareLocalLog() {
         if (logFile == null || logDir == null)
             return;
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         LocalDate rotatedDate = null;
         if (activeLogDate == null)
             activeLogDate = existingLogDate(today);
@@ -368,8 +390,9 @@ public final class AppLogger implements Logger {
     }
 
     private static LocalDate existingLogDate(LocalDate fallback) {
-        if (!logFile.exists() || logFile.length() == 0)
+        if (!logFile.exists() || logFile.length() == 0) {
             return fallback;
+        }
         try {
             LocalDate modified = Instant.ofEpochMilli(logFile.lastModified())
                     .atZone(ZoneId.systemDefault()).toLocalDate();
@@ -386,15 +409,18 @@ public final class AppLogger implements Logger {
         for (File file : files) {
             String dateText = file.getName().substring(5, file.getName().length() - 4);
             try {
-                if (LocalDate.parse(dateText, LOG_DATE).isBefore(cutoff) && !file.delete()) {
-                    Log.w(TAG, "Could not delete expired local log " + file.getAbsolutePath());
+                if (LocalDate.parse(dateText, LOG_DATE).isBefore(cutoff)) {
+                    Files.delete(file.toPath());
                 }
             } catch (DateTimeParseException ignored) {
+                // Leave unrecognized files untouched; they are not managed log archives.
+            } catch (IOException error) {
+                Log.w(TAG, "Could not delete expired local log " + file.getAbsolutePath(), error);
             }
         }
     }
 
-    private static void appendFile(File source, File target) throws Exception {
+    private static void appendFile(File source, File target) throws IOException {
         try (FileInputStream input = new FileInputStream(source);
                 FileOutputStream output = new FileOutputStream(target, true)) {
             byte[] buffer = new byte[8192];
@@ -402,11 +428,10 @@ public final class AppLogger implements Logger {
             while ((read = input.read(buffer)) != -1)
                 output.write(buffer, 0, read);
         }
-        if (!source.delete())
-            throw new IllegalStateException("Cannot delete rotated " + source);
+        Files.delete(source.toPath());
     }
 
-    private static void move(File source, File target) throws Exception {
+    private static void move(File source, File target) throws IOException {
         try {
             Files.move(source.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException ignored) {

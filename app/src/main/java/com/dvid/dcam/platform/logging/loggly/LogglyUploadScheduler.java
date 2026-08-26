@@ -27,7 +27,7 @@ public final class LogglyUploadScheduler {
         schedule(context, RETRY_JOB_ID, Math.max(0L, nextRetryAtMillis - System.currentTimeMillis()));
     }
 
-    static boolean scheduleJobNow(Context context) {
+    public static boolean scheduleJobNow(Context context) {
         if (!BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return false;
         return schedule(context, UPLOAD_JOB_ID, 0L);
     }

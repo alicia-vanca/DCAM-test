@@ -111,6 +111,7 @@ public final class AndroidLocationSourceImpl implements LocationSource {
             acceptCoordinate(generation,
                     new GpsCoordinate(location.getLatitude(), location.getLongitude()));
         } catch (IllegalArgumentException ignored) {
+            // Ignore a malformed platform coordinate and wait for the next location update.
         }
     }
 
@@ -129,7 +130,9 @@ public final class AndroidLocationSourceImpl implements LocationSource {
     private synchronized void stopSources() {
         if (locationManager != null && satelliteListener != null) {
             try { locationManager.removeUpdates(satelliteListener); }
-            catch (RuntimeException ignored) { }
+            catch (RuntimeException ignored) {
+                // Continue teardown even when the framework rejects listener removal.
+            }
         }
         fusedSource.stop();
         satelliteListener = null;

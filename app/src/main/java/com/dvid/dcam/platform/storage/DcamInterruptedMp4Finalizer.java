@@ -130,75 +130,89 @@ final class DcamInterruptedMp4Finalizer {
 
     private static Result finalizeMedia(DcamRandomAccessMedia media) throws IOException {
         long originalBytes = media.length();
-        long offset = 0L;
-        long incompleteOffset = -1L;
-        long pendingFragmentOffset = -1L;
-        int completeFragments = 0;
-        boolean fragmented = false;
-        SeekIndexReservation seekIndex = seekIndexReservation(media, originalBytes);
+        FragmentScan scan = scanFragmentedMedia(media, originalBytes,
+                seekIndexReservation(media, originalBytes));
+        Result unchanged = unchangedFinalizationResult(originalBytes, scan);
+        if (unchanged != null) return unchanged;
+        return finalizeRecoveredMedia(media, originalBytes, scan);
+    }
 
-        while (offset < originalBytes) {
-            if (seekIndex != null && offset == seekIndex.offset()) {
-                offset = seekIndex.end();
-                continue;
-            }
-            long remaining = originalBytes - offset;
-            if (remaining < 8L) {
-                incompleteOffset = pendingFragmentOffset >= 0L
-                        ? pendingFragmentOffset : offset;
-                break;
-            }
-            Box box = readBox(media, offset, originalBytes);
-            if (box == null) {
-                incompleteOffset = pendingFragmentOffset >= 0L
-                        ? pendingFragmentOffset : offset;
-                break;
-            }
-
-            if (box.type() == BOX_MOOV) {
-                fragmented = findChild(media, box, BOX_MVEX) != null;
-            } else if (box.type() == BOX_MOOF && fragmented) {
-                if (pendingFragmentOffset >= 0L) {
-                    incompleteOffset = pendingFragmentOffset;
-                    break;
-                }
-                pendingFragmentOffset = offset;
-            } else if (box.type() == BOX_MDAT && pendingFragmentOffset >= 0L) {
-                completeFragments++;
-                pendingFragmentOffset = -1L;
-            } else if (pendingFragmentOffset >= 0L) {
-                incompleteOffset = pendingFragmentOffset;
-                break;
-            }
-            offset = box.end();
+    private static FragmentScan scanFragmentedMedia(
+            DcamRandomAccessMedia media, long originalBytes, SeekIndexReservation seekIndex)
+            throws IOException {
+        FragmentScanState state = new FragmentScanState(0L, -1L, 0, false, -1L);
+        while (state.offset() < originalBytes && state.incompleteOffset() < 0L) {
+            state = scanNextTopLevelBox(media, state, originalBytes, seekIndex);
         }
+        long incompleteOffset = state.incompleteOffset() >= 0L
+                ? state.incompleteOffset() : state.pendingFragmentOffset();
+        return new FragmentScan(state.fragmented(), incompleteOffset, state.completeFragments());
+    }
 
-        if (incompleteOffset < 0L && pendingFragmentOffset >= 0L) {
-            incompleteOffset = pendingFragmentOffset;
+    private static FragmentScanState scanNextTopLevelBox(
+            DcamRandomAccessMedia media, FragmentScanState state, long originalBytes,
+            SeekIndexReservation seekIndex) throws IOException {
+        if (seekIndex != null && state.offset() == seekIndex.offset()) {
+            return new FragmentScanState(seekIndex.end(), state.pendingFragmentOffset(),
+                    state.completeFragments(), state.fragmented(), -1L);
         }
-        if (!fragmented) {
-            return Result.unchanged(originalBytes, completeFragments,
+        if (originalBytes - state.offset() < 8L) return incompleteTail(state, state.offset());
+        Box box = readBox(media, state.offset(), originalBytes);
+        if (box == null) return incompleteTail(state, state.offset());
+        return scanTopLevelBox(media, state, box);
+    }
+
+    private static FragmentScanState scanTopLevelBox(
+            DcamRandomAccessMedia media, FragmentScanState state, Box box) throws IOException {
+        boolean fragmented = state.fragmented();
+        long pendingFragmentOffset = state.pendingFragmentOffset();
+        int completeFragments = state.completeFragments();
+        if (box.type() == BOX_MOOV) {
+            fragmented = findChild(media, box, BOX_MVEX) != null;
+        } else if (box.type() == BOX_MOOF && fragmented) {
+            if (pendingFragmentOffset >= 0L) return incompleteTail(state, pendingFragmentOffset);
+            pendingFragmentOffset = state.offset();
+        } else if (box.type() == BOX_MDAT && pendingFragmentOffset >= 0L) {
+            completeFragments++;
+            pendingFragmentOffset = -1L;
+        } else if (pendingFragmentOffset >= 0L) {
+            return incompleteTail(state, pendingFragmentOffset);
+        }
+        return new FragmentScanState(box.end(), pendingFragmentOffset, completeFragments,
+                fragmented, -1L);
+    }
+
+    private static FragmentScanState incompleteTail(FragmentScanState state, long fallbackOffset) {
+        long incompleteOffset = state.pendingFragmentOffset() >= 0L
+                ? state.pendingFragmentOffset() : fallbackOffset;
+        return new FragmentScanState(state.offset(), state.pendingFragmentOffset(),
+                state.completeFragments(), state.fragmented(), incompleteOffset);
+    }
+
+    private static Result unchangedFinalizationResult(long originalBytes, FragmentScan scan) {
+        if (!scan.fragmented()) {
+            return Result.unchanged(originalBytes, scan.completeFragments(),
                     "File is not a fragmented MP4 recording.");
         }
-        if (incompleteOffset >= 0L && completeFragments == 0) {
+        if (scan.hasIncompleteTail() && scan.completeFragments() == 0) {
             return Result.unchanged(originalBytes, 0,
                     "No complete media fragment exists before the incomplete tail.");
         }
+        return null;
+    }
 
-        long retainedBytes = originalBytes;
-        boolean trimmed = incompleteOffset >= 0L;
-        if (trimmed) {
-            retainedBytes = incompleteOffset;
-            media.setLength(retainedBytes);
-        }
+    private static Result finalizeRecoveredMedia(
+            DcamRandomAccessMedia media, long originalBytes, FragmentScan scan) throws IOException {
+        long retainedBytes = scan.hasIncompleteTail() ? scan.incompleteOffset() : originalBytes;
+        if (scan.hasIncompleteTail()) media.setLength(retainedBytes);
         DurationPatch duration = patchDuration(media, retainedBytes);
         if (!duration.patched()) {
-            return Result.unchanged(originalBytes, completeFragments,
+            return Result.unchanged(originalBytes, scan.completeFragments(),
                     "Duration metadata could not be derived; original file was preserved.");
         }
         patchSeekIndex(media, retainedBytes, true);
-        return Result.finalized(originalBytes, retainedBytes, completeFragments,
-                trimmed, duration.durationMillis());
+        return Result.finalized(originalBytes, retainedBytes, scan.completeFragments(),
+                scan.hasIncompleteTail(), duration.durationMillis());
     }
     private static DurationPatch patchDuration(DcamRandomAccessMedia media, long fileLength)
             throws IOException {
@@ -289,71 +303,66 @@ final class DcamInterruptedMp4Finalizer {
         while (offset + 8L <= moov.end()) {
             Box child = readBox(media, offset, moov.end());
             if (child == null) return List.of();
-            if (child.type() == BOX_TRAK) {
-                Box tkhd = findChild(media, child, BOX_TKHD);
-                Box mdia = findChild(media, child, BOX_MDIA);
-                Box mdhd = mdia == null ? null : findChild(media, mdia, BOX_MDHD);
-                Box hdlr = mdia == null ? null : findChild(media, mdia, BOX_HDLR);
-                if (tkhd != null && mdhd != null && hdlr != null
-                        && contains(tkhd, 12L, 12L) && contains(mdhd, 12L, 8L)
-                        && contains(hdlr, 8L, 4L)
-                        && version(media, tkhd) == 0 && version(media, mdhd) == 0) {
-                    long handlerType = readUnsignedInt(media, hdlr.contentOffset() + 8L);
-                    long trackId = readUnsignedInt(media, tkhd.contentOffset() + 12L);
-                    long timescale = readUnsignedInt(media, mdhd.contentOffset() + 12L);
-                    if ((handlerType == HANDLER_VIDEO || handlerType == HANDLER_AUDIO)
-                            && trackId > 0L && timescale > 0L) {
-                        tracks.add(new TrackHeader(trackId, timescale,
-                                tkhd.contentOffset() + 20L, mdhd.contentOffset() + 16L,
-                                handlerType));
-                    }
-                }
-            }
+            TrackHeader track = child.type() == BOX_TRAK ? readTrackHeader(media, child) : null;
+            if (track != null) tracks.add(track);
             offset = child.end();
         }
         return tracks;
     }
 
+    private static TrackHeader readTrackHeader(DcamRandomAccessMedia media, Box trak)
+            throws IOException {
+        Box tkhd = findChild(media, trak, BOX_TKHD);
+        Box mdia = findChild(media, trak, BOX_MDIA);
+        if (tkhd == null || mdia == null) return null;
+        Box mdhd = findChild(media, mdia, BOX_MDHD);
+        Box hdlr = findChild(media, mdia, BOX_HDLR);
+        if (mdhd == null || hdlr == null || !contains(tkhd, 12L, 12L)
+                || !contains(mdhd, 12L, 8L) || !contains(hdlr, 8L, 4L)
+                || version(media, tkhd) != 0 || version(media, mdhd) != 0) {
+            return null;
+        }
+        long handlerType = readUnsignedInt(media, hdlr.contentOffset() + 8L);
+        long trackId = readUnsignedInt(media, tkhd.contentOffset() + 12L);
+        long timescale = readUnsignedInt(media, mdhd.contentOffset() + 12L);
+        if ((handlerType != HANDLER_VIDEO && handlerType != HANDLER_AUDIO)
+                || trackId <= 0L || timescale <= 0L) {
+            return null;
+        }
+        return new TrackHeader(trackId, timescale, tkhd.contentOffset() + 20L,
+                mdhd.contentOffset() + 16L, handlerType);
+    }
+
     private static FragmentTiming fragmentTiming(DcamRandomAccessMedia media, Box moof,
             long trackId, long fallbackSampleDuration, boolean synthesizeZeroDurations)
             throws IOException {
-        long duration = 0L;
-        long terminalZeroDurationSamples = 0L;
-        long lastPositiveSampleDuration = 0L;
+        TimingAccumulator timing = new TimingAccumulator();
         long offset = moof.contentOffset();
         while (offset + 8L <= moof.end()) {
             Box child = readBox(media, offset, moof.end());
             if (child == null) return null;
             if (child.type() == BOX_TRAF) {
-                TrackFragmentTiming timing = trackFragmentTiming(media, child, trackId);
-                if (timing == null || timing.duration() > Long.MAX_VALUE - duration) return null;
-                duration += timing.duration();
-                if (timing.hasPositiveSampleDuration()) {
-                    terminalZeroDurationSamples = timing.terminalZeroDurationSamples();
-                } else if (timing.terminalZeroDurationSamples()
-                        > Long.MAX_VALUE - terminalZeroDurationSamples) {
-                    return null;
-                } else {
-                    terminalZeroDurationSamples += timing.terminalZeroDurationSamples();
-                }
-                if (timing.lastPositiveSampleDuration() > 0L) {
-                    lastPositiveSampleDuration = timing.lastPositiveSampleDuration();
-                }
+                TrackFragmentTiming trackTiming = trackFragmentTiming(media, child, trackId);
+                if (trackTiming == null || !timing.add(trackTiming)) return null;
             }
             offset = child.end();
         }
-        long terminalSampleDuration = lastPositiveSampleDuration > 0L
-                ? lastPositiveSampleDuration : fallbackSampleDuration;
+        return resolveFragmentTiming(timing, fallbackSampleDuration, synthesizeZeroDurations);
+    }
+
+    private static FragmentTiming resolveFragmentTiming(
+            TimingAccumulator timing, long fallbackSampleDuration, boolean synthesizeZeroDurations) {
+        long terminalSampleDuration = timing.lastPositiveSampleDuration() > 0L
+                ? timing.lastPositiveSampleDuration() : fallbackSampleDuration;
         if (!synthesizeZeroDurations) {
-            return new FragmentTiming(duration, terminalSampleDuration);
+            return new FragmentTiming(timing.duration(), terminalSampleDuration);
         }
-        if (duration == 0L && terminalZeroDurationSamples == 0L
-                && lastPositiveSampleDuration == 0L) {
+        if (timing.isEmpty()) {
             return new FragmentTiming(0L, fallbackSampleDuration);
         }
         DcamFragmentedMp4Layout.ResolvedDuration resolved =
-                DcamFragmentedMp4Layout.resolveDuration(duration,
-                        terminalZeroDurationSamples, lastPositiveSampleDuration,
+                DcamFragmentedMp4Layout.resolveDuration(timing.duration(),
+                        timing.terminalZeroDurationSamples(), timing.lastPositiveSampleDuration(),
                         fallbackSampleDuration);
         return resolved == null ? null
                 : new FragmentTiming(
@@ -369,37 +378,23 @@ final class DcamInterruptedMp4Finalizer {
         if (header.trackId() != trackId) {
             return new TrackFragmentTiming(0L, 0L, 0L, false);
         }
+        return readTrackFragmentTimings(media, traf, header.defaultSampleDuration());
+    }
 
-        long duration = 0L;
-        long terminalZeroDurationSamples = 0L;
-        long lastPositiveSampleDuration = 0L;
-        boolean hasPositiveSampleDuration = false;
+    private static TrackFragmentTiming readTrackFragmentTimings(
+            DcamRandomAccessMedia media, Box traf, long defaultSampleDuration) throws IOException {
+        TimingAccumulator timing = new TimingAccumulator();
         long offset = traf.contentOffset();
         while (offset + 8L <= traf.end()) {
             Box child = readBox(media, offset, traf.end());
             if (child == null) return null;
             if (child.type() == BOX_TRUN) {
-                TrackRunTiming timing = readTrackRunTiming(
-                        media, child, header.defaultSampleDuration());
-                if (timing == null || timing.duration() > Long.MAX_VALUE - duration) return null;
-                duration += timing.duration();
-                if (timing.hasPositiveSampleDuration()) {
-                    terminalZeroDurationSamples = timing.terminalZeroDurationSamples();
-                    hasPositiveSampleDuration = true;
-                } else if (timing.terminalZeroDurationSamples()
-                        > Long.MAX_VALUE - terminalZeroDurationSamples) {
-                    return null;
-                } else {
-                    terminalZeroDurationSamples += timing.terminalZeroDurationSamples();
-                }
-                if (timing.lastPositiveSampleDuration() > 0L) {
-                    lastPositiveSampleDuration = timing.lastPositiveSampleDuration();
-                }
+                TrackRunTiming runTiming = readTrackRunTiming(media, child, defaultSampleDuration);
+                if (runTiming == null || !timing.add(runTiming)) return null;
             }
             offset = child.end();
         }
-        return new TrackFragmentTiming(duration, terminalZeroDurationSamples,
-                lastPositiveSampleDuration, hasPositiveSampleDuration);
+        return timing.toTrackFragmentTiming();
     }
 
     private static TrackFragment readTrackFragment(DcamRandomAccessMedia media, Box tfhd)
@@ -423,56 +418,68 @@ final class DcamInterruptedMp4Finalizer {
 
     private static TrackRunTiming readTrackRunTiming(
             DcamRandomAccessMedia media, Box trun, long defaultSampleDuration) throws IOException {
+        TrackRunHeader header = readTrackRunHeader(media, trun);
+        if (header.sampleCount() == 0L) return new TrackRunTiming(0L, 0L, 0L, false);
+        if (!hasCompleteTrackRunSamples(media, trun, header)) return null;
+        if (!header.sampleDurationsPresent()) {
+            return implicitTrackRunTiming(header.sampleCount(), defaultSampleDuration);
+        }
+        return explicitTrackRunTiming(media, trun, header);
+    }
+
+    private static TrackRunHeader readTrackRunHeader(DcamRandomAccessMedia media, Box trun)
+            throws IOException {
         media.seek(trun.contentOffset());
         requireBytes(media, trun, 8L);
-        int versionAndFlags = media.readInt();
-        int flags = versionAndFlags & 0x00ff_ffff;
+        int flags = media.readInt() & 0x00ff_ffff;
         long sampleCount = Integer.toUnsignedLong(media.readInt());
         if ((flags & 0x000001) != 0) skip(media, trun, 4L);
         if ((flags & 0x000004) != 0) skip(media, trun, 4L);
-        if (sampleCount == 0L) return new TrackRunTiming(0L, 0L, 0L, false);
+        return new TrackRunHeader(flags, sampleCount);
+    }
 
-        boolean sampleDurationsPresent = (flags & 0x000100) != 0;
-        int bytesPerSample = 0;
-        if (sampleDurationsPresent) bytesPerSample += 4;
-        if ((flags & 0x000200) != 0) bytesPerSample += 4;
-        if ((flags & 0x000400) != 0) bytesPerSample += 4;
-        if ((flags & 0x000800) != 0) bytesPerSample += 4;
+    private static boolean hasCompleteTrackRunSamples(
+            DcamRandomAccessMedia media, Box trun, TrackRunHeader header) throws IOException {
+        int bytesPerSample = bytesPerTrackRunSample(header.flags());
         long remaining = trun.end() - media.getFilePointer();
-        if (bytesPerSample > 0 && sampleCount > remaining / bytesPerSample) return null;
-        if (!sampleDurationsPresent) {
-            if (defaultSampleDuration <= 0L) return null;
-            try {
-                return new TrackRunTiming(
-                        Math.multiplyExact(sampleCount, defaultSampleDuration),
-                        0L, defaultSampleDuration, true);
-            } catch (ArithmeticException overflow) {
-                return null;
-            }
-        }
+        return bytesPerSample == 0 || header.sampleCount() <= remaining / bytesPerSample;
+    }
 
-        long duration = 0L;
-        long terminalZeroDurationSamples = 0L;
-        long lastPositiveSampleDuration = 0L;
-        boolean hasPositiveSampleDuration = false;
-        for (long sample = 0L; sample < sampleCount; sample++) {
+    private static int bytesPerTrackRunSample(int flags) {
+        int bytes = (flags & 0x000100) != 0 ? 4 : 0;
+        if ((flags & 0x000200) != 0) bytes += 4;
+        if ((flags & 0x000400) != 0) bytes += 4;
+        if ((flags & 0x000800) != 0) bytes += 4;
+        return bytes;
+    }
+
+    private static TrackRunTiming implicitTrackRunTiming(long sampleCount, long defaultSampleDuration) {
+        if (defaultSampleDuration <= 0L) return null;
+        try {
+            return new TrackRunTiming(Math.multiplyExact(sampleCount, defaultSampleDuration),
+                    0L, defaultSampleDuration, true);
+        } catch (ArithmeticException overflow) {
+            return null;
+        }
+    }
+
+    private static TrackRunTiming explicitTrackRunTiming(
+            DcamRandomAccessMedia media, Box trun, TrackRunHeader header) throws IOException {
+        TimingAccumulator timing = new TimingAccumulator();
+        for (long sample = 0L; sample < header.sampleCount(); sample++) {
             requireBytes(media, trun, 4L);
             long sampleDuration = Integer.toUnsignedLong(media.readInt());
-            if (sampleDuration == 0L) {
-                terminalZeroDurationSamples++;
-            } else {
-                if (sampleDuration > Long.MAX_VALUE - duration) return null;
-                duration += sampleDuration;
-                terminalZeroDurationSamples = 0L;
-                lastPositiveSampleDuration = sampleDuration;
-                hasPositiveSampleDuration = true;
-            }
-            if ((flags & 0x000200) != 0) skip(media, trun, 4L);
-            if ((flags & 0x000400) != 0) skip(media, trun, 4L);
-            if ((flags & 0x000800) != 0) skip(media, trun, 4L);
+            if (!timing.addSampleDuration(sampleDuration)) return null;
+            skipOptionalTrackRunSampleFields(media, trun, header.flags());
         }
-        return new TrackRunTiming(duration, terminalZeroDurationSamples,
-                lastPositiveSampleDuration, hasPositiveSampleDuration);
+        return timing.toTrackRunTiming();
+    }
+
+    private static void skipOptionalTrackRunSampleFields(
+            DcamRandomAccessMedia media, Box trun, int flags) throws IOException {
+        if ((flags & 0x000200) != 0) skip(media, trun, 4L);
+        if ((flags & 0x000400) != 0) skip(media, trun, 4L);
+        if ((flags & 0x000800) != 0) skip(media, trun, 4L);
     }
 
     private static boolean patchSeekIndex(
@@ -480,133 +487,100 @@ final class DcamInterruptedMp4Finalizer {
             throws IOException {
         SeekIndexReservation reservation = seekIndexReservation(media, fileLength);
         if (reservation == null) return false;
+        List<TrackHeader> tracks = seekIndexTracks(media, fileLength);
+        if (!repairFragmentOffsets) {
+            return patchCleanSeekIndex(media, fileLength, reservation, tracks);
+        }
+        rebuildSeekIndex(media, fileLength, reservation, tracks);
+        return false;
+    }
+
+    private static List<TrackHeader> seekIndexTracks(DcamRandomAccessMedia media, long fileLength)
+            throws IOException {
         Box moov = findTopLevel(media, fileLength, BOX_MOOV);
         List<TrackHeader> tracks = moov == null ? List.of() : findTracks(media, moov);
         if (tracks.isEmpty()) throw new IOException("Seek index track metadata is unavailable.");
-        if (!repairFragmentOffsets) {
-            DcamFragmentedMp4Layout.StreamedSeekIndex streamed =
-                    DcamFragmentedMp4Layout.readStreamedSeekIndex(
-                            media, reservation.offset(), reservation.end(), fileLength);
-            if (streamed != null) {
-                TrackHeader streamedTrack = null;
-                for (TrackHeader track : tracks) {
-                    if (track.trackId() == streamed.trackId()) {
-                        streamedTrack = track;
-                        break;
-                    }
-                }
-                if (streamedTrack == null) {
-                    throw new IOException("Clean streamed seek index track is unavailable.");
-                }
-                patchStreamedSegmentIndex(media, reservation, streamedTrack, streamed);
-                return true;
+        return tracks;
+    }
+
+    private static boolean patchCleanSeekIndex(
+            DcamRandomAccessMedia media, long fileLength, SeekIndexReservation reservation,
+            List<TrackHeader> tracks) throws IOException {
+        DcamFragmentedMp4Layout.StreamedSeekIndex streamed =
+                DcamFragmentedMp4Layout.readStreamedSeekIndex(
+                        media, reservation.offset(), reservation.end(), fileLength);
+        if (streamed != null) {
+            TrackHeader streamedTrack = findTrackById(tracks, streamed.trackId());
+            if (streamedTrack == null) {
+                throw new IOException("Clean streamed seek index track is unavailable.");
             }
-            DcamFragmentedMp4Layout.RecordedSeekIndex recorded =
-                    DcamFragmentedMp4Layout.readRecordedSeekIndex(
-                            media, reservation.offset(), reservation.end(), fileLength);
-            if (recorded == null) {
-                throw new IOException("Clean seek index writer metadata is unavailable.");
-            }
-            List<SegmentIndex> recordedIndexes = recordedSegmentIndexes(tracks, recorded);
-            if (recordedIndexes.isEmpty()) {
-                throw new IOException("Clean seek index writer metadata is incompatible.");
-            }
-            requireIndexFits(reservation, recordedIndexes);
-            writeSegmentIndexes(media, reservation, recordedIndexes,
-                    recorded.firstMoofOffset());
+            patchStreamedSegmentIndex(media, reservation, streamedTrack, streamed);
             return true;
         }
-
-        List<List<FragmentReference>> referencesByTrack = new ArrayList<>();
-        for (int track = 0; track < tracks.size(); track++) {
-            referencesByTrack.add(new ArrayList<>());
+        DcamFragmentedMp4Layout.RecordedSeekIndex recorded =
+                DcamFragmentedMp4Layout.readRecordedSeekIndex(
+                        media, reservation.offset(), reservation.end(), fileLength);
+        if (recorded == null) {
+            throw new IOException("Clean seek index writer metadata is unavailable.");
         }
-        boolean aggregateAudio = tracks.size() == 1
-                && tracks.get(0).handlerType() == HANDLER_AUDIO;
-        long[] lastPositiveSampleDurations = new long[tracks.size()];
-        long[] pendingReferenceBytes = new long[tracks.size()];
-        long[] pendingReferenceDurations = new long[tracks.size()];
-        int[] pendingTimedFragments = new int[tracks.size()];
-        long firstMoofOffset = -1L;
+        List<SegmentIndex> recordedIndexes = recordedSegmentIndexes(tracks, recorded);
+        if (recordedIndexes.isEmpty()) {
+            throw new IOException("Clean seek index writer metadata is incompatible.");
+        }
+        requireIndexFits(reservation, recordedIndexes);
+        writeSegmentIndexes(media, reservation, recordedIndexes, recorded.firstMoofOffset());
+        return true;
+    }
+
+    private static TrackHeader findTrackById(List<TrackHeader> tracks, long trackId) {
+        for (TrackHeader track : tracks) {
+            if (track.trackId() == trackId) return track;
+        }
+        return null;
+    }
+
+    private static void rebuildSeekIndex(
+            DcamRandomAccessMedia media, long fileLength, SeekIndexReservation reservation,
+            List<TrackHeader> tracks) throws IOException {
+        SeekIndexBuilder builder = new SeekIndexBuilder(tracks);
+        scanSeekIndexFragments(media, fileLength, reservation, builder);
+        List<SegmentIndex> indexes = builder.buildIndexes();
+        if (indexes.isEmpty()) throw new IOException("Seek index has no timed media tracks.");
+        requireIndexFits(reservation, indexes);
+        writeSegmentIndexes(media, reservation, indexes, builder.firstMoofOffset());
+    }
+
+    private static void scanSeekIndexFragments(
+            DcamRandomAccessMedia media, long fileLength, SeekIndexReservation reservation,
+            SeekIndexBuilder builder) throws IOException {
         long offset = 0L;
         while (offset + 8L <= fileLength) {
             if (offset == reservation.offset()) {
                 offset = reservation.end();
-                continue;
+            } else {
+                offset = nextSeekIndexFragmentOffset(media, fileLength, offset, builder);
             }
-            Box box = readBox(media, offset, fileLength);
-            if (box == null) throw new IOException("Seek index found invalid top-level MP4 metadata.");
-            if (box.type() != BOX_MOOF) {
-                offset = box.end();
-                continue;
-            }
-            Box mdat = readBox(media, box.end(), fileLength);
-            if (mdat == null || mdat.type() != BOX_MDAT) {
-                throw new IOException("Seek index found a media fragment without sample data.");
-            }
-            long fragmentEnd = gpsRouteBoxEnd(media, mdat.end(), fileLength);
-            long referenceSize = fragmentEnd - offset;
-            if (referenceSize <= 0L || referenceSize > 0x7fff_ffffL) {
-                throw new IOException("Seek index fragment metadata is outside MP4 limits.");
-            }
-            if (repairFragmentOffsets) patchFragmentBaseOffsets(media, box, offset);
-            for (int track = 0; track < tracks.size(); track++) {
-                FragmentTiming timing = fragmentTiming(media, box, tracks.get(track).trackId(),
-                        lastPositiveSampleDurations[track], true);
-                if (timing == null || timing.duration() > UNSIGNED_INT_MAX) {
-                    throw new IOException("Seek index fragment metadata is outside MP4 limits.");
-                }
-                pendingReferenceBytes[track] = addReferenceBytes(
-                        pendingReferenceBytes[track], referenceSize);
-                if (timing.duration() > 0L) {
-                    if (aggregateAudio) {
-                        if (timing.duration()
-                                > UNSIGNED_INT_MAX - pendingReferenceDurations[track]) {
-                            throw new IOException(
-                                    "Seek index aggregate duration is outside MP4 limits.");
-                        }
-                        pendingReferenceDurations[track] += timing.duration();
-                        pendingTimedFragments[track]++;
-                        if (pendingTimedFragments[track]
-                                >= DcamFragmentedMp4Layout.AUDIO_FRAGMENTS_PER_INDEX_REFERENCE) {
-                            referencesByTrack.get(track).add(new FragmentReference(
-                                    pendingReferenceBytes[track],
-                                    pendingReferenceDurations[track]));
-                            pendingReferenceBytes[track] = 0L;
-                            pendingReferenceDurations[track] = 0L;
-                            pendingTimedFragments[track] = 0;
-                        }
-                    } else {
-                        referencesByTrack.get(track).add(new FragmentReference(
-                                pendingReferenceBytes[track], timing.duration()));
-                        pendingReferenceBytes[track] = 0L;
-                    }
-                }
-                lastPositiveSampleDurations[track] = timing.lastPositiveSampleDuration();
-            }
-            if (firstMoofOffset < 0L) firstMoofOffset = offset;
-            offset = fragmentEnd;
         }
+    }
 
-        List<SegmentIndex> indexes = new ArrayList<>();
-        for (int track = 0; track < tracks.size(); track++) {
-            List<FragmentReference> references = referencesByTrack.get(track);
-            if (aggregateAudio && pendingReferenceDurations[track] > 0L) {
-                references.add(new FragmentReference(
-                        pendingReferenceBytes[track], pendingReferenceDurations[track]));
-                pendingReferenceBytes[track] = 0L;
-            }
-            if (references.isEmpty()) continue;
-            appendTrailingReferenceBytes(references, pendingReferenceBytes[track]);
-            if (references.size() > 0xffff) {
-                throw new IOException("Seek index fragment count is outside MP4 limits.");
-            }
-            indexes.add(new SegmentIndex(tracks.get(track), references));
+    private static long nextSeekIndexFragmentOffset(
+            DcamRandomAccessMedia media, long fileLength, long offset, SeekIndexBuilder builder)
+            throws IOException {
+        Box box = readBox(media, offset, fileLength);
+        if (box == null) throw new IOException("Seek index found invalid top-level MP4 metadata.");
+        if (box.type() != BOX_MOOF) return box.end();
+        Box mdat = readBox(media, box.end(), fileLength);
+        if (mdat == null || mdat.type() != BOX_MDAT) {
+            throw new IOException("Seek index found a media fragment without sample data.");
         }
-        if (indexes.isEmpty()) throw new IOException("Seek index has no timed media tracks.");
-        requireIndexFits(reservation, indexes);
-        writeSegmentIndexes(media, reservation, indexes, firstMoofOffset);
-        return false;
+        long fragmentEnd = gpsRouteBoxEnd(media, mdat.end(), fileLength);
+        long referenceSize = fragmentEnd - offset;
+        if (referenceSize <= 0L || referenceSize > 0x7fff_ffffL) {
+            throw new IOException("Seek index fragment metadata is outside MP4 limits.");
+        }
+        patchFragmentBaseOffsets(media, box, offset);
+        builder.appendFragment(media, box, offset, referenceSize);
+        return fragmentEnd;
     }
 
     private static long gpsRouteBoxEnd(
@@ -883,6 +857,172 @@ final class DcamInterruptedMp4Finalizer {
         }
     }
 
+    private static final class TimingAccumulator {
+        private long duration;
+        private long terminalZeroDurationSamples;
+        private long lastPositiveSampleDuration;
+        private boolean hasPositiveSampleDuration;
+
+        private boolean add(TrackFragmentTiming timing) {
+            return add(timing.duration(), timing.terminalZeroDurationSamples(),
+                    timing.lastPositiveSampleDuration(), timing.hasPositiveSampleDuration());
+        }
+
+        private boolean add(TrackRunTiming timing) {
+            return add(timing.duration(), timing.terminalZeroDurationSamples(),
+                    timing.lastPositiveSampleDuration(), timing.hasPositiveSampleDuration());
+        }
+
+        private boolean add(
+                long addedDuration, long trailingZeroSamples, long lastPositiveDuration,
+                boolean hasPositiveDuration) {
+            if (addedDuration > Long.MAX_VALUE - duration) return false;
+            duration += addedDuration;
+            if (hasPositiveDuration) {
+                terminalZeroDurationSamples = trailingZeroSamples;
+                hasPositiveSampleDuration = true;
+            } else if (trailingZeroSamples > Long.MAX_VALUE - terminalZeroDurationSamples) {
+                return false;
+            } else {
+                terminalZeroDurationSamples += trailingZeroSamples;
+            }
+            if (lastPositiveDuration > 0L) lastPositiveSampleDuration = lastPositiveDuration;
+            return true;
+        }
+
+        private boolean addSampleDuration(long sampleDuration) {
+            if (sampleDuration == 0L) {
+                terminalZeroDurationSamples++;
+                return true;
+            }
+            if (sampleDuration > Long.MAX_VALUE - duration) return false;
+            duration += sampleDuration;
+            terminalZeroDurationSamples = 0L;
+            lastPositiveSampleDuration = sampleDuration;
+            hasPositiveSampleDuration = true;
+            return true;
+        }
+
+        private long duration() { return duration; }
+
+        private long terminalZeroDurationSamples() { return terminalZeroDurationSamples; }
+
+        private long lastPositiveSampleDuration() { return lastPositiveSampleDuration; }
+
+        private boolean isEmpty() {
+            return duration == 0L && terminalZeroDurationSamples == 0L
+                    && lastPositiveSampleDuration == 0L;
+        }
+
+        private TrackRunTiming toTrackRunTiming() {
+            return new TrackRunTiming(duration, terminalZeroDurationSamples,
+                    lastPositiveSampleDuration, hasPositiveSampleDuration);
+        }
+
+        private TrackFragmentTiming toTrackFragmentTiming() {
+            return new TrackFragmentTiming(duration, terminalZeroDurationSamples,
+                    lastPositiveSampleDuration, hasPositiveSampleDuration);
+        }
+    }
+
+    private static final class SeekIndexBuilder {
+        private final List<TrackHeader> tracks;
+        private final List<List<FragmentReference>> referencesByTrack = new ArrayList<>();
+        private final boolean aggregateAudio;
+        private final long[] lastPositiveSampleDurations;
+        private final long[] pendingReferenceBytes;
+        private final long[] pendingReferenceDurations;
+        private final int[] pendingTimedFragments;
+        private long firstMoofOffset = -1L;
+
+        private SeekIndexBuilder(List<TrackHeader> tracks) {
+            this.tracks = tracks;
+            for (int track = 0; track < tracks.size(); track++) {
+                referencesByTrack.add(new ArrayList<>());
+            }
+            aggregateAudio = tracks.size() == 1
+                    && tracks.get(0).handlerType() == HANDLER_AUDIO;
+            lastPositiveSampleDurations = new long[tracks.size()];
+            pendingReferenceBytes = new long[tracks.size()];
+            pendingReferenceDurations = new long[tracks.size()];
+            pendingTimedFragments = new int[tracks.size()];
+        }
+
+        private void appendFragment(
+                DcamRandomAccessMedia media, Box moof, long moofOffset, long referenceSize)
+                throws IOException {
+            for (int track = 0; track < tracks.size(); track++) {
+                appendTrackFragment(media, moof, track, referenceSize);
+            }
+            if (firstMoofOffset < 0L) firstMoofOffset = moofOffset;
+        }
+
+        private void appendTrackFragment(
+                DcamRandomAccessMedia media, Box moof, int track, long referenceSize) throws IOException {
+            FragmentTiming timing = fragmentTiming(media, moof, tracks.get(track).trackId(),
+                    lastPositiveSampleDurations[track], true);
+            if (timing == null || timing.duration() > UNSIGNED_INT_MAX) {
+                throw new IOException("Seek index fragment metadata is outside MP4 limits.");
+            }
+            pendingReferenceBytes[track] = addReferenceBytes(
+                    pendingReferenceBytes[track], referenceSize);
+            if (timing.duration() > 0L) appendTimedReference(track, timing.duration());
+            lastPositiveSampleDurations[track] = timing.lastPositiveSampleDuration();
+        }
+
+        private void appendTimedReference(int track, long duration) throws IOException {
+            if (aggregateAudio) {
+                appendAggregatedAudioReference(track, duration);
+            } else {
+                referencesByTrack.get(track).add(new FragmentReference(
+                        pendingReferenceBytes[track], duration));
+                pendingReferenceBytes[track] = 0L;
+            }
+        }
+
+        private void appendAggregatedAudioReference(int track, long duration) throws IOException {
+            if (duration > UNSIGNED_INT_MAX - pendingReferenceDurations[track]) {
+                throw new IOException("Seek index aggregate duration is outside MP4 limits.");
+            }
+            pendingReferenceDurations[track] += duration;
+            pendingTimedFragments[track]++;
+            if (pendingTimedFragments[track]
+                    >= DcamFragmentedMp4Layout.AUDIO_FRAGMENTS_PER_INDEX_REFERENCE) {
+                referencesByTrack.get(track).add(new FragmentReference(
+                        pendingReferenceBytes[track], pendingReferenceDurations[track]));
+                pendingReferenceBytes[track] = 0L;
+                pendingReferenceDurations[track] = 0L;
+                pendingTimedFragments[track] = 0;
+            }
+        }
+
+        private List<SegmentIndex> buildIndexes() throws IOException {
+            List<SegmentIndex> indexes = new ArrayList<>();
+            for (int track = 0; track < tracks.size(); track++) {
+                SegmentIndex index = buildTrackIndex(track);
+                if (index != null) indexes.add(index);
+            }
+            return indexes;
+        }
+
+        private SegmentIndex buildTrackIndex(int track) throws IOException {
+            List<FragmentReference> references = referencesByTrack.get(track);
+            if (aggregateAudio && pendingReferenceDurations[track] > 0L) {
+                references.add(new FragmentReference(
+                        pendingReferenceBytes[track], pendingReferenceDurations[track]));
+                pendingReferenceBytes[track] = 0L;
+            }
+            if (references.isEmpty()) return null;
+            appendTrailingReferenceBytes(references, pendingReferenceBytes[track]);
+            if (references.size() > 0xffff) {
+                throw new IOException("Seek index fragment count is outside MP4 limits.");
+            }
+            return new SegmentIndex(tracks.get(track), references);
+        }
+
+        private long firstMoofOffset() { return firstMoofOffset; }
+    }
+
     private record FragmentTiming(long duration, long lastPositiveSampleDuration) {}
 
     private record TrackFragmentTiming(long duration, long terminalZeroDurationSamples,
@@ -890,6 +1030,18 @@ final class DcamInterruptedMp4Finalizer {
 
     private record TrackRunTiming(long duration, long terminalZeroDurationSamples,
             long lastPositiveSampleDuration, boolean hasPositiveSampleDuration) {}
+
+    private record TrackRunHeader(int flags, long sampleCount) {
+        boolean sampleDurationsPresent() { return (flags & 0x000100) != 0; }
+    }
+
+    private record FragmentScan(boolean fragmented, long incompleteOffset, int completeFragments) {
+        boolean hasIncompleteTail() { return incompleteOffset >= 0L; }
+    }
+
+    private record FragmentScanState(
+            long offset, long pendingFragmentOffset, int completeFragments, boolean fragmented,
+            long incompleteOffset) {}
 
     private record SeekIndexReservation(long offset, long end) {
         long size() { return end - offset; }

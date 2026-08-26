@@ -14,52 +14,74 @@ final class JpegExifOrientation {
     private JpegExifOrientation() {}
 
     static byte[] apply(byte[] jpeg, int orientation) throws IOException {
-        if (jpeg == null || jpeg.length < 4
-                || unsigned(jpeg[0]) != 0xff || unsigned(jpeg[1]) != 0xd8) {
-            throw new IOException("JPEG payload has no SOI marker.");
-        }
+        validateJpeg(jpeg);
         int offset = 2;
         while (offset < jpeg.length) {
-            if (unsigned(jpeg[offset]) != 0xff) {
-                throw new IOException("JPEG metadata marker prefix is invalid.");
-            }
-            while (offset < jpeg.length && unsigned(jpeg[offset]) == 0xff) offset++;
-            if (offset >= jpeg.length) throw new IOException("JPEG marker is truncated.");
-            int marker = unsigned(jpeg[offset++]);
-            if (marker == MARKER_SOS || marker == MARKER_EOI) {
+            JpegMarker marker = readMarker(jpeg, offset);
+            if (marker.endsMetadata()) {
                 return insertMinimalExif(jpeg, orientation);
             }
-            if (marker == 0x01 || marker >= 0xd0 && marker <= 0xd7) continue;
-            if (offset + 2 > jpeg.length) throw new IOException("JPEG segment length is truncated.");
-            int segmentBytes = readUnsignedShortBigEndian(jpeg, offset);
-            if (segmentBytes < 2 || segmentBytes > jpeg.length - offset) {
-                throw new IOException("JPEG segment length is invalid.");
+            if (marker.hasNoLength()) {
+                offset = marker.nextOffset();
+                continue;
             }
-            int payloadOffset = offset + 2;
-            int segmentEnd = offset + segmentBytes;
-            if (marker == MARKER_APP1
-                    && payloadOffset + EXIF_PREFIX.length <= segmentEnd
-                    && startsWith(jpeg, payloadOffset, EXIF_PREFIX)) {
-                return applyToExif(jpeg, offset, segmentBytes,
-                        payloadOffset + EXIF_PREFIX.length, segmentEnd, orientation);
+            JpegSegment segment = readSegment(jpeg, marker.nextOffset());
+            if (marker.value() == MARKER_APP1 && segment.hasExifPrefix(jpeg)) {
+                return applyToExif(jpeg, segment, orientation);
             }
-            offset = segmentEnd;
+            offset = segment.end();
         }
         throw new IOException("JPEG payload ended before image data.");
     }
 
-    private static byte[] applyToExif(
-            byte[] jpeg, int segmentLengthOffset, int segmentBytes,
-            int tiffOffset, int exifEnd, int orientation) throws IOException {
-        if (tiffOffset + 8 > exifEnd) throw new IOException("EXIF TIFF header is truncated.");
-        boolean littleEndian;
-        if (jpeg[tiffOffset] == 'I' && jpeg[tiffOffset + 1] == 'I') {
-            littleEndian = true;
-        } else if (jpeg[tiffOffset] == 'M' && jpeg[tiffOffset + 1] == 'M') {
-            littleEndian = false;
-        } else {
-            throw new IOException("EXIF TIFF byte order is invalid.");
+    private static void validateJpeg(byte[] jpeg) throws IOException {
+        if (jpeg == null || jpeg.length < 4
+                || unsigned(jpeg[0]) != 0xff || unsigned(jpeg[1]) != 0xd8) {
+            throw new IOException("JPEG payload has no SOI marker.");
         }
+    }
+
+    private static JpegMarker readMarker(byte[] jpeg, int offset) throws IOException {
+        if (unsigned(jpeg[offset]) != 0xff) {
+            throw new IOException("JPEG metadata marker prefix is invalid.");
+        }
+        while (offset < jpeg.length && unsigned(jpeg[offset]) == 0xff) {
+            offset++;
+        }
+        if (offset >= jpeg.length) throw new IOException("JPEG marker is truncated.");
+        return new JpegMarker(unsigned(jpeg[offset]), offset + 1);
+    }
+
+    private static JpegSegment readSegment(byte[] jpeg, int lengthOffset) throws IOException {
+        if (lengthOffset + 2 > jpeg.length) {
+            throw new IOException("JPEG segment length is truncated.");
+        }
+        int segmentBytes = readUnsignedShortBigEndian(jpeg, lengthOffset);
+        if (segmentBytes < 2 || segmentBytes > jpeg.length - lengthOffset) {
+            throw new IOException("JPEG segment length is invalid.");
+        }
+        return new JpegSegment(lengthOffset, segmentBytes, lengthOffset + 2,
+                lengthOffset + segmentBytes);
+    }
+
+    private static byte[] applyToExif(byte[] jpeg, JpegSegment segment, int orientation)
+            throws IOException {
+        ExifIfd ifd = readExifIfd(jpeg, segment);
+        int orientationEntry = findOrientationEntry(jpeg, ifd);
+        if (orientationEntry >= 0) {
+            writeUnsignedShort(jpeg, orientationEntry + 8, orientation, ifd.littleEndian());
+            jpeg[orientationEntry + 10] = 0;
+            jpeg[orientationEntry + 11] = 0;
+            return jpeg;
+        }
+        return appendOrientationIfd(jpeg, ifd, orientation);
+    }
+
+    private static ExifIfd readExifIfd(byte[] jpeg, JpegSegment segment) throws IOException {
+        int tiffOffset = segment.payloadOffset() + EXIF_PREFIX.length;
+        int exifEnd = segment.end();
+        if (tiffOffset + 8 > exifEnd) throw new IOException("EXIF TIFF header is truncated.");
+        boolean littleEndian = isLittleEndian(jpeg, tiffOffset);
         if (readUnsignedShort(jpeg, tiffOffset + 2, littleEndian) != 42) {
             throw new IOException("EXIF TIFF marker is invalid.");
         }
@@ -67,69 +89,100 @@ final class JpegExifOrientation {
         if (ifdRelativeOffset > Integer.MAX_VALUE) {
             throw new IOException("EXIF IFD offset is too large.");
         }
-        long ifdLong = (long) tiffOffset + ifdRelativeOffset;
+        long ifdLong = tiffOffset + ifdRelativeOffset;
         if (ifdLong < tiffOffset || ifdLong + 2L > exifEnd) {
             throw new IOException("EXIF IFD offset is outside APP1.");
         }
         int ifdOffset = (int) ifdLong;
         int entryCount = readUnsignedShort(jpeg, ifdOffset, littleEndian);
-        long entriesEnd = (long) ifdOffset + 2L + entryCount * 12L;
+        long entriesEnd = ifdOffset + 2L + entryCount * 12L;
         if (entriesEnd + 4L > exifEnd) throw new IOException("EXIF IFD entries are truncated.");
-        for (int index = 0; index < entryCount; index++) {
-            int entryOffset = ifdOffset + 2 + index * 12;
-            if (readUnsignedShort(jpeg, entryOffset, littleEndian) != TAG_ORIENTATION) continue;
-            int type = readUnsignedShort(jpeg, entryOffset + 2, littleEndian);
-            long count = readUnsignedInt(jpeg, entryOffset + 4, littleEndian);
+        return new ExifIfd(segment.lengthOffset(), segment.bytes(), tiffOffset, exifEnd,
+                ifdOffset, entryCount, littleEndian);
+    }
+
+    private static boolean isLittleEndian(byte[] jpeg, int tiffOffset) throws IOException {
+        if (jpeg[tiffOffset] == 'I' && jpeg[tiffOffset + 1] == 'I') return true;
+        if (jpeg[tiffOffset] == 'M' && jpeg[tiffOffset + 1] == 'M') return false;
+        throw new IOException("EXIF TIFF byte order is invalid.");
+    }
+
+    private static int findOrientationEntry(byte[] jpeg, ExifIfd ifd) throws IOException {
+        for (int index = 0; index < ifd.entryCount(); index++) {
+            int entryOffset = ifd.ifdOffset() + 2 + index * 12;
+            if (readUnsignedShort(jpeg, entryOffset, ifd.littleEndian()) != TAG_ORIENTATION) {
+                continue;
+            }
+            int type = readUnsignedShort(jpeg, entryOffset + 2, ifd.littleEndian());
+            long count = readUnsignedInt(jpeg, entryOffset + 4, ifd.littleEndian());
             if (type != TYPE_SHORT || count != 1L) {
                 throw new IOException("EXIF Orientation entry has unsupported type or count.");
             }
-            writeUnsignedShort(jpeg, entryOffset + 8, orientation, littleEndian);
-            jpeg[entryOffset + 10] = 0;
-            jpeg[entryOffset + 11] = 0;
-            return jpeg;
+            return entryOffset;
         }
-        return appendOrientationIfd(jpeg, segmentLengthOffset, segmentBytes,
-                tiffOffset, exifEnd, ifdOffset, entryCount, littleEndian, orientation);
+        return -1;
     }
 
-    private static byte[] appendOrientationIfd(
-            byte[] jpeg, int segmentLengthOffset, int segmentBytes,
-            int tiffOffset, int exifEnd, int ifdOffset, int entryCount,
-            boolean littleEndian, int orientation) throws IOException {
-        if (entryCount == 0xffff) throw new IOException("EXIF IFD has too many entries.");
-        int oldIfdBytes = 2 + entryCount * 12 + 4;
+    private static byte[] appendOrientationIfd(byte[] jpeg, ExifIfd ifd, int orientation)
+            throws IOException {
+        if (ifd.entryCount() == 0xffff) {
+            throw new IOException("EXIF IFD has too many entries.");
+        }
+        int oldIfdBytes = 2 + ifd.entryCount() * 12 + 4;
         int newIfdBytes = oldIfdBytes + 12;
-        int newSegmentBytes = segmentBytes + newIfdBytes;
+        int newSegmentBytes = ifd.segmentBytes() + newIfdBytes;
         if (newSegmentBytes > 0xffff) {
             throw new IOException("EXIF APP1 is too large to add Orientation.");
         }
         byte[] result = Arrays.copyOf(jpeg, jpeg.length + newIfdBytes);
-        System.arraycopy(jpeg, exifEnd, result, exifEnd + newIfdBytes,
-                jpeg.length - exifEnd);
-        writeUnsignedShortBigEndian(result, segmentLengthOffset, newSegmentBytes);
-        int newIfdOffset = exifEnd;
-        writeUnsignedInt(result, tiffOffset + 4, newIfdOffset - tiffOffset, littleEndian);
-        writeUnsignedShort(result, newIfdOffset, entryCount + 1, littleEndian);
+        System.arraycopy(jpeg, ifd.exifEnd(), result, ifd.exifEnd() + newIfdBytes,
+                jpeg.length - ifd.exifEnd());
+        writeUnsignedShortBigEndian(result, ifd.segmentLengthOffset(), newSegmentBytes);
+        int newIfdOffset = ifd.exifEnd();
+        writeUnsignedInt(result, ifd.tiffOffset() + 4,
+                (long) newIfdOffset - ifd.tiffOffset(), ifd.littleEndian());
+        writeUnsignedShort(result, newIfdOffset, ifd.entryCount() + 1, ifd.littleEndian());
         int insertionIndex = 0;
-        while (insertionIndex < entryCount
-                && readUnsignedShort(jpeg, ifdOffset + 2 + insertionIndex * 12, littleEndian)
-                        < TAG_ORIENTATION) {
+        while (insertionIndex < ifd.entryCount()
+                && readUnsignedShort(jpeg, ifd.ifdOffset() + 2 + insertionIndex * 12,
+                        ifd.littleEndian()) < TAG_ORIENTATION) {
             insertionIndex++;
         }
         int entriesBefore = insertionIndex * 12;
-        System.arraycopy(jpeg, ifdOffset + 2, result, newIfdOffset + 2, entriesBefore);
+        System.arraycopy(jpeg, ifd.ifdOffset() + 2, result, newIfdOffset + 2, entriesBefore);
         int orientationEntry = newIfdOffset + 2 + entriesBefore;
-        writeUnsignedShort(result, orientationEntry, TAG_ORIENTATION, littleEndian);
-        writeUnsignedShort(result, orientationEntry + 2, TYPE_SHORT, littleEndian);
-        writeUnsignedInt(result, orientationEntry + 4, 1L, littleEndian);
-        writeUnsignedShort(result, orientationEntry + 8, orientation, littleEndian);
-        int entriesAfter = (entryCount - insertionIndex) * 12;
-        System.arraycopy(jpeg, ifdOffset + 2 + entriesBefore, result,
+        writeUnsignedShort(result, orientationEntry, TAG_ORIENTATION, ifd.littleEndian());
+        writeUnsignedShort(result, orientationEntry + 2, TYPE_SHORT, ifd.littleEndian());
+        writeUnsignedInt(result, orientationEntry + 4, 1L, ifd.littleEndian());
+        writeUnsignedShort(result, orientationEntry + 8, orientation, ifd.littleEndian());
+        int entriesAfter = (ifd.entryCount() - insertionIndex) * 12;
+        System.arraycopy(jpeg, ifd.ifdOffset() + 2 + entriesBefore, result,
                 orientationEntry + 12, entriesAfter);
-        System.arraycopy(jpeg, ifdOffset + oldIfdBytes - 4, result,
+        System.arraycopy(jpeg, ifd.ifdOffset() + oldIfdBytes - 4, result,
                 newIfdOffset + newIfdBytes - 4, 4);
         return result;
     }
+
+    private record JpegMarker(int value, int nextOffset) {
+        private boolean endsMetadata() {
+            return value == MARKER_SOS || value == MARKER_EOI;
+        }
+
+        private boolean hasNoLength() {
+            return value == 0x01 || value >= 0xd0 && value <= 0xd7;
+        }
+    }
+
+    private record JpegSegment(int lengthOffset, int bytes, int payloadOffset, int end) {
+        private boolean hasExifPrefix(byte[] jpeg) {
+            return payloadOffset + EXIF_PREFIX.length <= end
+                    && startsWith(jpeg, payloadOffset, EXIF_PREFIX);
+        }
+    }
+
+    private record ExifIfd(
+            int segmentLengthOffset, int segmentBytes, int tiffOffset, int exifEnd,
+            int ifdOffset, int entryCount, boolean littleEndian) {}
 
     private static byte[] insertMinimalExif(byte[] jpeg, int orientation) {
         byte[] app1 = new byte[] {

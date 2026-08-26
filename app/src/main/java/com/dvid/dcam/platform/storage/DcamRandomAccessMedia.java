@@ -109,6 +109,8 @@ final class PlainDcamRandomAccessMedia implements DcamRandomAccessMedia {
     private final FileChannel channel;
     private final boolean forceOnCheckpoint;
 
+    // Ownership of the open file transfers to the returned media; closing it here would be incorrect.
+    @SuppressWarnings("java:S2093")
     static PlainDcamRandomAccessMedia create(File target, boolean forceOnCheckpoint)
             throws IOException {
         File parent = target.getParentFile();
@@ -191,11 +193,17 @@ final class PlainDcamRandomAccessMedia implements DcamRandomAccessMedia {
         return false;
     }
 
-    @Override public void beginTransaction() {}
+    @Override public void beginTransaction() {
+        // Plain media writes directly and therefore has no transaction boundary to begin.
+    }
 
-    @Override public void commitTransaction() {}
+    @Override public void commitTransaction() {
+        // Plain media writes are already applied, so commit requires no extra operation.
+    }
 
-    @Override public void rollbackTransaction() {}
+    @Override public void rollbackTransaction() {
+        // Plain media cannot roll back direct writes; its caller owns any cleanup decision.
+    }
 
     @Override public boolean isOpen() {
         return channel.isOpen();

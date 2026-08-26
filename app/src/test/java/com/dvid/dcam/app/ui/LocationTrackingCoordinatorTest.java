@@ -13,7 +13,6 @@ import com.dvid.dcam.feature.location.domain.GpsMode;
 import com.dvid.dcam.feature.location.domain.GpsSettings;
 import com.dvid.dcam.feature.location.domain.LocationSystemState;
 import com.dvid.dcam.feature.location.domain.LocationTrackingState;
-import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 

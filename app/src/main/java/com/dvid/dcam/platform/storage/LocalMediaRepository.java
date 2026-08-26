@@ -65,12 +65,16 @@ public final class LocalMediaRepository implements MediaRepository {
         List<File> roots = storage.browsableMediaRootDirectories();
         List<MediaEntry> entries = new ArrayList<>();
         for (int index = 0; index < roots.size(); index++) {
-            String name = index == 0 ? "Internal" : roots.size() == 2
-                    ? "External" : "External " + index;
+            String name = storageRootName(index, roots.size());
             entries.add(new MediaEntry(name, name, true, 0L,
                     roots.get(index).lastModified(), null, 0));
         }
         return entries;
+    }
+
+    private static String storageRootName(int index, int rootCount) {
+        if (index == 0) return "Internal";
+        return rootCount == 2 ? "External" : "External " + index;
     }
 
     private List<MediaEntry> mediaRoots(PathResolution resolution, boolean includeCounts)
@@ -162,26 +166,9 @@ public final class LocalMediaRepository implements MediaRepository {
         int files = 0;
         for (File child : children) {
             checkInterrupted();
-            try {
-                BasicFileAttributes attributes = Files.readAttributes(
-                        child.toPath(), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                if (attributes.isSymbolicLink()) continue;
-                if (attributes.isDirectory()) {
-                    childDirectoryNames.add(child.getName());
-                    files += descendantFileCount(child, attributes);
-                } else if (!attributes.isRegularFile() || !isMd5Sidecar(child.getName())) {
-                    directFiles++;
-                    files++;
-                }
-            } catch (IOException ignored) {
-                if (child.isDirectory()) {
-                    childDirectoryNames.add(child.getName());
-                    files += descendantFileCount(child);
-                } else if (!isMd5Sidecar(child)) {
-                    directFiles++;
-                    files++;
-                }
-            }
+            ChildFileCount childCount = childFileCount(child, childDirectoryNames);
+            directFiles += childCount.directFileCount;
+            files += childCount.fileCount;
         }
         BasicFileAttributes after = directoryAttributes(directory);
         if (sameDirectory(before, after)) {
@@ -191,6 +178,38 @@ public final class LocalMediaRepository implements MediaRepository {
             directoryCounts.remove(cacheKey);
         }
         return files;
+    }
+
+    private ChildFileCount childFileCount(
+            File child, List<String> childDirectoryNames) throws InterruptedException {
+        try {
+            BasicFileAttributes attributes = Files.readAttributes(
+                    child.toPath(), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return attributedChildFileCount(child, attributes, childDirectoryNames);
+        } catch (IOException ignored) {
+            return fallbackChildFileCount(child, childDirectoryNames);
+        }
+    }
+
+    private ChildFileCount attributedChildFileCount(
+            File child, BasicFileAttributes attributes, List<String> childDirectoryNames)
+            throws InterruptedException {
+        if (attributes.isSymbolicLink()) return ChildFileCount.NONE;
+        if (attributes.isDirectory()) {
+            childDirectoryNames.add(child.getName());
+            return new ChildFileCount(0, descendantFileCount(child, attributes));
+        }
+        return !attributes.isRegularFile() || !isMd5Sidecar(child.getName())
+                ? ChildFileCount.DIRECT_FILE : ChildFileCount.NONE;
+    }
+
+    private ChildFileCount fallbackChildFileCount(
+            File child, List<String> childDirectoryNames) throws InterruptedException {
+        if (child.isDirectory()) {
+            childDirectoryNames.add(child.getName());
+            return new ChildFileCount(0, descendantFileCount(child));
+        }
+        return isMd5Sidecar(child) ? ChildFileCount.NONE : ChildFileCount.DIRECT_FILE;
     }
     private static BasicFileAttributes directoryAttributes(File directory) {
         try {
@@ -224,7 +243,7 @@ public final class LocalMediaRepository implements MediaRepository {
         return name.toLowerCase(Locale.ROOT).endsWith(".md5");
     }
 
-    private File resolveInsideRoot(File root, String relativePath) throws Exception {
+    private File resolveInsideRoot(File root, String relativePath) throws IOException {
         File canonicalRoot = root.getCanonicalFile();
         File candidate = new File(canonicalRoot, relativePath).getCanonicalFile();
         String rootPath = canonicalRoot.getPath() + File.separator;
@@ -289,6 +308,18 @@ public final class LocalMediaRepository implements MediaRepository {
                     && modifiedAtMillis == attributes.lastModifiedTime().toMillis()
                     && sizeBytes == attributes.size()
                     && Objects.equals(fileKey, attributes.fileKey());
+        }
+    }
+    private static final class ChildFileCount {
+        private static final ChildFileCount NONE = new ChildFileCount(0, 0);
+        private static final ChildFileCount DIRECT_FILE = new ChildFileCount(1, 1);
+
+        private final int directFileCount;
+        private final int fileCount;
+
+        private ChildFileCount(int directFileCount, int fileCount) {
+            this.directFileCount = directFileCount;
+            this.fileCount = fileCount;
         }
     }
     private static final class PathResolution {

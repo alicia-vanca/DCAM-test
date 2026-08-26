@@ -11,8 +11,6 @@ public interface CameraRuntimeOperations {
         return bindSession(context);
     }
 
-    CameraOperationResult updateSession(CameraOperationContext context);
-
     CameraOperationResult previewProgress(CameraOperationContext context);
 
     CameraOperationResult startEncoder(CameraOperationContext context);

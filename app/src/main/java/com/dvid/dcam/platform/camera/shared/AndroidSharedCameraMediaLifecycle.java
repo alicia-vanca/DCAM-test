@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.camera.shared;
 import android.content.Context;
 import android.text.format.Formatter;
 import com.dvid.dcam.R;
+import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
 import com.dvid.dcam.platform.recording.RecordingForegroundService;
@@ -18,18 +19,24 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMediaLifecycle {
+    private static final String STORAGE = "Storage";
+    private static final String PHOTO = "Photo";
+    private static final String CAPTURE = "capture";
+
     private final Context context;
     private final DcamMediaOutput mediaOutput;
     private final Supplier<String> deviceSerialNumber;
     private final Supplier<String> operatorFileUserId;
     private final BooleanSupplier mediaEncryptionEnabled;
+    private final Logger logger;
 
     public AndroidSharedCameraMediaLifecycle(
             Context context,
             DcamMediaOutput mediaOutput,
             Supplier<String> deviceSerialNumber,
             Supplier<String> operatorFileUserId,
-            BooleanSupplier mediaEncryptionEnabled) {
+            BooleanSupplier mediaEncryptionEnabled,
+            Logger logger) {
         Context applicationContext = Objects.requireNonNull(context, "context")
                 .getApplicationContext();
         this.context = applicationContext == null ? context : applicationContext;
@@ -40,6 +47,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
                 operatorFileUserId, "operatorFileUserId");
         this.mediaEncryptionEnabled = Objects.requireNonNull(
                 mediaEncryptionEnabled, "mediaEncryptionEnabled");
+        this.logger = Objects.requireNonNull(logger, "logger");
     }
 
     @Override public RecordingCapture prepareRecording(
@@ -76,7 +84,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
                     context.getString(R.string.sd_card_preparing),
                     context.getString(R.string.sd_card_unavailable), error);
             if (reservationPreparation != null) throw reservationPreparation;
-            throw new PreparationException("Storage",
+            throw new PreparationException(STORAGE,
                     "Could not prepare recording file", error);
         }
         if (!RecordingForegroundService.startVideo(
@@ -98,7 +106,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
             String unavailableMessage,
             Throwable cause) {
         if (storageCheck.isLowCapacity()) {
-            return new PreparationException("Storage", lowStorageMessage, cause);
+            return new PreparationException(STORAGE, lowStorageMessage, cause);
         }
         return externalStoragePreparationException(storageCheck, externalStorageRequested,
                 preparingMessage, unavailableMessage, cause);
@@ -113,14 +121,14 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         if (!externalStorageRequested) return null;
         if (storageCheck.isPreparing()) {
             return PreparationException.retryable(
-                    "Storage", preparingMessage, unavailableMessage, cause);
+                    STORAGE, preparingMessage, unavailableMessage, cause);
         }
         if (storageCheck.isUnavailable()) {
-            return PreparationException.unavailable("Storage", unavailableMessage);
+            return PreparationException.unavailable(STORAGE, unavailableMessage);
         }
         if (isTransientExternalReservationFailure(cause)) {
             return PreparationException.retryable(
-                    "Storage", preparingMessage, unavailableMessage, cause);
+                    STORAGE, preparingMessage, unavailableMessage, cause);
         }
         return null;
     }
@@ -136,13 +144,13 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
     }
 
     @Override public void requirePhotoStorage() throws PreparationException {
-        identity("Photo");
-        requireStorage("Photo");
+        identity(PHOTO);
+        requireStorage();
     }
 
     @Override public PhotoCapture preparePhoto() throws PreparationException {
-        Identity identity = identity("Photo");
-        requireStorage("Photo");
+        Identity identity = identity(PHOTO);
+        requireStorage();
         boolean encrypted = mediaEncryptionEnabled.getAsBoolean();
         DcamMediaFile mediaFile = null;
         try {
@@ -162,13 +170,13 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
                     context.getString(R.string.sd_card_preparing),
                     context.getString(R.string.sd_card_unavailable), error);
             if (reservationPreparation != null) throw reservationPreparation;
-            throw new PreparationException("Storage",
+            throw new PreparationException(STORAGE,
                     "Could not prepare image file", error);
         }
     }
 
     @Override public void abortRecordingStart(RecordingCapture capture) {
-        Objects.requireNonNull(capture, "capture");
+        Objects.requireNonNull(capture, CAPTURE);
         RecordingForegroundService.stopVideo(context);
         closeRecordingOutput(capture.recordingOutput());
         capture.outputFile().delete();
@@ -176,16 +184,24 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
     }
 
     @Override public void failRecording(RecordingCapture capture) {
-        Objects.requireNonNull(capture, "capture");
+        Objects.requireNonNull(capture, CAPTURE);
         RecordingForegroundService.updateVideoMode(context, capture.mode());
         RecordingForegroundService.stopVideo(context);
-        closeRecordingOutput(capture.recordingOutput());
+        DcamRecordingOutput output = capture.recordingOutput();
+        boolean outputOpenBeforeClose = output != null && output.isOpen();
+        logger.info("Fail recording '" + capture.mediaFile().getFileName()
+                + "': closing its staged output. Output open before close: "
+                + outputOpenBeforeClose + ".");
+        closeRecordingOutput(output);
+        logger.info("Fail recording '" + capture.mediaFile().getFileName()
+                + "': staged output cleanup completed. Output open after close: "
+                + (output != null && output.isOpen()) + ".");
         mediaOutput.releaseMediaReservation(capture.mediaFile());
     }
 
     @Override public void finalizeRecording(
             RecordingCapture capture, long durationUs, Completion completion) {
-        Objects.requireNonNull(capture, "capture");
+        Objects.requireNonNull(capture, CAPTURE);
         Objects.requireNonNull(completion, "completion");
         RecordingForegroundService.updateVideoMode(context, capture.mode());
         RecordingForegroundService.markVideoFinalizing(context);
@@ -205,7 +221,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
     }
 
     @Override public void finalizePhoto(PhotoCapture capture, Completion completion) {
-        Objects.requireNonNull(capture, "capture");
+        Objects.requireNonNull(capture, CAPTURE);
         Objects.requireNonNull(completion, "completion");
         mediaOutput.finalizeSaved(context, capture.mediaFile(), null,
                 new DcamMediaOutput.FinalizationCallback() {
@@ -224,6 +240,7 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         try {
             output.close();
         } catch (IOException ignored) {
+            // The caller must still release the media reservation after a failed output close.
         }
     }
     private static DcamFileType recordingFileType(RecordingMode mode) {
@@ -251,33 +268,31 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
             throws PreparationException {
         CaptureStorageCheck check = mediaOutput.checkRecordingReady(bitrateBitsPerSecond);
         if (check.isLowCapacity()) {
-            throw new PreparationException("Storage",
+            throw new PreparationException(STORAGE,
                     lowStorageRecordingBlockedMessage(check));
         }
         requireStorage(check);
     }
 
-    private CaptureStorageCheck requireStorage(String operation)
-            throws PreparationException {
+    private void requireStorage() throws PreparationException {
         CaptureStorageCheck check = mediaOutput.checkCaptureReady();
         requireStorage(check);
-        return check;
     }
 
     private void requireStorage(CaptureStorageCheck check)
             throws PreparationException {
         if (check.isReady()) return;
         if (check.isPreparing()) {
-            throw PreparationException.retryable("Storage",
+            throw PreparationException.retryable(STORAGE,
                     context.getString(R.string.sd_card_preparing),
                     context.getString(R.string.sd_card_unavailable), null);
         }
         String reason = check.getReason();
         if (check.isUnavailable() && mediaOutput.isExternalStorageRequested()) {
-            throw PreparationException.unavailable("Storage",
+            throw PreparationException.unavailable(STORAGE,
                     context.getString(R.string.sd_card_unavailable));
         }
-        throw new PreparationException("Storage", reason
+        throw new PreparationException(STORAGE, reason
                 + " (available=" + check.getAvailableBytes()
                 + ", required=" + check.getRequiredBytes() + ")");
     }

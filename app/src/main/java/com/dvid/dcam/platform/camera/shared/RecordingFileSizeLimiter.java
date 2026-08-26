@@ -80,6 +80,11 @@ public final class RecordingFileSizeLimiter {
         return Decision.WRITE_AND_STOP;
     }
 
+    Decision forceStop() {
+        notified = true;
+        return Decision.STOP;
+    }
+
     public long writtenBytes() {
         return writtenBytes;
     }

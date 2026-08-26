@@ -1,7 +1,6 @@
 package com.dvid.dcam.feature.device.application.usecase;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;

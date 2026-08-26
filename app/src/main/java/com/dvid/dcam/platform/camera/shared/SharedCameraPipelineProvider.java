@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -46,6 +47,7 @@ public interface SharedCameraPipelineProvider {
 
 final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineProvider {
     private static final long FIRST_ORIENTATION_SAMPLE_TIMEOUT_MILLIS = 250L;
+    private static final String SELECTION = "selection";
     private final Context context;
     private final Logger logger;
     private final ToIntFunction<String> cameraOrientationDegrees;
@@ -58,28 +60,34 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
     private volatile boolean mediaOrientationTracking;
     private volatile int deviceOrientationDegrees =
             OrientationEventListener.ORIENTATION_UNKNOWN;
-    private volatile CountDownLatch firstMediaOrientationSample = new CountDownLatch(0);
+    private final AtomicReference<CountDownLatch> firstMediaOrientationSample =
+            new AtomicReference<>(new CountDownLatch(0));
     private CameraRuntimeSelection bitrateSelection;
     private boolean bitrateIncludesAudio;
     private long recordingBitrateBitsPerSecond;
+
+    record OrientationSources(
+            ToIntFunction<String> cameraOrientationDegrees,
+            IntSupplier displayRotationDegrees,
+            Predicate<String> frontFacing) {}
 
     public DefaultSharedCameraPipelineProvider(
             Context context, Logger logger, File diagnosticOutputDirectory,
             long preRecordGopDurationMillis,
             Supplier<GpsCoordinate> captureLocation,
-            ToIntFunction<String> cameraOrientationDegrees,
-            IntSupplier displayRotationDegrees,
-            Predicate<String> frontFacing) {
+            OrientationSources orientationSources) {
         Context applicationContext = Objects.requireNonNull(context, "context")
                 .getApplicationContext();
         Context runtimeContext = applicationContext == null ? context : applicationContext;
         this.context = runtimeContext;
         this.logger = Objects.requireNonNull(logger, "logger");
+        OrientationSources sources = Objects.requireNonNull(orientationSources,
+                "orientationSources");
         this.cameraOrientationDegrees = Objects.requireNonNull(
-                cameraOrientationDegrees, "cameraOrientationDegrees");
+                sources.cameraOrientationDegrees(), "cameraOrientationDegrees");
         this.displayRotationDegrees = Objects.requireNonNull(
-                displayRotationDegrees, "displayRotationDegrees");
-        this.frontFacing = Objects.requireNonNull(frontFacing, "frontFacing");
+                sources.displayRotationDegrees(), "displayRotationDegrees");
+        this.frontFacing = Objects.requireNonNull(sources.frontFacing(), "frontFacing");
         this.preRecordGopDurationMillis = preRecordGopDurationMillis;
         Objects.requireNonNull(diagnosticOutputDirectory, "diagnosticOutputDirectory");
         nativeFactory = new NativeSurfaceSharingPipelineFactory(
@@ -94,7 +102,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
                         orientation == OrientationEventListener.ORIENTATION_UNKNOWN
                                 ? OrientationEventListener.ORIENTATION_UNKNOWN
                                 : CameraOrientation.nearestQuarterTurn(orientation);
-                firstMediaOrientationSample.countDown();
+                firstMediaOrientationSample.get().countDown();
             }
         };
     }
@@ -102,7 +110,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
     @Override public SharedCameraCapturePipeline create(
             CameraRuntimeSelection selection,
             SharedCameraPreviewOutput previewSurface) {
-        Objects.requireNonNull(selection, "selection");
+        Objects.requireNonNull(selection, SELECTION);
         Objects.requireNonNull(previewSurface, "previewSurface");
         String cameraId = selection.cameraId().value();
         Orientation orientation = displayOrientation(cameraId);
@@ -126,7 +134,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
 
     @Override public synchronized long recordingBitrateBitsPerSecond(
             CameraRuntimeSelection selection) {
-        Objects.requireNonNull(selection, "selection");
+        Objects.requireNonNull(selection, SELECTION);
         boolean includeAudio = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED;
         if (selection.equals(bitrateSelection) && includeAudio == bitrateIncludesAudio
@@ -150,7 +158,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
             CameraRuntimeSelection selection,
             SharedCameraPreviewOutput previewSurface,
             SharedCameraCapturePipeline pipeline) {
-        Objects.requireNonNull(selection, "selection");
+        Objects.requireNonNull(selection, SELECTION);
         Objects.requireNonNull(previewSurface, "previewSurface");
         Objects.requireNonNull(pipeline, "pipeline");
         String cameraId = selection.cameraId().value();
@@ -173,7 +181,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
     @Override public void startMediaOrientationTracking() {
         if (mediaOrientationTracking) return;
         CountDownLatch firstSample = new CountDownLatch(1);
-        firstMediaOrientationSample = firstSample;
+        firstMediaOrientationSample.set(firstSample);
         mediaOrientationTracking = true;
         if (!mediaOrientationListener.canDetectOrientation()) {
             firstSample.countDown();
@@ -200,7 +208,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
     @Override public void stopMediaOrientationTracking() {
         if (!mediaOrientationTracking) return;
         mediaOrientationTracking = false;
-        firstMediaOrientationSample.countDown();
+        firstMediaOrientationSample.get().countDown();
         if (mediaOrientationListener.canDetectOrientation()) {
             try {
                 mediaOrientationListener.disable();
@@ -212,7 +220,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
 
     @Override public int mediaRotationDegrees(
             CameraRuntimeSelection selection, int fallbackRotationDegrees) {
-        Objects.requireNonNull(selection, "selection");
+        Objects.requireNonNull(selection, SELECTION);
         int fallback = CameraOrientation.normalize(fallbackRotationDegrees);
         int device = awaitDeviceOrientationDegrees();
         if (!mediaOrientationTracking
@@ -231,8 +239,10 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
     private int awaitDeviceOrientationDegrees() {
         if (!mediaOrientationTracking) return deviceOrientationDegrees;
         try {
-            firstMediaOrientationSample.await(
-                    FIRST_ORIENTATION_SAMPLE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            if (!firstMediaOrientationSample.get().await(
+                    FIRST_ORIENTATION_SAMPLE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                return deviceOrientationDegrees;
+            }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             logger.warn("Media orientation wait interrupted; using preview orientation.", error);
@@ -268,7 +278,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
 
     @Override public SharedCameraCapturePipeline createVerification(
             CameraRuntimeSelection selection) {
-        Objects.requireNonNull(selection, "selection");
+        Objects.requireNonNull(selection, SELECTION);
         if (CameraPipelineIds.NATIVE_SURFACE_SHARING.equals(
                 selection.verificationPipelineId())) {
             return nativeFactory.createHeadless(

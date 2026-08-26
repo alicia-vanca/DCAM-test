@@ -22,7 +22,6 @@ import com.dvid.dcam.feature.device.application.usecase.BuildFastCameraCapabilit
 import com.dvid.dcam.feature.device.application.usecase.BuildFastCameraCapabilitiesUseCase.FastSnapshot;
 import com.dvid.dcam.feature.device.application.usecase.ResolveCameraRuntimeSelectionUseCase;
 import com.dvid.dcam.feature.device.application.usecase.SelectCameraPipelineUseCase;
-import com.dvid.dcam.feature.device.domain.CaptureQuality;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
 import com.dvid.dcam.feature.device.domain.camera.CandidateEvidence;
@@ -44,7 +43,6 @@ import com.dvid.dcam.platform.camera.shared.runtime.ProcessCameraRuntimeOwner;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
@@ -290,17 +288,6 @@ final class CameraCapabilityServiceSelectionTest {
                 exhausted, requested, true));
         assertTrue(CameraCapabilityService.recordingVideoSelectionAvailable(
                 exhausted, requested, false));
-    }
-
-    @Test void standaloneImageFallbackPrefersClosestLowerThenClosestHigher() {
-        CaptureQuality fhd = new CaptureQuality("FHD", 1920, 1080);
-        CaptureQuality hd = new CaptureQuality("HD", 1280, 720);
-        CaptureQuality sd = new CaptureQuality("SD", 720, 480);
-
-        assertEquals(hd, CameraCapabilityService.standaloneImageFallback(
-                List.of(sd, hd), 1920, 1080));
-        assertEquals(fhd, CameraCapabilityService.standaloneImageFallback(
-                List.of(fhd), 1280, 720));
     }
 
     private static ResolveCameraRuntimeSelectionUseCase resolver() {

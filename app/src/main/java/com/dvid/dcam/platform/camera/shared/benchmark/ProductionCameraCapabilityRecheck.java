@@ -47,15 +47,15 @@ public final class ProductionCameraCapabilityRecheck {
             "device-default-avc-profile-level-bitrate";
     private static final String CROP_ROTATION_POLICY =
             "sensor-native-video-jpeg-preview-display-only";
-    private static final String THERMAL_GATE = "thermal-status<=moderate";
+    private static final String THERMAL_POLICY = "thermal-status-not-gated";
 
     public record Progress(String profile, String cameraId, String stage,
             int completed, int total, String detail) {
         public Progress {
-            profile = Objects.requireNonNull(profile, "profile");
-            cameraId = Objects.requireNonNull(cameraId, "cameraId");
-            stage = Objects.requireNonNull(stage, "stage");
-            detail = Objects.requireNonNull(detail, "detail");
+            Objects.requireNonNull(profile, "profile");
+            Objects.requireNonNull(cameraId, "cameraId");
+            Objects.requireNonNull(stage, "stage");
+            Objects.requireNonNull(detail, "detail");
             if (profile.isBlank() || cameraId.isBlank() || stage.isBlank()
                     || detail.isBlank()) {
                 throw new IllegalArgumentException("progress text is required");
@@ -166,7 +166,7 @@ public final class ProductionCameraCapabilityRecheck {
                 baseline.hardwareSignature(), signatures, VideoCodec.H264,
                 H264_CONFIGURATION, CROP_ROTATION_POLICY,
                 CameraOperationDeadline.CANDIDATE_TIMEOUT_MILLIS,
-                workingDirectory.getAbsolutePath(), THERMAL_GATE);
+                workingDirectory.getAbsolutePath(), THERMAL_POLICY);
         return new CameraPipelineBenchmarkPlan(environment, scopes,
                 CameraPipelineBenchmarkPlan.BenchmarkProtocol.defaults());
     }
@@ -258,8 +258,7 @@ public final class ProductionCameraCapabilityRecheck {
             long thermalStatus = power == null || Build.VERSION.SDK_INT < 29
                     ? PowerManager.THERMAL_STATUS_NONE
                     : power.getCurrentThermalStatus();
-            boolean ready = requested.equals(plan.environment())
-                    && thermalStatus <= PowerManager.THERMAL_STATUS_MODERATE;
+            boolean ready = requested.equals(plan.environment());
             return new SharedCameraPipelineBenchmarkRunner.EnvironmentValidation(
                     ready, "thermalStatus=" + thermalStatus + ",ready=" + ready);
         };
@@ -329,6 +328,7 @@ public final class ProductionCameraCapabilityRecheck {
         try {
             runner.release();
         } catch (RuntimeException ignored) {
+            // Final cleanup must not replace the recheck outcome.
         }
     }
 

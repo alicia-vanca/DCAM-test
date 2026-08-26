@@ -1,6 +1,8 @@
 package com.dvid.dcam.platform.storage;
 
+import androidx.annotation.OptIn;
 import androidx.media3.common.Format;
+import androidx.media3.common.util.UnstableApi;
 import androidx.media3.container.Mp4LocationData;
 import androidx.media3.muxer.BufferInfo;
 import androidx.media3.muxer.FragmentedMp4Muxer;
@@ -12,6 +14,7 @@ import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.function.Supplier;
 
+@OptIn(markerClass = UnstableApi.class)
 public final class DcamAudioM4aWriter implements AutoCloseable {
     private static final long FRAGMENT_DURATION_MILLIS = 500L;
 

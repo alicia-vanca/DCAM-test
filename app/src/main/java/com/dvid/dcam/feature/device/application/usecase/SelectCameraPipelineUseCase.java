@@ -51,6 +51,7 @@ public final class SelectCameraPipelineUseCase {
                 Objects.requireNonNull(fastTiePreference, "fastTiePreference")));
     }
 
+    @SuppressWarnings("java:S1144") // Called by the public constructors through this(...).
     private SelectCameraPipelineUseCase(
             Collection<VerificationPipelineId> expectedFastPipelines,
             Optional<VerificationPipelineId> fastTiePreference) {
@@ -180,10 +181,12 @@ public final class SelectCameraPipelineUseCase {
     private int compareFast(PipelineEvidence left, PipelineEvidence right) {
         int rank = compareFastRank(left, right);
         if (rank != 0) return rank;
-        if (fastTiePreference.filter(left.verificationPipelineId()::equals).isPresent()) {
+        if (fastTiePreference.filter(value -> Objects.equals(
+                left.verificationPipelineId(), value)).isPresent()) {
             return -1;
         }
-        if (fastTiePreference.filter(right.verificationPipelineId()::equals).isPresent()) {
+        if (fastTiePreference.filter(value -> Objects.equals(
+                right.verificationPipelineId(), value)).isPresent()) {
             return 1;
         }
         return 0;

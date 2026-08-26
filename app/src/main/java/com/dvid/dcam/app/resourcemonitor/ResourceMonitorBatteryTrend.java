@@ -27,7 +27,12 @@ public final class ResourceMonitorBatteryTrend {
     private static String formatRate(double ratePercentPerMinute) {
         double absoluteRate = Math.abs(ratePercentPerMinute);
         double roundedTenth = Math.round(absoluteRate * 10.0) / 10.0;
-        int decimals = roundedTenth >= 1.0 ? 0 : roundedTenth >= 0.1 ? 1 : 2;
-        return String.format(Locale.ROOT, "%+." + decimals + "f%%/min", ratePercentPerMinute);
+        String rateFormat = "%+.2f%%/min";
+        if (roundedTenth >= 1.0) {
+            rateFormat = "%+.0f%%/min";
+        } else if (roundedTenth >= 0.1) {
+            rateFormat = "%+.1f%%/min";
+        }
+        return String.format(Locale.ROOT, rateFormat, ratePercentPerMinute);
     }
 }

@@ -123,7 +123,36 @@ public final class DcamFragmentedMp4Layout {
             DcamRandomAccessMedia media, long reservationOffset, long reservationEnd, long fileLength)
             throws IOException {
         long payloadOffset = reservationOffset + BOX_HEADER_BYTES;
-        if (recordedIndexBytes(1, 1) > reservationEnd - Long.BYTES - payloadOffset) return null;
+        if (!recordedIndexFits(recordedIndexBytes(1, 1), payloadOffset, reservationEnd)) {
+            return null;
+        }
+        RecordedIndexHeader header = readRecordedIndexHeader(
+                media, payloadOffset, reservationEnd, fileLength);
+        if (header == null || !recordedIndexFits(
+                recordedIndexBytes(header.trackCount(), header.fragmentCount()),
+                payloadOffset, reservationEnd)) {
+            return null;
+        }
+        List<Long> trackIds = readRecordedTrackIds(media, header.trackCount());
+        if (trackIds.size() != header.trackCount()) return null;
+        RecordedFragments recordedFragments = readRecordedFragments(
+                media, header.trackCount(), header.fragmentCount());
+        if (recordedFragments == null || !hasRecordedIndexFooter(
+                media, header.firstMoofOffset(), recordedFragments.totalReferenceBytes(), fileLength)) {
+            return null;
+        }
+        return new RecordedSeekIndex(header.firstMoofOffset(), List.copyOf(trackIds),
+                List.copyOf(recordedFragments.fragments()));
+    }
+
+    private static boolean recordedIndexFits(
+            long recordedBytes, long payloadOffset, long reservationEnd) {
+        return recordedBytes <= reservationEnd - Long.BYTES - payloadOffset;
+    }
+
+    private static RecordedIndexHeader readRecordedIndexHeader(
+            DcamRandomAccessMedia media, long payloadOffset, long reservationEnd, long fileLength)
+            throws IOException {
         media.seek(payloadOffset);
         if (media.readLong() != RECORDED_INDEX_MAGIC) return null;
         int version = media.readInt();
@@ -138,21 +167,30 @@ public final class DcamFragmentedMp4Layout {
                 || recordedFileLength != fileLength || firstMoofOffset != reservationEnd) {
             return null;
         }
-        long recordedBytes = recordedIndexBytes(trackCount, fragmentCount);
-        if (recordedBytes > reservationEnd - Long.BYTES - payloadOffset) return null;
+        return new RecordedIndexHeader(trackCount, fragmentCount, firstMoofOffset);
+    }
 
+    private static List<Long> readRecordedTrackIds(DcamRandomAccessMedia media, int trackCount)
+            throws IOException {
         List<Long> trackIds = new ArrayList<>(trackCount);
         for (int track = 0; track < trackCount; track++) {
             long trackId = Integer.toUnsignedLong(media.readInt());
-            if (trackId <= 0L || trackIds.contains(trackId)) return null;
+            if (trackId <= 0L || trackIds.contains(trackId)) return List.of();
             trackIds.add(trackId);
         }
+        return trackIds;
+    }
+
+    private static RecordedFragments readRecordedFragments(
+            DcamRandomAccessMedia media, int trackCount, int fragmentCount) throws IOException {
         List<RecordedFragment> fragments = new ArrayList<>(fragmentCount);
         long totalReferenceBytes = 0L;
         for (int fragment = 0; fragment < fragmentCount; fragment++) {
             long size = Integer.toUnsignedLong(media.readInt());
-            if (size <= 0L || size > 0x7fff_ffffL) return null;
-            if (size > Long.MAX_VALUE - totalReferenceBytes) return null;
+            if (size <= 0L || size > 0x7fff_ffffL
+                    || size > Long.MAX_VALUE - totalReferenceBytes) {
+                return null;
+            }
             totalReferenceBytes += size;
             List<Long> durations = new ArrayList<>(trackCount);
             for (int track = 0; track < trackCount; track++) {
@@ -160,190 +198,20 @@ public final class DcamFragmentedMp4Layout {
             }
             fragments.add(new RecordedFragment(size, List.copyOf(durations)));
         }
-        if (media.readLong() != RECORDED_INDEX_MAGIC
-                || firstMoofOffset > Long.MAX_VALUE - totalReferenceBytes
-                || firstMoofOffset + totalReferenceBytes != fileLength) {
-            return null;
-        }
-        return new RecordedSeekIndex(firstMoofOffset, List.copyOf(trackIds),
-                List.copyOf(fragments));
+        return new RecordedFragments(fragments, totalReferenceBytes);
+    }
+
+    private static boolean hasRecordedIndexFooter(
+            DcamRandomAccessMedia media, long firstMoofOffset, long totalReferenceBytes,
+            long fileLength) throws IOException {
+        return media.readLong() == RECORDED_INDEX_MAGIC
+                && firstMoofOffset <= Long.MAX_VALUE - totalReferenceBytes
+                && firstMoofOffset + totalReferenceBytes == fileLength;
     }
 
     private static long recordedIndexBytes(int trackCount, int fragmentCount) {
         return 48L + Integer.BYTES * (long) trackCount
                 + Integer.BYTES * (long) fragmentCount * (1L + trackCount);
-    }
-
-    private static boolean isBox(ByteBuffer source, int expectedType, boolean requireComplete) {
-        if (source.remaining() < BOX_HEADER_BYTES) return false;
-        ByteBuffer box = source.duplicate().order(ByteOrder.BIG_ENDIAN);
-        int offset = box.position();
-        long size = Integer.toUnsignedLong(box.getInt(offset));
-        return size >= BOX_HEADER_BYTES
-                && (!requireComplete || size == box.remaining())
-                && box.getInt(offset + Integer.BYTES) == expectedType;
-    }
-
-    private static List<RawTrackTiming> patchFragmentBaseOffsets(
-            ByteBuffer moof, long moofOffset) throws IOException {
-        int end = boxEnd(moof, 0, moof.limit());
-        if (end != moof.limit() || moof.getInt(Integer.BYTES) != BOX_MOOF) {
-            throw new IOException("Media3 fragment metadata is invalid.");
-        }
-        List<RawTrackTiming> tracks = new ArrayList<>();
-        int offset = BOX_HEADER_BYTES;
-        while (offset < end) {
-            int childEnd = boxEnd(moof, offset, end);
-            if (moof.getInt(offset + Integer.BYTES) == BOX_TRAF) {
-                tracks.add(patchTrackFragmentBaseOffset(moof, offset, childEnd, moofOffset));
-            }
-            offset = childEnd;
-        }
-        if (tracks.isEmpty()) throw new IOException("Media3 fragment has no timed tracks.");
-        return tracks;
-    }
-
-    private static RawTrackTiming patchTrackFragmentBaseOffset(
-            ByteBuffer moof, int trafOffset, int trafEnd, long moofOffset) throws IOException {
-        long trackId = -1L;
-        long defaultSampleDuration = 0L;
-        long duration = 0L;
-        long terminalZeroDurationSamples = 0L;
-        long lastPositiveSampleDuration = 0L;
-        boolean hasPositiveSampleDuration = false;
-        int offset = trafOffset + BOX_HEADER_BYTES;
-        while (offset < trafEnd) {
-            int childEnd = boxEnd(moof, offset, trafEnd);
-            int type = moof.getInt(offset + Integer.BYTES);
-            if (type == BOX_TFHD) {
-                int contentOffset = offset + BOX_HEADER_BYTES;
-                requireBytes(contentOffset, 2 * Integer.BYTES, childEnd,
-                        "Media3 track fragment metadata is truncated.");
-                int flags = moof.getInt(contentOffset) & 0x00ff_ffff;
-                trackId = Integer.toUnsignedLong(moof.getInt(contentOffset + Integer.BYTES));
-                int fieldOffset = contentOffset + 2 * Integer.BYTES;
-                if ((flags & BASE_DATA_OFFSET_PRESENT) != 0) {
-                    requireBytes(fieldOffset, Long.BYTES, childEnd,
-                            "Media3 track fragment base offset is truncated.");
-                    moof.putLong(fieldOffset, moofOffset);
-                    fieldOffset += Long.BYTES;
-                }
-                if ((flags & SAMPLE_DESCRIPTION_INDEX_PRESENT) != 0) {
-                    fieldOffset = skip(fieldOffset, Integer.BYTES, childEnd);
-                }
-                if ((flags & DEFAULT_SAMPLE_DURATION_PRESENT) != 0) {
-                    requireBytes(fieldOffset, Integer.BYTES, childEnd,
-                            "Media3 default sample duration is truncated.");
-                    defaultSampleDuration = Integer.toUnsignedLong(moof.getInt(fieldOffset));
-                }
-            } else if (type == BOX_TRUN) {
-                RawTrackTiming timing = readTrackRunTiming(
-                        moof, offset, childEnd, defaultSampleDuration);
-                if (timing.duration() > Long.MAX_VALUE - duration) {
-                    throw new IOException("Media3 fragment duration exceeds MP4 limits.");
-                }
-                duration += timing.duration();
-                if (timing.hasPositiveSampleDuration()) {
-                    terminalZeroDurationSamples = timing.terminalZeroDurationSamples();
-                    hasPositiveSampleDuration = true;
-                } else if (timing.terminalZeroDurationSamples()
-                        > Long.MAX_VALUE - terminalZeroDurationSamples) {
-                    throw new IOException("Media3 fragment sample count exceeds MP4 limits.");
-                } else {
-                    terminalZeroDurationSamples += timing.terminalZeroDurationSamples();
-                }
-                if (timing.lastPositiveSampleDuration() > 0L) {
-                    lastPositiveSampleDuration = timing.lastPositiveSampleDuration();
-                }
-            }
-            offset = childEnd;
-        }
-        if (trackId <= 0L) throw new IOException("Media3 fragment track ID is unavailable.");
-        return new RawTrackTiming(trackId, duration, terminalZeroDurationSamples,
-                lastPositiveSampleDuration, hasPositiveSampleDuration);
-    }
-
-    private static RawTrackTiming readTrackRunTiming(
-            ByteBuffer moof, int trunOffset, int trunEnd, long defaultSampleDuration)
-            throws IOException {
-        int offset = trunOffset + BOX_HEADER_BYTES;
-        requireBytes(offset, 2 * Integer.BYTES, trunEnd,
-                "Media3 track run metadata is truncated.");
-        int flags = moof.getInt(offset) & 0x00ff_ffff;
-        long sampleCount = Integer.toUnsignedLong(moof.getInt(offset + Integer.BYTES));
-        offset += 2 * Integer.BYTES;
-        if ((flags & DATA_OFFSET_PRESENT) != 0) offset = skip(offset, Integer.BYTES, trunEnd);
-        if ((flags & FIRST_SAMPLE_FLAGS_PRESENT) != 0) {
-            offset = skip(offset, Integer.BYTES, trunEnd);
-        }
-        if (sampleCount == 0L) return new RawTrackTiming(0L, 0L, 0L, 0L, false);
-        if ((flags & SAMPLE_DURATION_PRESENT) == 0) {
-            if (defaultSampleDuration <= 0L) {
-                throw new IOException("Media3 track run omits sample durations.");
-            }
-            try {
-                return new RawTrackTiming(0L,
-                        Math.multiplyExact(sampleCount, defaultSampleDuration),
-                        0L, defaultSampleDuration, true);
-            } catch (ArithmeticException overflow) {
-                throw new IOException("Media3 track run duration exceeds MP4 limits.", overflow);
-            }
-        }
-
-        long duration = 0L;
-        long terminalZeroDurationSamples = 0L;
-        long lastPositiveSampleDuration = 0L;
-        boolean hasPositiveSampleDuration = false;
-        for (long sample = 0L; sample < sampleCount; sample++) {
-            requireBytes(offset, Integer.BYTES, trunEnd,
-                    "Media3 track run sample duration is truncated.");
-            long sampleDuration = Integer.toUnsignedLong(moof.getInt(offset));
-            offset += Integer.BYTES;
-            if (sampleDuration == 0L) {
-                terminalZeroDurationSamples++;
-            } else {
-                if (sampleDuration > Long.MAX_VALUE - duration) {
-                    throw new IOException("Media3 track run duration exceeds MP4 limits.");
-                }
-                duration += sampleDuration;
-                terminalZeroDurationSamples = 0L;
-                lastPositiveSampleDuration = sampleDuration;
-                hasPositiveSampleDuration = true;
-            }
-            if ((flags & SAMPLE_SIZE_PRESENT) != 0) {
-                offset = skip(offset, Integer.BYTES, trunEnd);
-            }
-            if ((flags & SAMPLE_FLAGS_PRESENT) != 0) {
-                offset = skip(offset, Integer.BYTES, trunEnd);
-            }
-            if ((flags & SAMPLE_COMPOSITION_OFFSET_PRESENT) != 0) {
-                offset = skip(offset, Integer.BYTES, trunEnd);
-            }
-        }
-        return new RawTrackTiming(0L, duration, terminalZeroDurationSamples,
-                lastPositiveSampleDuration, hasPositiveSampleDuration);
-    }
-
-    private static int skip(int offset, int bytes, int end) throws IOException {
-        requireBytes(offset, bytes, end, "Media3 fragment metadata is truncated.");
-        return offset + bytes;
-    }
-
-    private static void requireBytes(int offset, int bytes, int end, String message)
-            throws IOException {
-        if (offset < 0 || bytes < 0 || offset > end - bytes) throw new IOException(message);
-    }
-
-    private static int boxEnd(ByteBuffer data, int offset, int limit) throws IOException {
-        // ponytail: Media3 emits 32-bit moof boxes; add extended-size parsing if that changes.
-        if (offset < 0 || offset > limit - BOX_HEADER_BYTES) {
-            throw new IOException("Media3 fragment box header is truncated.");
-        }
-        long size = Integer.toUnsignedLong(data.getInt(offset));
-        if (size < BOX_HEADER_BYTES || size > limit - offset) {
-            throw new IOException("Media3 fragment box size is invalid.");
-        }
-        return offset + (int) size;
     }
 
     private static void writeFully(SeekableByteChannel channel, ByteBuffer data) throws IOException {
@@ -423,6 +291,174 @@ public final class DcamFragmentedMp4Layout {
             return bytes;
         }
 
+        private static boolean isBox(ByteBuffer source, int expectedType, boolean requireComplete) {
+            if (source.remaining() < BOX_HEADER_BYTES) return false;
+            ByteBuffer box = source.duplicate().order(ByteOrder.BIG_ENDIAN);
+            int offset = box.position();
+            long size = Integer.toUnsignedLong(box.getInt(offset));
+            return size >= BOX_HEADER_BYTES
+                    && (!requireComplete || size == box.remaining())
+                    && box.getInt(offset + Integer.BYTES) == expectedType;
+        }
+
+        private static List<RawTrackTiming> patchFragmentBaseOffsets(
+                ByteBuffer moof, long moofOffset) throws IOException {
+            int end = boxEnd(moof, 0, moof.limit());
+            if (end != moof.limit() || moof.getInt(Integer.BYTES) != BOX_MOOF) {
+                throw new IOException("Media3 fragment metadata is invalid.");
+            }
+            List<RawTrackTiming> tracks = new ArrayList<>();
+            int offset = BOX_HEADER_BYTES;
+            while (offset < end) {
+                int childEnd = boxEnd(moof, offset, end);
+                if (moof.getInt(offset + Integer.BYTES) == BOX_TRAF) {
+                    tracks.add(patchTrackFragmentBaseOffset(moof, offset, childEnd, moofOffset));
+                }
+                offset = childEnd;
+            }
+            if (tracks.isEmpty()) throw new IOException("Media3 fragment has no timed tracks.");
+            return tracks;
+        }
+
+        private static RawTrackTiming patchTrackFragmentBaseOffset(
+                ByteBuffer moof, int trafOffset, int trafEnd, long moofOffset) throws IOException {
+            long trackId = -1L;
+            long defaultSampleDuration = 0L;
+            TimingAccumulator timing = new TimingAccumulator(
+                    "Media3 fragment duration exceeds MP4 limits.");
+            int offset = trafOffset + BOX_HEADER_BYTES;
+            while (offset < trafEnd) {
+                int childEnd = boxEnd(moof, offset, trafEnd);
+                int type = moof.getInt(offset + Integer.BYTES);
+                if (type == BOX_TFHD) {
+                    TrackFragmentHeader header = patchTrackFragmentHeader(
+                            moof, offset, childEnd, moofOffset, defaultSampleDuration);
+                    trackId = header.trackId();
+                    defaultSampleDuration = header.defaultSampleDuration();
+                } else if (type == BOX_TRUN) {
+                    timing.add(readTrackRunTiming(moof, offset, childEnd, defaultSampleDuration));
+                }
+                offset = childEnd;
+            }
+            if (trackId <= 0L) throw new IOException("Media3 fragment track ID is unavailable.");
+            return timing.toRawTrackTiming(trackId);
+        }
+
+        private static TrackFragmentHeader patchTrackFragmentHeader(
+                ByteBuffer moof, int tfhdOffset, int tfhdEnd, long moofOffset,
+                long defaultSampleDuration) throws IOException {
+            int contentOffset = tfhdOffset + BOX_HEADER_BYTES;
+            requireBytes(contentOffset, 2 * Integer.BYTES, tfhdEnd,
+                    "Media3 track fragment metadata is truncated.");
+            int flags = moof.getInt(contentOffset) & 0x00ff_ffff;
+            long trackId = Integer.toUnsignedLong(moof.getInt(contentOffset + Integer.BYTES));
+            int fieldOffset = contentOffset + 2 * Integer.BYTES;
+            if ((flags & BASE_DATA_OFFSET_PRESENT) != 0) {
+                requireBytes(fieldOffset, Long.BYTES, tfhdEnd,
+                        "Media3 track fragment base offset is truncated.");
+                moof.putLong(fieldOffset, moofOffset);
+                fieldOffset += Long.BYTES;
+            }
+            if ((flags & SAMPLE_DESCRIPTION_INDEX_PRESENT) != 0) {
+                fieldOffset = skip(fieldOffset, Integer.BYTES, tfhdEnd);
+            }
+            if ((flags & DEFAULT_SAMPLE_DURATION_PRESENT) != 0) {
+                requireBytes(fieldOffset, Integer.BYTES, tfhdEnd,
+                        "Media3 default sample duration is truncated.");
+                defaultSampleDuration = Integer.toUnsignedLong(moof.getInt(fieldOffset));
+            }
+            return new TrackFragmentHeader(trackId, defaultSampleDuration);
+        }
+
+        private static RawTrackTiming readTrackRunTiming(
+                ByteBuffer moof, int trunOffset, int trunEnd, long defaultSampleDuration)
+                throws IOException {
+            TrackRunHeader header = readTrackRunHeader(moof, trunOffset, trunEnd);
+            if (header.sampleCount() == 0L) return new RawTrackTiming(0L, 0L, 0L, 0L, false);
+            if ((header.flags() & SAMPLE_DURATION_PRESENT) == 0) {
+                if (defaultSampleDuration <= 0L) {
+                    throw new IOException("Media3 track run omits sample durations.");
+                }
+                try {
+                    return new RawTrackTiming(0L,
+                            Math.multiplyExact(header.sampleCount(), defaultSampleDuration),
+                            0L, defaultSampleDuration, true);
+                } catch (ArithmeticException overflow) {
+                    throw new IOException("Media3 track run duration exceeds MP4 limits.", overflow);
+                }
+            }
+            return readExplicitTrackRunTiming(moof, header, trunEnd);
+        }
+
+        private static TrackRunHeader readTrackRunHeader(
+                ByteBuffer moof, int trunOffset, int trunEnd) throws IOException {
+            int offset = trunOffset + BOX_HEADER_BYTES;
+            requireBytes(offset, 2 * Integer.BYTES, trunEnd,
+                    "Media3 track run metadata is truncated.");
+            int flags = moof.getInt(offset) & 0x00ff_ffff;
+            long sampleCount = Integer.toUnsignedLong(moof.getInt(offset + Integer.BYTES));
+            offset += 2 * Integer.BYTES;
+            if ((flags & DATA_OFFSET_PRESENT) != 0) {
+                offset = skip(offset, Integer.BYTES, trunEnd);
+            }
+            if ((flags & FIRST_SAMPLE_FLAGS_PRESENT) != 0) {
+                offset = skip(offset, Integer.BYTES, trunEnd);
+            }
+            return new TrackRunHeader(flags, sampleCount, offset);
+        }
+
+        private static RawTrackTiming readExplicitTrackRunTiming(
+                ByteBuffer moof, TrackRunHeader header, int trunEnd) throws IOException {
+            int offset = header.sampleOffset();
+            TimingAccumulator timing = new TimingAccumulator(
+                    "Media3 track run duration exceeds MP4 limits.");
+            for (long sample = 0L; sample < header.sampleCount(); sample++) {
+                requireBytes(offset, Integer.BYTES, trunEnd,
+                        "Media3 track run sample duration is truncated.");
+                long sampleDuration = Integer.toUnsignedLong(moof.getInt(offset));
+                offset += Integer.BYTES;
+                timing.addSampleDuration(sampleDuration);
+                offset = skipOptionalSampleFields(offset, header.flags(), trunEnd);
+            }
+            return timing.toRawTrackTiming(0L);
+        }
+
+        private static int skipOptionalSampleFields(int offset, int flags, int trunEnd)
+                throws IOException {
+            if ((flags & SAMPLE_SIZE_PRESENT) != 0) {
+                offset = skip(offset, Integer.BYTES, trunEnd);
+            }
+            if ((flags & SAMPLE_FLAGS_PRESENT) != 0) {
+                offset = skip(offset, Integer.BYTES, trunEnd);
+            }
+            if ((flags & SAMPLE_COMPOSITION_OFFSET_PRESENT) != 0) {
+                offset = skip(offset, Integer.BYTES, trunEnd);
+            }
+            return offset;
+        }
+
+        private static int skip(int offset, int bytes, int end) throws IOException {
+            requireBytes(offset, bytes, end, "Media3 fragment metadata is truncated.");
+            return offset + bytes;
+        }
+
+        private static void requireBytes(int offset, int bytes, int end, String message)
+                throws IOException {
+            if (offset < 0 || bytes < 0 || offset > end - bytes) throw new IOException(message);
+        }
+
+        private static int boxEnd(ByteBuffer data, int offset, int limit) throws IOException {
+            // ponytail: Media3 emits 32-bit moof boxes; add extended-size parsing if that changes.
+            if (offset < 0 || offset > limit - BOX_HEADER_BYTES) {
+                throw new IOException("Media3 fragment box header is truncated.");
+            }
+            long size = Integer.toUnsignedLong(data.getInt(offset));
+            if (size < BOX_HEADER_BYTES || size > limit - offset) {
+                throw new IOException("Media3 fragment box size is invalid.");
+            }
+            return offset + (int) size;
+        }
+
         private void writeMoof(ByteBuffer source, int bytes) throws IOException {
             if (pendingFragment != null) {
                 throw new IOException("Media3 wrote a fragment before prior sample data.");
@@ -449,6 +485,15 @@ public final class DcamFragmentedMp4Layout {
             if (rawTracks.size() > MAX_RECORDED_TRACKS) {
                 throw new IOException("Fragmented MP4 has too many timed tracks.");
             }
+            registerFragmentTracks(rawTracks);
+            List<Long> durations = new ArrayList<>(trackIds.size());
+            for (int track = 0; track < trackIds.size(); track++) {
+                durations.add(resolveTrackDuration(track, rawTracks));
+            }
+            return List.copyOf(durations);
+        }
+
+        private void registerFragmentTracks(List<RawTrackTiming> rawTracks) throws IOException {
             List<Long> fragmentTrackIds = new ArrayList<>(rawTracks.size());
             for (RawTrackTiming timing : rawTracks) {
                 if (fragmentTrackIds.contains(timing.trackId())) {
@@ -457,32 +502,28 @@ public final class DcamFragmentedMp4Layout {
                 fragmentTrackIds.add(timing.trackId());
                 if (!trackIds.contains(timing.trackId())) addRecordedTrack(timing.trackId());
             }
+        }
 
-            List<Long> durations = new ArrayList<>(trackIds.size());
-            for (int track = 0; track < trackIds.size(); track++) {
-                RawTrackTiming timing = null;
-                long trackId = trackIds.get(track);
-                for (RawTrackTiming candidate : rawTracks) {
-                    if (candidate.trackId() == trackId) {
-                        timing = candidate;
-                        break;
-                    }
-                }
-                if (timing == null) {
-                    durations.add(0L);
-                    continue;
-                }
-                ResolvedDuration resolved = resolveDuration(timing.duration(),
-                        timing.terminalZeroDurationSamples(),
-                        timing.lastPositiveSampleDuration(),
-                        lastPositiveSampleDurations[track]);
-                if (resolved == null) {
-                    throw new IOException("Fragmented MP4 duration is outside MP4 limits.");
-                }
-                lastPositiveSampleDurations[track] = resolved.lastPositiveSampleDuration();
-                durations.add(resolved.duration());
+        private long resolveTrackDuration(int track, List<RawTrackTiming> rawTracks)
+                throws IOException {
+            RawTrackTiming timing = findTrackTiming(trackIds.get(track), rawTracks);
+            if (timing == null) return 0L;
+            ResolvedDuration resolved = resolveDuration(timing.duration(),
+                    timing.terminalZeroDurationSamples(), timing.lastPositiveSampleDuration(),
+                    lastPositiveSampleDurations[track]);
+            if (resolved == null) {
+                throw new IOException("Fragmented MP4 duration is outside MP4 limits.");
             }
-            return List.copyOf(durations);
+            lastPositiveSampleDurations[track] = resolved.lastPositiveSampleDuration();
+            return resolved.duration();
+        }
+
+        private static RawTrackTiming findTrackTiming(
+                long trackId, List<RawTrackTiming> rawTracks) {
+            for (RawTrackTiming candidate : rawTracks) {
+                if (candidate.trackId() == trackId) return candidate;
+            }
+            return null;
         }
 
         private void addRecordedTrack(long trackId) throws IOException {
@@ -610,7 +651,7 @@ public final class DcamFragmentedMp4Layout {
             int bytes = streamedReferenceBuffer.position();
             if (bytes == 0) return;
             int bufferedReferences = bytes / SIDX_REFERENCE_BYTES;
-            long firstBufferedReference = streamedReferenceCount - bufferedReferences;
+            long firstBufferedReference = (long) streamedReferenceCount - bufferedReferences;
             long offset = reservationOffset + SIDX_HEADER_BYTES
                     + firstBufferedReference * SIDX_REFERENCE_BYTES;
             streamedReferenceBuffer.flip();
@@ -657,7 +698,6 @@ public final class DcamFragmentedMp4Layout {
                 channel.position(appendPosition);
                 if (transactionStarted) {
                     recordingOutput.commitTransaction();
-                    transactionStarted = false;
                 }
             } catch (IOException failure) {
                 if (transactionStarted) {
@@ -677,28 +717,32 @@ public final class DcamFragmentedMp4Layout {
         }
 
         private void writeRecordedSeekIndex() throws IOException {
+            requireSeekIndexReady();
+            if (streamedAudioSeekIndex) {
+                writeStreamedSeekIndex();
+                return;
+            }
+            if (fragments.isEmpty()) return;
+            writeRecordedIndexTransaction(createRecordedIndex());
+        }
+
+        private void requireSeekIndexReady() throws IOException {
             if (pendingFragment != null) {
                 throw new IOException("Fragmented MP4 ended before fragment sample data.");
             }
             if (!pendingGpsRouteBoxes.isEmpty()) {
                 throw new IOException("Fragmented MP4 ended before queued GPS route metadata.");
             }
-            if (streamedAudioSeekIndex) {
-                writeStreamedSeekIndex();
-                return;
-            }
-            if (fragments.isEmpty()) return;
+        }
+
+        private RecordedIndexWrite createRecordedIndex() throws IOException {
             long fileLength = channel.position();
             int trackCount = trackIds.size();
             int fragmentCount = fragments.size();
             long recordedBytes = recordedIndexBytes(trackCount, fragmentCount);
             long payloadOffset = reservationOffset + BOX_HEADER_BYTES;
             long reservationEnd = reservationOffset + SEEK_INDEX_RESERVE_BYTES;
-            if (reservationOffset < 0L || firstMoofOffset != reservationEnd
-                    || recordedBytes > reservationEnd - Long.BYTES - payloadOffset
-                    || recordedBytes > Integer.MAX_VALUE) {
-                throw new IOException("Fragmented MP4 recorded seek index is too large.");
-            }
+            requireRecordedIndexCapacity(recordedBytes, payloadOffset, reservationEnd);
             ByteBuffer index = ByteBuffer.allocate((int) recordedBytes).order(ByteOrder.BIG_ENDIAN);
             index.putLong(RECORDED_INDEX_MAGIC);
             index.putInt(RECORDED_INDEX_VERSION);
@@ -707,22 +751,36 @@ public final class DcamFragmentedMp4Layout {
             index.putInt(0);
             index.putLong(fileLength);
             index.putLong(firstMoofOffset);
-            for (long trackId : trackIds) index.putInt((int) trackId);
+            for (Long trackId : trackIds) index.putInt(trackId.intValue());
             for (RecordedFragment fragment : fragments) {
                 index.putInt((int) fragment.size());
-                for (long duration : fragment.durations()) index.putInt((int) duration);
+                for (Long duration : fragment.durations()) index.putInt(duration.intValue());
             }
             index.putLong(RECORDED_INDEX_MAGIC);
             index.flip();
+            return new RecordedIndexWrite(fileLength, payloadOffset, index);
+        }
+
+        private void requireRecordedIndexCapacity(
+                long recordedBytes, long payloadOffset, long reservationEnd) throws IOException {
+            if (reservationOffset < 0L || firstMoofOffset != reservationEnd
+                    || !recordedIndexFits(recordedBytes, payloadOffset, reservationEnd)
+                    || recordedBytes > Integer.MAX_VALUE) {
+                throw new IOException("Fragmented MP4 recorded seek index is too large.");
+            }
+        }
+
+        private void writeRecordedIndexTransaction(RecordedIndexWrite recordedIndex)
+                throws IOException {
             boolean transactionStarted = false;
             try {
                 if (recordingOutput != null) {
                     recordingOutput.beginTransaction();
                     transactionStarted = true;
                 }
-                channel.position(payloadOffset);
-                writeFully(channel, index);
-                channel.position(fileLength);
+                channel.position(recordedIndex.payloadOffset());
+                writeFully(channel, recordedIndex.index());
+                channel.position(recordedIndex.fileLength());
                 if (transactionStarted) recordingOutput.commitTransaction();
             } catch (IOException failure) {
                 if (transactionStarted) {
@@ -783,11 +841,76 @@ public final class DcamFragmentedMp4Layout {
 
     static record RecordedFragment(long size, List<Long> durations) {}
 
+    private record RecordedIndexHeader(int trackCount, int fragmentCount, long firstMoofOffset) {}
+
+    private record RecordedFragments(List<RecordedFragment> fragments, long totalReferenceBytes) {}
+
+    private record RecordedIndexWrite(long fileLength, long payloadOffset, ByteBuffer index) {}
+
     static record ResolvedDuration(long duration, long lastPositiveSampleDuration) {}
 
     private record PendingFragment(
             long moofBytes, List<Long> durations, long mdatBytes, long remainingMdatBytes) {}
 
+    private record TrackFragmentHeader(long trackId, long defaultSampleDuration) {}
+
+    private record TrackRunHeader(int flags, long sampleCount, int sampleOffset) {}
+
     private record RawTrackTiming(long trackId, long duration, long terminalZeroDurationSamples,
             long lastPositiveSampleDuration, boolean hasPositiveSampleDuration) {}
+
+    private static final class TimingAccumulator {
+        private final String durationFailureMessage;
+        private long duration;
+        private long terminalZeroDurationSamples;
+        private long lastPositiveSampleDuration;
+        private boolean hasPositiveSampleDuration;
+
+        private TimingAccumulator(String durationFailureMessage) {
+            this.durationFailureMessage = durationFailureMessage;
+        }
+
+        private void add(RawTrackTiming timing) throws IOException {
+            addDuration(timing.duration());
+            if (timing.hasPositiveSampleDuration()) {
+                terminalZeroDurationSamples = timing.terminalZeroDurationSamples();
+                hasPositiveSampleDuration = true;
+            } else {
+                addTerminalZeroDurationSamples(timing.terminalZeroDurationSamples());
+            }
+            if (timing.lastPositiveSampleDuration() > 0L) {
+                lastPositiveSampleDuration = timing.lastPositiveSampleDuration();
+            }
+        }
+
+        private void addSampleDuration(long sampleDuration) throws IOException {
+            if (sampleDuration == 0L) {
+                terminalZeroDurationSamples++;
+                return;
+            }
+            addDuration(sampleDuration);
+            terminalZeroDurationSamples = 0L;
+            lastPositiveSampleDuration = sampleDuration;
+            hasPositiveSampleDuration = true;
+        }
+
+        private void addDuration(long addedDuration) throws IOException {
+            if (addedDuration > Long.MAX_VALUE - duration) {
+                throw new IOException(durationFailureMessage);
+            }
+            duration += addedDuration;
+        }
+
+        private void addTerminalZeroDurationSamples(long additionalSamples) throws IOException {
+            if (additionalSamples > Long.MAX_VALUE - terminalZeroDurationSamples) {
+                throw new IOException("Media3 fragment sample count exceeds MP4 limits.");
+            }
+            terminalZeroDurationSamples += additionalSamples;
+        }
+
+        private RawTrackTiming toRawTrackTiming(long trackId) {
+            return new RawTrackTiming(trackId, duration, terminalZeroDurationSamples,
+                    lastPositiveSampleDuration, hasPositiveSampleDuration);
+        }
+    }
 }

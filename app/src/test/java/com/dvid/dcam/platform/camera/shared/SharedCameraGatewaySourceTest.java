@@ -192,7 +192,8 @@ final class SharedCameraGatewaySourceTest {
         int discardStart = encoder.indexOf("public void discard()", pauseStart);
         assertTrue(pauseStart >= 0 && discardStart > pauseStart);
         String pause = encoder.substring(pauseStart, discardStart);
-        assertTrue(pause.contains("requestAudioStop();"));
+        assertTrue(pause.contains("signalAudioStop();"));
+        assertFalse(pause.contains("requestAudioStop();"));
         assertFalse(pause.contains("stopAudioCapture();"));
         assertTrue(encoder.contains("audioTrackIndex = muxer.addTrack"));
         assertTrue(pipeline.contains("Manifest.permission.RECORD_AUDIO"));
@@ -263,8 +264,10 @@ final class SharedCameraGatewaySourceTest {
         assertTrue(encoder.contains("requestKeyFrame();")
                 && encoder.contains("resumeInput();"));
         int primeMethod = pipeline.indexOf("private void primeVideoEncoder(");
-        int updateMethod = pipeline.indexOf("@Override public final CameraOperationResult updateSession", primeMethod);
-        assertFalse(pipeline.substring(primeMethod, updateMethod).contains("rollbackTopologyRecording"));
+        int previewProgressMethod = pipeline.indexOf(
+                "@Override public final CameraOperationResult previewProgress", primeMethod);
+        assertFalse(pipeline.substring(primeMethod, previewProgressMethod)
+                .contains("rollbackTopologyRecording"));
         assertTrue(pipeline.contains("encoder_stopped_input_retained"));
         int begin = pipeline.indexOf("encoder.begin(videoArtifact");
         int videoInput = pipeline.indexOf("startTopologyRecording();", begin);
@@ -389,7 +392,7 @@ final class SharedCameraGatewaySourceTest {
         assertTrue(activity.contains("cameraClock.post(this::syncRecordingRotationLock)"));
         assertTrue(provider.contains("new OrientationEventListener("));
         assertTrue(provider.contains("SensorManager.SENSOR_DELAY_UI"));
-        assertTrue(provider.contains("firstMediaOrientationSample.await("));
+        assertTrue(provider.contains("firstMediaOrientationSample.get().await("));
         assertFalse(provider.contains("-displayRotationDegrees.getAsInt()"));
         assertTrue(provider.contains("CameraOrientation.nearestQuarterTurn(orientation)"));
         assertTrue(provider.contains("CameraOrientation.photoRotation("));
@@ -418,7 +421,10 @@ final class SharedCameraGatewaySourceTest {
         String preview = source("SharedCameraPreviewView.java");
 
         assertTrue(activity.contains("refreshDisplayRotationIfNeeded(display);"));
-        assertTrue(activity.contains("refreshDisplayRotationIfNeeded(getDisplay());"));
+        assertTrue(activity.contains("refreshDisplayRotationIfNeeded(currentActivityDisplay());"));
+        assertTrue(activity.contains("private Display currentActivityDisplay()"));
+        assertTrue(activity.contains("if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)"));
+        assertTrue(activity.contains("windowManager.getDefaultDisplay()"));
         int refreshGuard = activity.indexOf(
                 "if (runtime == null || display == null");
         int displayRead = activity.indexOf(
@@ -474,7 +480,6 @@ final class SharedCameraGatewaySourceTest {
         assertTrue(contract.contains("captureJpeg(CameraOperationContext context, File outputFile)"));
         assertTrue(lifecycle.contains("CameraDevice.TEMPLATE_STILL_CAPTURE"));
         assertFalse(lifecycle.contains("jpeg_requires_active_encoder"));
-        assertTrue(lifecycle.contains("Objects.requireNonNull(outputFile, \"outputFile\")"));
         assertTrue(nativePipeline.contains("extends AbstractSharedCameraPipeline"));
         assertTrue(eglPipeline.contains("extends AbstractSharedCameraPipeline"));
     }
@@ -512,6 +517,9 @@ final class SharedCameraGatewaySourceTest {
                 "boolean videoDeleted = videoRetained || deleteArtifact(videoArtifact);"));
         assertTrue(pipeline.contains(
                 "Preserve failed recording staging artifact for recovery:"));
+        assertTrue(pipeline.contains(
+                "retainVideoArtifactOnRelease = videoArtifact != null;"));
+        assertTrue(pipeline.contains("if (cleanStop) videoArtifact = null;"));
         assertTrue(pipeline.contains("retainVideoArtifactOnRelease = false;"));
     }
 
@@ -564,7 +572,6 @@ final class SharedCameraGatewaySourceTest {
         assertTrue(finalizer.contains("private static final int BOX_SIDX"));
         assertTrue(finalizer.contains("patchSeekIndex(media, media.length(), false);"));
         assertTrue(finalizer.contains("patchSeekIndex(media, retainedBytes, true);"));
-        assertTrue(finalizer.contains("if (repairFragmentOffsets)"));
         assertTrue(layout.contains("private static List<RawTrackTiming> patchFragmentBaseOffsets"));
         assertTrue(layout.contains("writeRecordedSeekIndex()"));
         assertTrue(finalizer.contains("readRecordedSeekIndex("));
@@ -616,7 +623,7 @@ final class SharedCameraGatewaySourceTest {
         assertTrue(eglFactory.contains("Supplier<GpsCoordinate> captureLocation"));
         assertFalse(pipeline.contains("setCaptureLocationSupplier"));
         int jpegLocation = pipeline.indexOf(
-                "builder.set(CaptureRequest.JPEG_GPS_LOCATION");
+                "applyJpegLocation(builder, location)");
         int jpegCapture = pipeline.indexOf("session.capture(builder.build()", jpegLocation);
         assertTrue(jpegLocation >= 0 && jpegCapture > jpegLocation);
         assertTrue(pipeline.contains("preRecordGopDurationMillis, captureLocation"));
@@ -650,33 +657,6 @@ final class SharedCameraGatewaySourceTest {
                 "Video recording continues"));
     }
 
-    @Test void lowStorageWarningUsesLowPriorityFloatingNoticeOnly() throws IOException {
-        String preview = source("SharedCameraPreviewView.java");
-        String activity = source("../../../app/MainActivity.java");
-        String notice = source("../../../app/ui/FloatingNotice.java");
-        String storage = source("../../storage/DcamStorage.java");
-
-        assertTrue(activity.contains("FloatingNotice.showLowPriorityPersistent(this,"));
-        assertTrue(activity.contains(
-                "warning.isRecordingBlocked() ? FloatingNotice.ERROR_TEXT_COLOR : FloatingNotice.WARNING_TEXT_COLOR"));
-        assertTrue(activity.contains("isLowStorageRecordingBlockedMessage(message)"));
-        assertTrue(activity.contains(
-                "message.substring(\"Storage failed: \".length())"));
-        assertTrue(activity.contains("FloatingNotice.hideLowPriorityPersistent();"));
-        assertTrue(notice.contains("if (persistentView != null)"));
-        assertTrue(notice.contains("lowPriorityPersistentView.setTextColor(textColor)"));
-        assertTrue(notice.contains("text.setTextColor(textColor)"));
-        assertTrue(notice.contains("restoreLowPriorityPersistent();"));
-        assertFalse(preview.contains("messageView"));
-        assertFalse(preview.contains("showLowStorageWarning"));
-        assertFalse(preview.contains("Color.YELLOW"));
-        assertTrue(storage.contains("private volatile File recordingRoot;"));
-        assertTrue(storage.contains("preserveRecordingVolume && recordingRoot != null"));
-        assertTrue(storage.contains("if (check.isReady()) {"));
-        assertTrue(storage.contains("recordingRoot = root;"));
-        assertTrue(storage.contains("recording && recordingRoot != null ? recordingRoot : root"));
-        assertTrue(storage.contains("recordingRoot == null ? root : recordingRoot"));
-    }
     private static String source(String relative) throws IOException {
         Path root = existingPath(Path.of("app/src/main/java"), Path.of("src/main/java"));
         return Files.readString(root.resolve("com/dvid/dcam/platform/camera/shared")

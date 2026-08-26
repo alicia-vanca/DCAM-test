@@ -17,7 +17,6 @@ import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.platform.camera.shared.AbstractSharedCameraPipeline;
 import com.dvid.dcam.platform.camera.shared.CameraPipelineIds;
-import com.dvid.dcam.platform.camera.shared.SharedCameraPipelineSupport;
 import java.io.File;
 import java.util.function.Supplier;
 
@@ -123,21 +122,6 @@ public final class NativeSurfaceSharingPipeline extends AbstractSharedCameraPipe
                 NativeFrameTargetPolicy.jpeg(externalPreviewSurface() != null, encoderWasActive);
         if (targets.includePreview()) builder.addTarget(previewSurface);
         if (targets.includeEncoder()) builder.addTarget(encoder().inputSurface());
-    }
-
-    @Override protected String updateTopologySession(
-            CameraOperationContext value, long started) throws CameraAccessException {
-        try {
-            cameraSession().updateOutputConfiguration(sharedOutput);
-            return "update_output_configuration_pass";
-        } catch (IllegalArgumentException | IllegalStateException error) {
-            String detail = "retained_encoder_surface_gate:"
-                    + error.getClass().getSimpleName();
-            logger().warn(prefix(value, "session_update")
-                    + " outcome=fallback_gate elapsedMs="
-                    + SharedCameraPipelineSupport.elapsed(started), error);
-            return detail;
-        }
     }
 
     @Override protected void startTopologyRecording() throws CameraAccessException {

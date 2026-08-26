@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
 import com.dvid.dcam.BuildSecrets;
@@ -28,7 +29,6 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
         @Override public void onServiceConnected(ComponentName name, IBinder service) {
             binder = service;
             bindingRegistered = true;
-            bootstrapPending = false;
             restartScheduled = false;
             mainHandler.removeCallbacks(restart);
             LogglyUploadService.logLaunchEvent("supervisor connected name="
@@ -37,7 +37,6 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
 
         @Override public void onServiceDisconnected(ComponentName name) {
             binder = null;
-            bootstrapPending = true;
             LogglyUploadService.logLaunchEvent("supervisor disconnected name="
                     + name.flattenToShortString());
             ensureAlive("service disconnected");
@@ -45,7 +44,6 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
 
         @Override public void onBindingDied(ComponentName name) {
             binder = null;
-            bootstrapPending = true;
             releaseBinding();
             LogglyUploadService.logLaunchEvent("supervisor binding died name="
                     + name.flattenToShortString());
@@ -54,11 +52,21 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
 
         @Override public void onNullBinding(ComponentName name) {
             binder = null;
-            bootstrapPending = true;
             releaseBinding();
             LogglyUploadService.logLaunchEvent("supervisor null binding name="
                     + name.flattenToShortString());
             scheduleRestart();
+        }
+
+        private void releaseBinding() {
+            if (!bindingRegistered) return;
+            try {
+                application.unbindService(this);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "Could not release dead Loggly binding", error);
+            } finally {
+                bindingRegistered = false;
+            }
         }
     };
     private final Runnable restart = () -> {
@@ -68,7 +76,11 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
     private final Runnable healthCheck = new Runnable() {
         @Override public void run() {
             if (!started) return;
-            if (!isConnected()) ensureAlive("health check");
+            boolean interactive = isScreenInteractive();
+            if (!isConnected() || interactive != lastInteractive) {
+                ensureAlive(interactive ? "screen became interactive" : "screen became non-interactive");
+            }
+            lastInteractive = interactive;
             mainHandler.postDelayed(this, HEALTH_CHECK_MS);
         }
     };
@@ -77,8 +89,8 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
     private IBinder binder;
     private boolean started;
     private boolean bindingRegistered;
-    private boolean bootstrapPending = true;
     private boolean restartScheduled;
+    private boolean lastInteractive;
     private long lastBootstrapAtMillis;
 
     public LogglyProcessSupervisor(Application application) {
@@ -89,18 +101,35 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
         if (started || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) return;
         started = true;
         application.registerActivityLifecycleCallbacks(this);
+        lastInteractive = isScreenInteractive();
         ensureAlive("application start");
         mainHandler.postDelayed(healthCheck, HEALTH_CHECK_MS);
     }
 
     private void ensureAlive(String reason) {
-        if (!started || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED() || isConnected()) return;
+        boolean visible = isVisibleActivity();
+        boolean connected = isConnected();
+        if (!started || !BuildSecrets.LOGGLY_TOKEN_CONFIGURED()
+                || (connected && !visible)) return;
         LogglyUploadService.logLaunchEvent("supervisor ensure alive reason=" + reason);
-        LogglyUploadService.start(application);
+        if (visible) {
+            LogglyUploadService.start(application);
+            if (!connected) {
+                ensureBound();
+                requestBootstrapWhenVisible();
+            }
+        }
         LogglyUploadScheduler.scheduleJobNow(application);
-        ensureBound();
-        requestBootstrapWhenVisible();
         scheduleRestart();
+    }
+
+    private boolean isVisibleActivity() {
+        return resumedActivity != null && isScreenInteractive();
+    }
+
+    private boolean isScreenInteractive() {
+        PowerManager power = application.getSystemService(PowerManager.class);
+        return power != null && power.isInteractive();
     }
 
     private void ensureBound() {
@@ -116,26 +145,14 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
         }
     }
 
-    private void releaseBinding() {
-        if (!bindingRegistered) return;
-        try {
-            application.unbindService(connection);
-        } catch (RuntimeException error) {
-            Log.w(TAG, "Could not release dead Loggly binding", error);
-        } finally {
-            bindingRegistered = false;
-        }
-    }
-
     private boolean isConnected() {
         IBinder current = binder;
         return current != null && current.isBinderAlive() && current.pingBinder();
     }
 
     private void requestBootstrapWhenVisible() {
-        bootstrapPending = true;
+        if (!isVisibleActivity()) return;
         Activity activity = resumedActivity;
-        if (activity == null) return;
         long now = SystemClock.elapsedRealtime();
         if (lastBootstrapAtMillis != 0L
                 && now - lastBootstrapAtMillis < BOOTSTRAP_COOLDOWN_MS) return;
@@ -147,13 +164,13 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
     private void scheduleRestart() {
         if (restartScheduled || isConnected()) return;
         restartScheduled = true;
-        long delay = resumedActivity == null ? BACKGROUND_RETRY_MS : VISIBLE_RETRY_MS;
+        long delay = isVisibleActivity() ? VISIBLE_RETRY_MS : BACKGROUND_RETRY_MS;
         mainHandler.postDelayed(restart, delay);
     }
 
     @Override public void onActivityResumed(Activity activity) {
         resumedActivity = activity;
-        if (bootstrapPending || !isConnected()) ensureAlive("activity resumed");
+        ensureAlive("activity resumed");
     }
 
     @Override public void onActivityPaused(Activity activity) {
@@ -164,8 +181,19 @@ public final class LogglyProcessSupervisor implements Application.ActivityLifecy
         if (resumedActivity == activity) resumedActivity = null;
     }
 
-    @Override public void onActivityCreated(Activity activity, Bundle state) { }
-    @Override public void onActivityStarted(Activity activity) { }
-    @Override public void onActivityStopped(Activity activity) { }
-    @Override public void onActivitySaveInstanceState(Activity activity, Bundle state) { }
+    @Override public void onActivityCreated(Activity activity, Bundle state) {
+        // The supervisor only needs the resumed activity to launch a bootstrap activity.
+    }
+
+    @Override public void onActivityStarted(Activity activity) {
+        // The resumed callback, rather than started, defines a visible interactive activity.
+    }
+
+    @Override public void onActivityStopped(Activity activity) {
+        // Paused and destroyed callbacks already clear the tracked activity when needed.
+    }
+
+    @Override public void onActivitySaveInstanceState(Activity activity, Bundle state) {
+        // Process supervision does not persist or mutate activity state.
+    }
 }

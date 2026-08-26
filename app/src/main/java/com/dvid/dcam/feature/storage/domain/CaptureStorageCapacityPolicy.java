@@ -30,6 +30,10 @@ public final class CaptureStorageCapacityPolicy {
         return CaptureStorageCheck.ready(availableBytes, requiredBytes);
     }
 
+    public static boolean isBelowCaptureSafetyFloor(long availableBytes) {
+        return availableBytes < MIN_CAPTURE_FREE_BYTES;
+    }
+
     public long estimatedRecordingBytes(long bitrateBitsPerSecond) {
         if (bitrateBitsPerSecond <= 0L) {
             throw new IllegalArgumentException("bitrateBitsPerSecond must be positive");

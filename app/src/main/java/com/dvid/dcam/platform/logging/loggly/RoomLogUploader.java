@@ -31,15 +31,16 @@ final class RoomLogUploader {
             return System.currentTimeMillis() + BASE_RETRY_MS;
         }
 
-        while (!uploadStopped.getAsBoolean()) {
+        boolean continueUploading = true;
+        while (continueUploading && !uploadStopped.getAsBoolean()) {
             List<PendingLogEntity> newLogs = pendingLogs.oldestPending(NEW_LOG_BATCH_SIZE);
             List<PendingLogEntity> retryLogs = pendingLogs.dueRetries(
                     System.currentTimeMillis(), RETRY_LOG_BATCH_SIZE);
-            if (newLogs.isEmpty() && retryLogs.isEmpty()) break;
-            if (uploadStopped.getAsBoolean()) return System.currentTimeMillis() + BASE_RETRY_MS;
-            if (!uploadBatch(pendingLogs, newLogs)) break;
-            if (uploadStopped.getAsBoolean()) return System.currentTimeMillis() + BASE_RETRY_MS;
-            if (!uploadBatch(pendingLogs, retryLogs)) break;
+            boolean hasPendingLogs = !newLogs.isEmpty() || !retryLogs.isEmpty();
+            continueUploading = hasPendingLogs && !uploadStopped.getAsBoolean()
+                    && uploadBatch(pendingLogs, newLogs)
+                    && !uploadStopped.getAsBoolean()
+                    && uploadBatch(pendingLogs, retryLogs);
         }
         if (uploadStopped.getAsBoolean()) return System.currentTimeMillis() + BASE_RETRY_MS;
         return pendingLogs.earliestRetryAt();

@@ -20,11 +20,8 @@ import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.ResourceSummary;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.TupleOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.TupleStage;
-import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.ResourceSample;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkPlan.BenchmarkProtocol;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkPlan.FrozenEnvironment;
-import com.dvid.dcam.feature.device.domain.camera.CameraModeOrder;
-import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
 import com.dvid.dcam.feature.device.domain.camera.PipelineComparison;
 import com.dvid.dcam.feature.device.domain.camera.PipelineComparisonInput;
@@ -33,10 +30,7 @@ import com.dvid.dcam.feature.device.domain.camera.VerificationOutcome;
 import com.dvid.dcam.feature.device.domain.camera.VerificationPipelineId;
 import com.dvid.dcam.feature.device.domain.camera.VideoCodec;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,11 +39,9 @@ import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
-import java.util.function.ToDoubleFunction;
 import java.util.function.ToLongFunction;
 
 public final class CompareCameraPipelinesUseCase {

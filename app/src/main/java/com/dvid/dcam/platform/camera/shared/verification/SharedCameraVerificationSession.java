@@ -82,10 +82,6 @@ public final class SharedCameraVerificationSession implements CameraRuntimeOpera
         return result;
     }
 
-    @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-        return runtime().updateSession(context);
-    }
-
     @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
         return runtime().previewProgress(context);
     }

@@ -19,8 +19,10 @@ import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.ToLongFunction;
@@ -28,11 +30,16 @@ import java.util.function.ToLongFunction;
 public final class DcamStorage implements
         com.dvid.dcam.feature.storage.application.port.ActiveStorageSource,
         com.dvid.dcam.feature.storage.application.port.ActiveStoragePolicyGateway {
+    private static final String MEDIA_DIRECTORY = "Media";
+    private static final String EXTERNAL_PREPARING_MESSAGE =
+            "SD card is being prepared. Please wait.";
+    private static final String EXTERNAL_UNAVAILABLE_MESSAGE = "SD card unavailable.";
+
     private final StorageMode storageMode;
     private volatile MediaPartitionLocation requestedMode;
     private final Context context;
     private final File internalRoot;
-    private volatile List<File> externalRoots;
+    private final AtomicReference<List<File>> externalRoots;
     private volatile boolean externalRootsStale;
     private boolean retryIncompleteExternalRoots;
     private final CaptureStorageCapacityPolicy capacityPolicy;
@@ -69,6 +76,7 @@ public final class DcamStorage implements
         this(null, StorageMode.APP_DATA, requestedMode, resolvedMode, internalRoot, root, List.of(), capacityPolicy);
     }
 
+    @SuppressWarnings("java:S107") // Maps production dependencies to the shared initializer.
     private DcamStorage(
             Context context,
             StorageMode storageMode,
@@ -105,6 +113,7 @@ public final class DcamStorage implements
                 removableVolumePreparing, externalStorageState, usableSpace);
     }
 
+    @SuppressWarnings("java:S107") // Keeps storage policy dependencies explicit for deterministic tests.
     private DcamStorage(
             Context context,
             StorageMode storageMode,
@@ -123,7 +132,7 @@ public final class DcamStorage implements
         this.resolvedMode = resolvedMode;
         this.internalRoot = internalRoot;
         this.root = root;
-        this.externalRoots = List.copyOf(externalRoots);
+        this.externalRoots = new AtomicReference<>(List.copyOf(externalRoots));
         this.externalRootsStale = context != null;
         this.capacityPolicy = capacityPolicy;
         this.removableVolumePreparing = removableVolumePreparing;
@@ -148,7 +157,7 @@ public final class DcamStorage implements
         DcamStorage storage = new DcamStorage(context.getApplicationContext(), storageMode,
                 requestedMode, MediaPartitionLocation.INTERNAL, internalRoot, internalRoot,
                 List.of(), new CaptureStorageCapacityPolicy());
-        storage.prepareStagingDirectory(LocalDateTime.now());
+        storage.prepareStagingDirectory(currentLocalDateTime());
         return storage;
     }
 
@@ -164,7 +173,7 @@ public final class DcamStorage implements
         requestedMode = location == null ? MediaPartitionLocation.AUTO : location;
         resolveRootForNextCapture();
         preparedStagingDirectoryPath = null;
-        prepareStagingDirectory(LocalDateTime.now());
+        prepareStagingDirectory(currentLocalDateTime());
     }
     public boolean isFallback() { return requestedMode != MediaPartitionLocation.INTERNAL && resolvedMode == MediaPartitionLocation.INTERNAL; }
     public boolean isPublicDcim() { return storageMode == StorageMode.PUBLIC_DCIM; }
@@ -187,7 +196,7 @@ public final class DcamStorage implements
         DcamStorageCandidate internal = candidate(
                 MediaPartitionLocation.INTERNAL, internalRoot, true);
         List<DcamStorageCandidate> external = new ArrayList<>();
-        for (File externalRoot : externalRoots) {
+        for (File externalRoot : externalRoots()) {
             external.add(candidate(MediaPartitionLocation.EXTERNAL, externalRoot, false));
         }
         if (requestedMode == MediaPartitionLocation.EXTERNAL) {
@@ -233,16 +242,16 @@ public final class DcamStorage implements
                 available ? candidate.getAvailableBytes() : 0L);
     }
     public File captureRoot() { return root; }
-    public File rootDirectory() { return new File(root, "Media"); }
+    public File rootDirectory() { return new File(root, MEDIA_DIRECTORY); }
     public File tempDirectory() { return new File(root, "Temp"); }
 
     public synchronized List<File> mediaRootDirectories() {
         refreshExternalRoots();
         List<File> directories = new ArrayList<>();
-        addDistinct(directories, new File(internalRoot, "Media"));
+        addDistinct(directories, new File(internalRoot, MEDIA_DIRECTORY));
         addDistinct(directories, rootDirectory());
-        for (File externalRoot : externalRoots) {
-            addDistinct(directories, new File(externalRoot, "Media"));
+        for (File externalRoot : externalRoots()) {
+            addDistinct(directories, new File(externalRoot, MEDIA_DIRECTORY));
         }
         return List.copyOf(directories);
     }
@@ -264,9 +273,7 @@ public final class DcamStorage implements
         List<File> roots = browsableMediaRootDirectories();
         int index;
         try {
-            index = "Internal".equals(location) ? 0 : "External".equals(location) ? 1
-                    : location.startsWith("External ")
-                    ? Integer.parseInt(location.substring("External ".length())) : -1;
+            index = mediaRootIndex(location);
         } catch (NumberFormatException error) {
             throw new SecurityException("Unsupported media storage", error);
         }
@@ -274,6 +281,13 @@ public final class DcamStorage implements
             throw new SecurityException("Unsupported media storage");
         }
         return roots.get(index);
+    }
+
+    private static int mediaRootIndex(String location) {
+        if ("Internal".equals(location)) return 0;
+        if ("External".equals(location)) return 1;
+        if (!location.startsWith("External ")) return -1;
+        return Integer.parseInt(location.substring("External ".length()));
     }
 
     public void ensureFolders() {
@@ -294,7 +308,7 @@ public final class DcamStorage implements
         File selectedRoot = recording && recordingRoot != null ? recordingRoot : root;
         File dir = stagesBeforePublication(type)
                 ? new File(new File(selectedRoot, "Temp"), DcamFileName.dateFolder(at))
-                : new File(new File(selectedRoot, "Media"), type.getFolder());
+                : new File(new File(selectedRoot, MEDIA_DIRECTORY), type.getFolder());
         String fileName = DcamFileName.build(type, cameraId, fileUserId, at, encrypted);
         return new DcamMediaFile(type, fileName, new File(dir, fileName), at, encrypted);
     }
@@ -308,15 +322,24 @@ public final class DcamStorage implements
         if (fileName == null || fileName.isBlank() || !fileName.startsWith("DCAM_")
                 || !fileName.equals(new File(fileName).getName())) return false;
         for (File mediaRoot : mediaRootDirectories()) {
-            for (DcamFileType type : DcamFileType.values()) {
-                File typeRoot = new File(mediaRoot, type.getFolder());
-                if (new File(typeRoot, fileName).isFile()) return true;
-                File[] datedDirectories = typeRoot.listFiles(File::isDirectory);
-                if (datedDirectories == null) continue;
-                for (File dateDirectory : datedDirectories) {
-                    if (new File(dateDirectory, fileName).isFile()) return true;
-                }
-            }
+            if (containsPublishedFileForRoot(mediaRoot, fileName)) return true;
+        }
+        return false;
+    }
+
+    private static boolean containsPublishedFileForRoot(File mediaRoot, String fileName) {
+        for (DcamFileType type : DcamFileType.values()) {
+            if (containsPublishedFile(new File(mediaRoot, type.getFolder()), fileName)) return true;
+        }
+        return false;
+    }
+
+    private static boolean containsPublishedFile(File typeRoot, String fileName) {
+        if (new File(typeRoot, fileName).isFile()) return true;
+        File[] datedDirectories = typeRoot.listFiles(File::isDirectory);
+        if (datedDirectories == null) return false;
+        for (File dateDirectory : datedDirectories) {
+            if (new File(dateDirectory, fileName).isFile()) return true;
         }
         return false;
     }
@@ -356,13 +379,18 @@ public final class DcamStorage implements
     public File finalFile(DcamMediaFile mediaFile) {
         File marker = targetMarker(mediaFile.getFile());
         if (marker.isFile()) return validatedMarkedTarget(mediaFile, marker);
-        File stagingParent = mediaFile.getFile().getParentFile();
-        File mediaRoot = stagingParent != null && isDateStagingDirectory(stagingParent)
-                ? new File(stagingParent.getParentFile().getParentFile(), "Media")
-                : stagingParent != null && "Temp".equals(stagingParent.getName())
-                ? new File(stagingParent.getParentFile(), "Media")
-                : rootDirectory();
-        return finalFile(mediaRoot, mediaFile);
+        return finalFile(finalMediaRoot(mediaFile.getFile().getParentFile()), mediaFile);
+    }
+
+    private File finalMediaRoot(File stagingParent) {
+        if (stagingParent == null) return rootDirectory();
+        if (isDateStagingDirectory(stagingParent)) {
+            return new File(stagingParent.getParentFile().getParentFile(), MEDIA_DIRECTORY);
+        }
+        if ("Temp".equals(stagingParent.getName())) {
+            return new File(stagingParent.getParentFile(), MEDIA_DIRECTORY);
+        }
+        return rootDirectory();
     }
 
     private static File finalFile(File mediaRoot, DcamMediaFile mediaFile) {
@@ -384,7 +412,7 @@ public final class DcamStorage implements
         addDistinct(directories, new File(internalRoot, "Temp"));
         File privateRoot = context == null ? internalRoot : context.getFilesDir();
         addDistinct(directories, new File(privateRoot, "DurableAudioTemp"));
-        for (File externalRoot : externalRoots) {
+        for (File externalRoot : externalRoots()) {
             addDistinct(directories, new File(externalRoot, "Temp"));
         }
         return List.copyOf(directories);
@@ -394,7 +422,11 @@ public final class DcamStorage implements
         File dateDirectory = mediaFile.getFile().getParentFile();
         if (!isDateStagingDirectory(dateDirectory)
                 || isPreparedStagingDirectory(dateDirectory)) return;
-        try { Files.deleteIfExists(dateDirectory.toPath()); } catch (IOException ignored) { }
+        try {
+            Files.deleteIfExists(dateDirectory.toPath());
+        } catch (IOException ignored) {
+            // Best-effort cleanup; recovery can retry a directory that remains inaccessible or non-empty.
+        }
     }
 
     int deleteEmptyRecoveryDateDirectories() {
@@ -406,7 +438,9 @@ public final class DcamStorage implements
                 if (!isDateStagingDirectory(child) || isPreparedStagingDirectory(child)) continue;
                 try {
                     if (Files.deleteIfExists(child.toPath())) deleted++;
-                } catch (IOException ignored) { }
+                } catch (IOException ignored) {
+                    // Best-effort cleanup; leave the staging directory for a later recovery pass.
+                }
             }
         }
         return deleted;
@@ -426,7 +460,11 @@ public final class DcamStorage implements
     }
 
     void deleteTargetMarker(DcamMediaFile mediaFile) {
-        try { Files.deleteIfExists(targetMarker(mediaFile.getFile()).toPath()); } catch (IOException ignored) { }
+        try {
+            Files.deleteIfExists(targetMarker(mediaFile.getFile()).toPath());
+        } catch (IOException ignored) {
+            // Target-marker cleanup must not replace the media finalization result.
+        }
     }
 
     private File validatedMarkedTarget(DcamMediaFile mediaFile, File marker) {
@@ -472,7 +510,7 @@ public final class DcamStorage implements
         if (requestedExternal == null) resolveRootForNextCapture(requiredBytes);
         boolean mounted = root != null && (root.exists() || root.mkdirs());
         boolean writable = mounted && prepareDirectory(tempDirectory())
-                && prepareStagingDirectory(LocalDateTime.now())
+                && prepareStagingDirectory(currentLocalDateTime())
                 && tempDirectory().canWrite() && preparePublicationDirectories()
                 && root.canWrite();
         long availableBytes = mounted ? usableSpace.applyAsLong(root) : 0L;
@@ -493,17 +531,21 @@ public final class DcamStorage implements
             if (requestedMode == MediaPartitionLocation.EXTERNAL
                     && isOperationNotPermitted(error)) {
                 return CaptureStorageCheck.preparing(check.getAvailableBytes(),
-                        check.getRequiredBytes(), "SD card is being prepared. Please wait.");
+                        check.getRequiredBytes(), EXTERNAL_PREPARING_MESSAGE);
             }
             if (requestedMode == MediaPartitionLocation.EXTERNAL) {
                 return CaptureStorageCheck.unavailable(check.getAvailableBytes(),
-                        check.getRequiredBytes(), "SD card unavailable.");
+                        check.getRequiredBytes(), EXTERNAL_UNAVAILABLE_MESSAGE);
             }
             return CaptureStorageCheck.rejected(check.getAvailableBytes(),
                     check.getRequiredBytes(), "Storage is not writable");
         } finally {
             if (probe != null) {
-                try { Files.deleteIfExists(probe); } catch (IOException ignored) {}
+                try {
+                    Files.deleteIfExists(probe);
+                } catch (IOException ignored) {
+                    // Probe cleanup must not replace the already determined storage result.
+                }
             }
         }
     }
@@ -518,42 +560,55 @@ public final class DcamStorage implements
 
     private CaptureStorageCheck requestedExternalCaptureCheck(long requiredBytes) {
         if (requestedMode != MediaPartitionLocation.EXTERNAL) return null;
-        if (externalRoots.isEmpty()) {
-            if (removableVolumePreparing.getAsBoolean()) {
-                return CaptureStorageCheck.preparing(0L,
-                        requiredBytes,
-                        "SD card is being prepared. Please wait.");
-            }
-            return CaptureStorageCheck.unavailable(0L,
-                    requiredBytes,
-                    "SD card unavailable.");
+        List<File> currentExternalRoots = externalRoots();
+        if (currentExternalRoots.isEmpty()) return noExternalRootCaptureCheck(requiredBytes);
+        ExternalCaptureCheckState state = new ExternalCaptureCheckState();
+        for (File externalRoot : currentExternalRoots) {
+            CaptureStorageCheck ready = readyExternalRootCaptureCheck(
+                    externalRoot, requiredBytes, state);
+            if (ready != null) return ready;
         }
-        boolean preparing = false;
-        CaptureStorageCheck capacityFailure = null;
-        for (File externalRoot : externalRoots) {
-            String state = externalStorageState.apply(externalRoot);
-            if (Environment.MEDIA_MOUNTED.equals(state)) {
-                DcamStorageCandidate storageCandidate = candidate(
-                        MediaPartitionLocation.EXTERNAL, externalRoot, false);
-                CaptureStorageCheck check = storageCandidate.check(capacityPolicy, requiredBytes);
-                if (check.isReady()) {
-                    resolvedMode = MediaPartitionLocation.EXTERNAL;
-                    root = externalRoot;
-                    return check;
-                }
-                if (isCapacityOnlyFailure(storageCandidate, check)) capacityFailure = check;
-            } else if (isPreparingExternalState(state)) {
-                preparing = true;
-            }
+        return completedExternalCaptureCheck(requiredBytes, state);
+    }
+
+    private CaptureStorageCheck readyExternalRootCaptureCheck(
+            File externalRoot, long requiredBytes, ExternalCaptureCheckState state) {
+        String storageState = externalStorageState.apply(externalRoot);
+        if (!Environment.MEDIA_MOUNTED.equals(storageState)) {
+            state.preparing |= isPreparingExternalState(storageState);
+            return null;
         }
-        if (!preparing) preparing = removableVolumePreparing.getAsBoolean();
-        if (preparing) {
-            return CaptureStorageCheck.preparing(0L, requiredBytes,
-                    "SD card is being prepared. Please wait.");
+        DcamStorageCandidate storageCandidate = candidate(
+                MediaPartitionLocation.EXTERNAL, externalRoot, false);
+        CaptureStorageCheck check = storageCandidate.check(capacityPolicy, requiredBytes);
+        if (check.isReady()) {
+            resolvedMode = MediaPartitionLocation.EXTERNAL;
+            root = externalRoot;
+            return check;
         }
-        if (capacityFailure != null) return capacityFailure;
-        return CaptureStorageCheck.unavailable(0L, requiredBytes,
-                "SD card unavailable.");
+        if (isCapacityOnlyFailure(storageCandidate, check)) state.capacityFailure = check;
+        return null;
+    }
+
+    private CaptureStorageCheck noExternalRootCaptureCheck(long requiredBytes) {
+        if (removableVolumePreparing.getAsBoolean()) {
+            return CaptureStorageCheck.preparing(0L, requiredBytes, EXTERNAL_PREPARING_MESSAGE);
+        }
+        return CaptureStorageCheck.unavailable(0L, requiredBytes, EXTERNAL_UNAVAILABLE_MESSAGE);
+    }
+
+    private CaptureStorageCheck completedExternalCaptureCheck(
+            long requiredBytes, ExternalCaptureCheckState state) {
+        if (state.preparing || removableVolumePreparing.getAsBoolean()) {
+            return CaptureStorageCheck.preparing(0L, requiredBytes, EXTERNAL_PREPARING_MESSAGE);
+        }
+        if (state.capacityFailure != null) return state.capacityFailure;
+        return CaptureStorageCheck.unavailable(0L, requiredBytes, EXTERNAL_UNAVAILABLE_MESSAGE);
+    }
+
+    private static final class ExternalCaptureCheckState {
+        private boolean preparing;
+        private CaptureStorageCheck capacityFailure;
     }
 
     static boolean isCapacityOnlyFailure(
@@ -591,10 +646,13 @@ public final class DcamStorage implements
         return root == null ? 0L : Math.max(0L, usableSpace.applyAsLong(root));
     }
 
-    public synchronized long recordingFileSizeLimit() {
+    public synchronized long recordingAvailableBytes() {
         File selectedRoot = recordingRoot == null ? root : recordingRoot;
-        return capacityPolicy.recordingFileSizeLimit(
-                Math.max(0L, usableSpace.applyAsLong(selectedRoot)));
+        return selectedRoot == null ? 0L : Math.max(0L, usableSpace.applyAsLong(selectedRoot));
+    }
+
+    public synchronized long recordingFileSizeLimit() {
+        return capacityPolicy.recordingFileSizeLimit(recordingAvailableBytes());
     }
 
     public File configsFile() {
@@ -603,13 +661,13 @@ public final class DcamStorage implements
 
     public synchronized List<File> identityBackupFiles() {
         refreshExternalRoots();
-        if (!externalRoots.isEmpty()
+        if (!externalRoots().isEmpty()
                 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
                 && !Environment.isExternalStorageManager()) {
             return List.of();
         }
         List<File> backups = new ArrayList<>();
-        for (File externalRoot : externalRoots) {
+        for (File externalRoot : externalRoots()) {
             if (externalRoot == null
                     || !Environment.MEDIA_MOUNTED.equals(externalStorageState.apply(externalRoot))) {
                 continue;
@@ -639,7 +697,7 @@ public final class DcamStorage implements
         }
         DcamStorageCandidate internal = candidate(MediaPartitionLocation.INTERNAL, internalRoot, true);
         List<DcamStorageCandidate> external = new ArrayList<>();
-        for (File externalRoot : externalRoots) {
+        for (File externalRoot : externalRoots()) {
             external.add(candidate(MediaPartitionLocation.EXTERNAL, externalRoot, false));
         }
         DcamStorageResolution resolution =
@@ -672,7 +730,7 @@ public final class DcamStorage implements
             List<File> refreshed = discoveredExternalRoots(appRoots);
             boolean retry = retryIncomplete
                     && shouldRetryExternalRootRefresh(appRoots, refreshed);
-            externalRoots = refreshed;
+            externalRoots.set(refreshed);
             externalRootsStale = retry;
             retryIncompleteExternalRoots = retry;
         } catch (RuntimeException ignored) {
@@ -701,6 +759,14 @@ public final class DcamStorage implements
             if (appRoots[index] == null) return true;
         }
         return false;
+    }
+
+    private List<File> externalRoots() {
+        return externalRoots.get();
+    }
+
+    private static LocalDateTime currentLocalDateTime() {
+        return LocalDateTime.now(ZoneId.systemDefault());
     }
 
     private DcamStorageCandidate candidate(MediaPartitionLocation mode, File root, boolean internal) {

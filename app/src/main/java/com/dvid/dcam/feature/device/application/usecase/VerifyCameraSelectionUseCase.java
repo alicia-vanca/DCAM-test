@@ -32,6 +32,9 @@ import java.util.Optional;
 import java.util.Set;
 
 public final class VerifyCameraSelectionUseCase {
+    private static final String HEALTH_GENERATION_CHANGED = "camera_health_generation_changed";
+    private static final String GLOBAL_FAILURE = "GLOBAL_FAILURE";
+
     private final CameraRuntimeOperations runtime;
     private final CameraCapabilityStore capabilityStore;
     private final Logger logger;
@@ -69,33 +72,50 @@ public final class VerifyCameraSelectionUseCase {
         VerificationOutcome lastOutcome = VerificationOutcome.UNKNOWN;
         boolean fallbackUsed = false;
         for (CandidateKey candidate : candidates) {
-            if (!evidence(run.snapshot, candidate).isEffective(candidate)) {
+            CandidatePreparation preparation = prepareCandidate(run, candidate);
+            if (preparation == CandidatePreparation.REMOVED_BY_RECORDING_EVIDENCE) {
                 fallbackUsed = true;
-                logRequest(run.request, candidate, "candidate_skipped",
-                        "reason=removed_by_recording_evidence");
-                continue;
+            } else if (preparation == CandidatePreparation.READY) {
+                CandidateResult result = verifyPreparedCandidate(run, candidate);
+                if (result.outcome == VerificationOutcome.VERIFIED_PASS) {
+                    return successfulCandidateResult(run, candidate, result, requested, fallbackUsed);
+                }
+                lastOutcome = result.outcome;
+                if (result.halt) return rollback(run, lastOutcome, result.detail);
+                fallbackUsed = true;
+                logRequest(run.request, candidate, "fallback_transition",
+                        "outcome=" + lastOutcome + ",nextBudgetMs="
+                                + CameraOperationDeadline.CANDIDATE_TIMEOUT_MILLIS);
             }
-            if (!run.attemptedCandidates.add(candidate)) continue;
-            CameraOperationDeadline deadline = CameraOperationDeadline.forCandidate(
-                    clock.elapsedRealtimeMillis());
-            logRequest(run.request, candidate, "candidate_start",
-                    "remainingMs=" + deadline.remainingMillis(clock.elapsedRealtimeMillis()));
-            CandidateResult result = verifyCandidate(run, candidate, deadline);
-            if (result.outcome == VerificationOutcome.VERIFIED_PASS) {
-                boolean requestedPass = candidate.equals(requested) && !fallbackUsed;
-                Completion completion = requestedPass
-                        ? Completion.REQUESTED_VERIFIED : Completion.FALLBACK_VERIFIED;
-                return success(run, candidate, result, completion,
-                        requestedPass ? "requested_candidate_pass" : "fallback_candidate_pass");
-            }
-            lastOutcome = result.outcome;
-            if (result.halt) return rollback(run, lastOutcome, result.detail);
-            fallbackUsed = true;
-            logRequest(run.request, candidate, "fallback_transition",
-                    "outcome=" + lastOutcome + ",nextBudgetMs="
-                            + CameraOperationDeadline.CANDIDATE_TIMEOUT_MILLIS);
         }
         return rollback(run, lastOutcome, "fallback_ladder_exhausted");
+    }
+
+    private CandidatePreparation prepareCandidate(RunState run, CandidateKey candidate) {
+        if (!evidence(run.snapshot, candidate).isEffective(candidate)) {
+            logRequest(run.request, candidate, "candidate_skipped",
+                    "reason=removed_by_recording_evidence");
+            return CandidatePreparation.REMOVED_BY_RECORDING_EVIDENCE;
+        }
+        return run.attemptedCandidates.add(candidate)
+                ? CandidatePreparation.READY : CandidatePreparation.DUPLICATE;
+    }
+
+    private CandidateResult verifyPreparedCandidate(RunState run, CandidateKey candidate) {
+        CameraOperationDeadline deadline = CameraOperationDeadline.forCandidate(
+                clock.elapsedRealtimeMillis());
+        logRequest(run.request, candidate, "candidate_start",
+                "remainingMs=" + deadline.remainingMillis(clock.elapsedRealtimeMillis()));
+        return verifyCandidate(run, candidate, deadline);
+    }
+
+    private Result successfulCandidateResult(RunState run, CandidateKey candidate,
+            CandidateResult result, CandidateKey requested, boolean fallbackUsed) {
+        boolean requestedPass = candidate.equals(requested) && !fallbackUsed;
+        Completion completion = requestedPass
+                ? Completion.REQUESTED_VERIFIED : Completion.FALLBACK_VERIFIED;
+        return success(run, candidate, result, completion,
+                requestedPass ? "requested_candidate_pass" : "fallback_candidate_pass");
     }
 
     public enum Completion {
@@ -252,14 +272,15 @@ public final class VerifyCameraSelectionUseCase {
     private CandidateResult bindVerifiedCandidate(RunState run, CandidateKey candidate,
             CaptureModeTuple tuple, CameraOperationDeadline deadline) {
         CameraOperationContext context = newContext(run, candidate, tuple, deadline);
-        StageResult bind = call(run, VerificationStage.COMBO, candidate, 1, context,
-                CameraPipelineOperation.BIND_SESSION, runtime::bindSession, deadline, false);
+        OperationAttempt attempt = new OperationAttempt(run, VerificationStage.COMBO,
+                candidate, 1, context);
+        StageResult bind = call(attempt, CameraPipelineOperation.BIND_SESSION,
+                runtime::bindSession, false);
         if (bind.disposition != Disposition.PASS) {
             return CandidateResult.stop(bind.outcome(),
                     "verified_tuple_bind=" + bind.detail);
         }
-        StageResult checked = diagnostics(run, VerificationStage.COMBO, candidate, 1,
-                context, deadline, true);
+        StageResult checked = diagnostics(attempt, true);
         if (checked.disposition == Disposition.PASS
                 && checked.diagnostics.orElseThrow().sessionBound()) {
             commitSelection(run, candidate);
@@ -322,182 +343,190 @@ public final class VerifyCameraSelectionUseCase {
             VerificationStage stage, CaptureModeTuple tuple,
             CameraOperationDeadline deadline, int attemptNumber) {
         CameraOperationContext context = newContext(run, candidate, tuple, deadline);
+        OperationAttempt attempt = new OperationAttempt(run, stage, candidate,
+                attemptNumber, context);
         if (stage != VerificationStage.ROLLBACK && !healthMatches(run, candidate)) {
             return StageResult.cancelled(stage, candidate, attemptNumber, context,
-                    false, "camera_health_generation_changed");
+                    false, HEALTH_GENERATION_CHANGED);
         }
         if (deadline.isExpiredAt(clock.elapsedRealtimeMillis())) {
             return StageResult.timeout(stage, candidate, attemptNumber, context,
                     false, "deadline_before_" + stage.name().toLowerCase(Locale.ROOT));
         }
-        StageResult bind = call(run, stage, candidate, attemptNumber, context,
-                CameraPipelineOperation.BIND_SESSION, runtime::bindSession,
-                deadline, false);
+        StageResult topology = bindAndValidateTopology(attempt);
+        if (topology.disposition != Disposition.PASS) return topology;
+        StageResult encoding = runEncoderOperations(attempt);
+        if (encoding.disposition != Disposition.PASS) return encoding;
+        return validateOutputs(attempt);
+    }
+
+    private StageResult bindAndValidateTopology(OperationAttempt attempt) {
+        StageResult bind = call(attempt, CameraPipelineOperation.BIND_SESSION,
+                runtime::bindSession, false);
         if (bind.disposition != Disposition.PASS) return bind;
-
-        StageResult boundDiagnostics = diagnostics(run, stage, candidate,
-                attemptNumber, context, deadline, true);
-        if (boundDiagnostics.disposition != Disposition.PASS) {
-            return boundDiagnostics;
+        StageResult checked = diagnostics(attempt, true);
+        if (checked.disposition != Disposition.PASS) return checked;
+        CameraPipelineDiagnostics diagnostics = checked.diagnostics.orElseThrow();
+        if (diagnostics.sessionBound() && diagnostics.cameraOutputCount() == 2
+                && diagnostics.downstreamSurfaceCount() == 2) {
+            return checked;
         }
-        CameraPipelineDiagnostics bound = boundDiagnostics.diagnostics.orElseThrow();
-        if (!bound.sessionBound() || bound.cameraOutputCount() != 2
-                || bound.downstreamSurfaceCount() != 2) {
-            return StageResult.candidateSuspect(stage, candidate, attemptNumber,
-                    context, true, CameraPipelineOperation.BIND_SESSION,
-                    CameraFailureClass.TOPOLOGY,
-                    "invalid_shared_private_jpeg_topology:cameraOutputs="
-                            + bound.cameraOutputCount() + ",downstreamSurfaces="
-                            + bound.downstreamSurfaceCount());
-        }
+        return StageResult.candidateSuspect(attempt.stage(), attempt.candidate(),
+                attempt.attemptNumber(), attempt.context(), true,
+                CameraPipelineOperation.BIND_SESSION, CameraFailureClass.TOPOLOGY,
+                "invalid_shared_private_jpeg_topology:cameraOutputs="
+                        + diagnostics.cameraOutputCount() + ",downstreamSurfaces="
+                        + diagnostics.downstreamSurfaceCount());
+    }
 
-        StageResult start = call(run, stage, candidate, attemptNumber, context,
-                CameraPipelineOperation.START_ENCODER, runtime::startEncoder,
-                deadline, true);
+    private StageResult runEncoderOperations(OperationAttempt attempt) {
+        StageResult start = call(attempt, CameraPipelineOperation.START_ENCODER,
+                runtime::startEncoder, true);
         if (start.disposition != Disposition.PASS) return start;
-        if (stage == VerificationStage.COMBO) {
-            StageResult capture = call(run, stage, candidate, attemptNumber, context,
-                    CameraPipelineOperation.CAPTURE_JPEG, runtime::captureJpeg,
-                    deadline, true);
+        if (attempt.stage() == VerificationStage.COMBO) {
+            StageResult capture = call(attempt, CameraPipelineOperation.CAPTURE_JPEG,
+                    runtime::captureJpeg, true);
             if (capture.disposition != Disposition.PASS) return capture;
         }
-        StageResult stop = call(run, stage, candidate, attemptNumber, context,
-                CameraPipelineOperation.STOP_ENCODER, runtime::stopEncoder,
-                deadline, true);
+        StageResult stop = call(attempt, CameraPipelineOperation.STOP_ENCODER,
+                runtime::stopEncoder, true);
         if (stop.disposition != Disposition.PASS) return stop;
-        StageResult finalize = call(run, stage, candidate, attemptNumber, context,
-                CameraPipelineOperation.FINALIZE_ENCODER, runtime::finalizeEncoder,
-                deadline, true);
-        if (finalize.disposition != Disposition.PASS) return finalize;
+        return call(attempt, CameraPipelineOperation.FINALIZE_ENCODER,
+                runtime::finalizeEncoder, true);
+    }
 
-        StageResult checked = diagnostics(run, stage, candidate, attemptNumber,
-                context, deadline, true);
+    private StageResult validateOutputs(OperationAttempt attempt) {
+        StageResult checked = diagnostics(attempt, true);
         if (checked.disposition != Disposition.PASS) return checked;
-        CameraPipelineDiagnostics value = checked.diagnostics.orElseThrow();
+        CameraPipelineDiagnostics diagnostics = checked.diagnostics.orElseThrow();
         int sensorOrientationDegrees =
                 CameraCapabilitySnapshotUpdates.sensorOrientationDegrees(
-                        run.snapshot, candidate.cameraId());
-        if (!validVideo(context, value)) {
-            return StageResult.candidateSuspect(stage, candidate, attemptNumber,
-                    context, true, CameraPipelineOperation.FINALIZE_ENCODER,
+                        attempt.run().snapshot, attempt.candidate().cameraId());
+        if (!validVideo(attempt.context(), diagnostics)) {
+            return StageResult.candidateSuspect(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), true,
+                    CameraPipelineOperation.FINALIZE_ENCODER,
                     CameraFailureClass.VIDEO_OUTPUT,
-                    validationDetail(context, value, sensorOrientationDegrees));
+                    validationDetail(attempt.context(), diagnostics, sensorOrientationDegrees));
         }
-        if (stage == VerificationStage.COMBO
-                && (!validImage(context, value, sensorOrientationDegrees)
-                || !value.jpegCapturedWhileEncoderActive())) {
-            return StageResult.candidateSuspect(stage, candidate, attemptNumber,
-                    context, true, CameraPipelineOperation.CAPTURE_JPEG,
+        if (attempt.stage() == VerificationStage.COMBO
+                && (!validImage(attempt.context(), diagnostics, sensorOrientationDegrees)
+                || !diagnostics.jpegCapturedWhileEncoderActive())) {
+            return StageResult.candidateSuspect(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), true,
+                    CameraPipelineOperation.CAPTURE_JPEG,
                     CameraFailureClass.JPEG_OUTPUT,
-                    validationDetail(context, value, sensorOrientationDegrees));
+                    validationDetail(attempt.context(), diagnostics, sensorOrientationDegrees));
         }
-        return StageResult.pass(stage, candidate, attemptNumber,
-                context, true, value, stage == VerificationStage.COMBO
-                        ? "combo_pass" : "rollback_pass");
+        return StageResult.pass(attempt.stage(), attempt.candidate(),
+                attempt.attemptNumber(), attempt.context(), true, diagnostics,
+                attempt.stage() == VerificationStage.COMBO ? "combo_pass" : "rollback_pass");
     }
-    private StageResult call(RunState run, VerificationStage stage,
-            CandidateKey candidate, int attemptNumber,
-            CameraOperationContext context, CameraPipelineOperation operation,
-            OperationCall operationCall, CameraOperationDeadline deadline,
-            boolean cleanupNeeded) {
-        if (deadline.isExpiredAt(clock.elapsedRealtimeMillis())) {
-            return StageResult.timeout(stage, candidate, attemptNumber, context,
+
+    private StageResult call(OperationAttempt attempt, CameraPipelineOperation operation,
+            OperationCall operationCall, boolean cleanupNeeded) {
+        if (attempt.deadline().isExpiredAt(clock.elapsedRealtimeMillis())) {
+            return StageResult.timeout(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(),
                     cleanupNeeded, "deadline_before_"
                             + operation.name().toLowerCase(Locale.ROOT));
         }
-        if (stage != VerificationStage.ROLLBACK && !healthMatches(run, candidate)) {
-            return StageResult.cancelled(stage, candidate, attemptNumber, context,
-                    cleanupNeeded, "camera_health_generation_changed");
+        if (attempt.stage() != VerificationStage.ROLLBACK
+                && !healthMatches(attempt.run(), attempt.candidate())) {
+            return StageResult.cancelled(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), cleanupNeeded,
+                    HEALTH_GENERATION_CHANGED);
         }
         CameraOperationResult result;
         try {
-            result = Objects.requireNonNull(operationCall.invoke(context), "runtime result");
+            result = Objects.requireNonNull(operationCall.invoke(attempt.context()),
+                    "runtime result");
         } catch (RuntimeException error) {
-            addAttempt(run, stage, candidate, attemptNumber, operation,
-                    CameraOperationOutcome.GLOBAL_FAILURE, context, deadline,
+            addAttempt(attempt, operation, CameraOperationOutcome.GLOBAL_FAILURE,
                     "runtime_exception=" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(context, stage, "GLOBAL_FAILURE",
+            logger.warn(logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
                     "runtime_exception"), error);
-            return StageResult.globalFailure(stage, candidate, attemptNumber,
-                    context, cleanupNeeded, "runtime_exception");
+            return StageResult.globalFailure(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), cleanupNeeded,
+                    "runtime_exception");
         }
         boolean nowNeedsCleanup = cleanupNeeded
                 || operation == CameraPipelineOperation.BIND_SESSION;
-        if (stage != VerificationStage.ROLLBACK && !healthMatches(run, candidate)) {
-            addAttempt(run, stage, candidate, attemptNumber, operation,
-                    CameraOperationOutcome.CANCELLED_UNKNOWN, context, deadline,
-                    "camera_health_generation_changed");
-            return StageResult.cancelled(stage, candidate, attemptNumber, context,
-                    nowNeedsCleanup, "camera_health_generation_changed");
+        if (attempt.stage() != VerificationStage.ROLLBACK
+                && !healthMatches(attempt.run(), attempt.candidate())) {
+            addAttempt(attempt, operation, CameraOperationOutcome.CANCELLED_UNKNOWN,
+                    HEALTH_GENERATION_CHANGED);
+            return StageResult.cancelled(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), nowNeedsCleanup,
+                    HEALTH_GENERATION_CHANGED);
         }
-        CameraOperationOutcome outcome = normalize(result, context, deadline);
+        CameraOperationOutcome outcome = normalize(result, attempt.context(), attempt.deadline());
         if (result.operation() != operation) {
             outcome = CameraOperationOutcome.GLOBAL_FAILURE;
         }
-        addAttempt(run, stage, candidate, attemptNumber, operation, outcome,
-                context, deadline, result.detail());
-        log(context, stage, outcome, result.detail());
+        addAttempt(attempt, operation, outcome, result.detail());
+        log(attempt.context(), attempt.stage(), outcome, result.detail());
         return switch (outcome) {
-            case PASS -> StageResult.pass(stage, candidate, attemptNumber,
-                    context, nowNeedsCleanup, null, result.detail());
+            case PASS -> StageResult.pass(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), nowNeedsCleanup,
+                    null, result.detail());
             case CANDIDATE_SUSPECT, DEFINITIVE_CANDIDATE_FAILURE ->
-                    StageResult.candidateSuspect(stage, candidate, attemptNumber,
-                            context, nowNeedsCleanup, operation,
+                    StageResult.candidateSuspect(attempt.stage(), attempt.candidate(),
+                            attempt.attemptNumber(), attempt.context(), nowNeedsCleanup, operation,
                             result.failureClass(), result.detail());
-            case TIMEOUT_UNKNOWN -> StageResult.timeout(stage, candidate,
-                    attemptNumber, context, nowNeedsCleanup, result.detail());
-            case TRANSIENT_RETRYABLE -> StageResult.transientFailure(stage,
-                    candidate, attemptNumber, context, nowNeedsCleanup, result.detail());
-            case GLOBAL_FAILURE -> StageResult.globalFailure(stage, candidate,
-                    attemptNumber, context, nowNeedsCleanup, result.detail());
-            case BLOCKED_EXTERNAL -> StageResult.blocked(stage, candidate,
-                    attemptNumber, context, nowNeedsCleanup, result.detail());
-            case CANCELLED_UNKNOWN, STALE -> StageResult.cancelled(stage, candidate,
-                    attemptNumber, context, nowNeedsCleanup, result.detail());
+            case TIMEOUT_UNKNOWN -> StageResult.timeout(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), nowNeedsCleanup, result.detail());
+            case TRANSIENT_RETRYABLE -> StageResult.transientFailure(attempt.stage(),
+                    attempt.candidate(), attempt.attemptNumber(), attempt.context(),
+                    nowNeedsCleanup, result.detail());
+            case GLOBAL_FAILURE -> StageResult.globalFailure(attempt.stage(),
+                    attempt.candidate(), attempt.attemptNumber(), attempt.context(),
+                    nowNeedsCleanup, result.detail());
+            case BLOCKED_EXTERNAL -> StageResult.blocked(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), nowNeedsCleanup, result.detail());
+            case CANCELLED_UNKNOWN, STALE -> StageResult.cancelled(attempt.stage(),
+                    attempt.candidate(), attempt.attemptNumber(), attempt.context(),
+                    nowNeedsCleanup, result.detail());
         };
     }
 
-    private StageResult diagnostics(RunState run, VerificationStage stage,
-            CandidateKey candidate, int attemptNumber,
-            CameraOperationContext context, CameraOperationDeadline deadline,
-            boolean cleanupNeeded) {
+    private StageResult diagnostics(OperationAttempt attempt, boolean cleanupNeeded) {
         CameraPipelineDiagnostics value;
         try {
-            value = Objects.requireNonNull(runtime.diagnostics(context), "diagnostics");
+            value = Objects.requireNonNull(runtime.diagnostics(attempt.context()), "diagnostics");
         } catch (RuntimeException error) {
-            addAttempt(run, stage, candidate, attemptNumber,
-                    CameraPipelineOperation.DIAGNOSTICS,
-                    CameraOperationOutcome.GLOBAL_FAILURE, context, deadline,
+            addAttempt(attempt, CameraPipelineOperation.DIAGNOSTICS,
+                    CameraOperationOutcome.GLOBAL_FAILURE,
                     "diagnostics_exception=" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(context, stage, "GLOBAL_FAILURE",
+            logger.warn(logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
                     "diagnostics_exception"), error);
-            return StageResult.globalFailure(stage, candidate, attemptNumber,
-                    context, cleanupNeeded, "diagnostics_exception");
+            return StageResult.globalFailure(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), cleanupNeeded,
+                    "diagnostics_exception");
         }
         CameraOperationOutcome outcome;
-        if (!context.matchesCurrentOperation(value.context())) {
+        if (!attempt.context().matchesCurrentOperation(value.context())) {
             outcome = CameraOperationOutcome.STALE;
-        } else if (stage != VerificationStage.ROLLBACK
-                && !healthMatches(run, candidate)) {
+        } else if (attempt.stage() != VerificationStage.ROLLBACK
+                && !healthMatches(attempt.run(), attempt.candidate())) {
             outcome = CameraOperationOutcome.CANCELLED_UNKNOWN;
-        } else if (deadline.isExpiredAt(clock.elapsedRealtimeMillis())) {
+        } else if (attempt.deadline().isExpiredAt(clock.elapsedRealtimeMillis())) {
             outcome = CameraOperationOutcome.TIMEOUT_UNKNOWN;
         } else {
             outcome = CameraOperationOutcome.PASS;
         }
-        addAttempt(run, stage, candidate, attemptNumber,
-                CameraPipelineOperation.DIAGNOSTICS, outcome, context, deadline,
-                value.detail());
+        addAttempt(attempt, CameraPipelineOperation.DIAGNOSTICS, outcome, value.detail());
         if (outcome == CameraOperationOutcome.PASS) {
-            return StageResult.pass(stage, candidate, attemptNumber,
-                    context, cleanupNeeded, value, value.detail());
+            return StageResult.pass(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), cleanupNeeded,
+                    value, value.detail());
         }
         if (outcome == CameraOperationOutcome.TIMEOUT_UNKNOWN) {
-            return StageResult.timeout(stage, candidate, attemptNumber,
-                    context, cleanupNeeded, value.detail());
+            return StageResult.timeout(attempt.stage(), attempt.candidate(),
+                    attempt.attemptNumber(), attempt.context(), cleanupNeeded, value.detail());
         }
-        return StageResult.cancelled(stage, candidate, attemptNumber,
-                context, cleanupNeeded, value.detail());
+        return StageResult.cancelled(attempt.stage(), attempt.candidate(),
+                attempt.attemptNumber(), attempt.context(), cleanupNeeded, value.detail());
     }
 
     private StageResult cleanupAndReturn(RunState run, StageResult result) {
@@ -512,18 +541,18 @@ public final class VerifyCameraSelectionUseCase {
                     result.attemptNumber, result.context, false,
                     result.diagnostics.orElse(null), "cleanup_not_needed");
         }
+        OperationAttempt attempt = new OperationAttempt(run, result.stage,
+                result.candidate, result.attemptNumber, result.context);
         CameraOperationResult release;
         try {
             release = Objects.requireNonNull(runtime.release(result.context),
                     "release result");
         } catch (RuntimeException error) {
-            addAttempt(run, result.stage, result.candidate, result.attemptNumber,
-                    CameraPipelineOperation.RELEASE,
-                    CameraOperationOutcome.GLOBAL_FAILURE, result.context,
-                    result.context.deadline(), "release_exception="
-                            + error.getClass().getSimpleName());
+            addAttempt(attempt, CameraPipelineOperation.RELEASE,
+                    CameraOperationOutcome.GLOBAL_FAILURE,
+                    "release_exception=" + error.getClass().getSimpleName());
             logger.warn(logPrefix(result.context, result.stage,
-                    "GLOBAL_FAILURE", "release_exception"), error);
+                    GLOBAL_FAILURE, "release_exception"), error);
             return StageResult.transientFailure(result.stage, result.candidate,
                     result.attemptNumber, result.context, false,
                     "release_exception");
@@ -531,9 +560,7 @@ public final class VerifyCameraSelectionUseCase {
         CameraOperationOutcome outcome = release.context()
                 .matchesCurrentOperation(result.context)
                 ? release.outcome() : CameraOperationOutcome.STALE;
-        addAttempt(run, result.stage, result.candidate, result.attemptNumber,
-                CameraPipelineOperation.RELEASE, outcome, result.context,
-                result.context.deadline(), release.detail());
+        addAttempt(attempt, CameraPipelineOperation.RELEASE, outcome, release.detail());
         log(result.context, result.stage, outcome, "cleanup=" + release.detail());
         return switch (outcome) {
             case PASS -> StageResult.pass(result.stage, result.candidate,
@@ -631,13 +658,13 @@ public final class VerifyCameraSelectionUseCase {
                 clock.elapsedRealtimeMillis());
         CameraOperationContext context = newContext(run, previousCandidate,
                 value.selection().tuple(), deadline);
-        StageResult bind = call(run, VerificationStage.ROLLBACK,
-                previousCandidate, 1, context, CameraPipelineOperation.BIND_SESSION,
-                runtime::bindSession, deadline, false);
+        OperationAttempt attempt = new OperationAttempt(run, VerificationStage.ROLLBACK,
+                previousCandidate, 1, context);
+        StageResult bind = call(attempt, CameraPipelineOperation.BIND_SESSION,
+                runtime::bindSession, false);
         StageResult rollbackFailure = bind;
         if (bind.disposition == Disposition.PASS) {
-            StageResult checked = diagnostics(run, VerificationStage.ROLLBACK,
-                    previousCandidate, 1, context, deadline, true);
+            StageResult checked = diagnostics(attempt, true);
             if (checked.disposition == Disposition.PASS
                     && checked.diagnostics.orElseThrow().sessionBound()) {
                 return new Result(Completion.ROLLED_BACK, cause, run.snapshot,
@@ -704,7 +731,8 @@ public final class VerifyCameraSelectionUseCase {
                 && !diagnostics.encoderActive()
                 && diagnostics.encoderFinalized()
                 && diagnostics.encodedSampleCount() > 0
-                && diagnostics.encodedVideoResolution().filter(expected::equals).isPresent()
+                && diagnostics.encodedVideoResolution()
+                        .filter(value -> Objects.equals(expected, value)).isPresent()
                 && diagnostics.finalizedVideoArtifact().isPresent();
     }
 
@@ -732,15 +760,13 @@ public final class VerifyCameraSelectionUseCase {
                 + ",jpegArtifact=" + diagnostics.capturedJpegArtifact();
     }
 
-    private void addAttempt(RunState run, VerificationStage stage,
-            CandidateKey candidate, int attemptNumber,
-            CameraPipelineOperation operation, CameraOperationOutcome outcome,
-            CameraOperationContext context, CameraOperationDeadline deadline,
-            String detail) {
+    private void addAttempt(OperationAttempt attempt, CameraPipelineOperation operation,
+            CameraOperationOutcome outcome, String detail) {
         long now = clock.elapsedRealtimeMillis();
-        run.attempts.add(new Attempt(stage, candidate, attemptNumber, operation,
-                outcome, Math.max(0, now - deadline.startedAtMillis()),
-                deadline.remainingMillis(now),
+        attempt.run().attempts.add(new Attempt(attempt.stage(), attempt.candidate(),
+                attempt.attemptNumber(), operation, outcome,
+                Math.max(0, now - attempt.deadline().startedAtMillis()),
+                attempt.deadline().remainingMillis(now),
                 detail == null || detail.isBlank() ? "no_detail" : detail));
     }
 
@@ -785,8 +811,21 @@ public final class VerifyCameraSelectionUseCase {
                 candidate.verificationPipelineId());
     }
 
+    private record OperationAttempt(RunState run, VerificationStage stage,
+            CandidateKey candidate, int attemptNumber, CameraOperationContext context) {
+        private CameraOperationDeadline deadline() {
+            return context.deadline();
+        }
+    }
+
     private interface OperationCall {
         CameraOperationResult invoke(CameraOperationContext context);
+    }
+
+    private enum CandidatePreparation {
+        READY,
+        REMOVED_BY_RECORDING_EVIDENCE,
+        DUPLICATE
     }
 
     private enum Disposition {

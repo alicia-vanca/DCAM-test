@@ -71,6 +71,12 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     private final Logger logger;
     private final Executor executor;
     private static final long WATCHDOG_DELAY_MILLIS = 3000L;
+    private static final String TARGET_ARGUMENT = "target";
+    private static final String HELD_ACTION_COALESCE = "coalesce";
+    private static final String HELD_ACTION_ENQUEUE = "enqueue";
+    private static final String HELD_ACTION_EXECUTE = "execute";
+    private static final String HELD_COMMAND_RECORD_START = "command=record_start";
+    private static final String HELD_COMMAND_PHOTO = "command=photo";
 
     private final ExecutorService ownedExecutor;
     private final CameraRuntimeRecoveryScheduler recoveryScheduler;
@@ -219,7 +225,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     public synchronized Submission initialize(CameraRuntimeSelection target) {
-        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(target, TARGET_ARGUMENT);
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (capabilityScanReserved) return Submission.REJECTED_TRANSITION;
         if (state != CameraRuntimeState.CLOSED && state != CameraRuntimeState.RECOVERING) {
@@ -231,7 +237,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     public synchronized Submission switchCamera(CameraRuntimeSelection target) {
-        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(target, TARGET_ARGUMENT);
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (state == CameraRuntimeState.RECORDING) return Submission.REJECTED_RECORDING;
         if (inFlight != null) {
@@ -242,7 +248,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     public synchronized Submission verifySetting(CameraRuntimeSelection target) {
-        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(target, TARGET_ARGUMENT);
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (state == CameraRuntimeState.RECORDING) return Submission.REJECTED_RECORDING;
         if (inFlight != null) {
@@ -301,7 +307,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     public synchronized Submission restoreExact(CameraRuntimeSelection target) {
-        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(target, TARGET_ARGUMENT);
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (state == CameraRuntimeState.RECORDING) return Submission.REJECTED_RECORDING;
         if (state != CameraRuntimeState.READY) return Submission.REJECTED_NOT_READY;
@@ -378,29 +384,45 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (state == CameraRuntimeState.RECORDING) return Submission.NO_OP;
         if (pendingRecordStart != null) {
-            if (pendingRecordStart.mediaType != type) {
-                pendingRecordStart = new HeldCommand(pendingRecordStart.cameraId,
-                        pendingRecordStart.transitionGeneration, pendingRecordStart.sequence,
-                        true, type);
-                if (inFlight == null) {
-                    cancelMediaReservationDrainLocked();
-                    drainHeld();
-                }
-            }
-            logHeld("coalesce", "command=record_start");
-            return Submission.COALESCED;
+            return coalescePendingRecordStart(type);
+        }
+        if (inFlight != null
+                && inFlight.operation() == ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO) {
+            return holdRecordStart(committedSelection, type, " reason=active_capture");
         }
         if (canHoldCommands()) {
-            pendingRecordStart = heldCommand(transitionTarget, true, type);
-            logHeld("enqueue", "command=record_start");
-            notifyListeners();
-            return Submission.HELD;
+            return holdRecordStart(transitionTarget, type, "");
         }
-
         if (state != CameraRuntimeState.READY || inFlight != null) {
             return inFlight != null ? Submission.REJECTED_TRANSITION
                     : Submission.REJECTED_NOT_READY;
         }
+        return startRecordingAfterMediaReservation(type);
+    }
+
+    private Submission coalescePendingRecordStart(DcamFileType type) {
+        if (pendingRecordStart.mediaType != type) {
+            pendingRecordStart = new HeldCommand(pendingRecordStart.cameraId,
+                    pendingRecordStart.transitionGeneration, pendingRecordStart.sequence,
+                    true, type);
+            if (inFlight == null) {
+                cancelMediaReservationDrainLocked();
+                drainHeld();
+            }
+        }
+        logHeld(HELD_ACTION_COALESCE, HELD_COMMAND_RECORD_START);
+        return Submission.COALESCED;
+    }
+
+    private Submission holdRecordStart(CameraRuntimeSelection selection, DcamFileType type,
+            String reason) {
+        pendingRecordStart = heldCommand(selection, true, type);
+        logHeld(HELD_ACTION_ENQUEUE, HELD_COMMAND_RECORD_START + reason);
+        notifyListeners();
+        return Submission.HELD;
+    }
+
+    private Submission startRecordingAfterMediaReservation(DcamFileType type) {
         long delayMillis = mediaReservationDelayMillis(type);
         if (delayMillis > 0L) {
             pendingRecordStart = heldCommand(committedSelection, true, type);
@@ -416,7 +438,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         if (pendingRecordStart != null && state != CameraRuntimeState.RECORDING) {
             pendingRecordStart = null;
             cancelMediaReservationDrainLocked();
-            logHeld("consume", "command=record_start reason=stop_before_ready");
+            logHeld("consume", HELD_COMMAND_RECORD_START + " reason=stop_before_ready");
             notifyListeners();
             if (inFlight == null) drainHeld();
             return Submission.CONSUMED;
@@ -430,12 +452,12 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                 return Submission.REJECTED_TRANSITION;
             }
             if (pendingRecordingStop) {
-                logHeld("coalesce", "command=record_stop reason=active_capture");
+                logHeld(HELD_ACTION_COALESCE, "command=record_stop reason=active_capture");
                 return Submission.COALESCED;
             }
             pendingPhoto = null;
             pendingRecordingStop = true;
-            logHeld("enqueue", "command=record_stop reason=active_capture");
+            logHeld(HELD_ACTION_ENQUEUE, "command=record_stop reason=active_capture");
             notifyListeners();
             return Submission.HELD;
         }
@@ -448,27 +470,21 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         if (processCancelled) return Submission.REJECTED_PROCESS_CANCELLED;
         if (inFlight != null
                 && inFlight.operation() == ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO) {
-            if (pendingPhoto != null) {
-                logHeld("coalesce", "command=photo reason=active_capture");
-                return Submission.COALESCED;
-            }
-            pendingPhoto = heldCommand(committedSelection, false, DcamFileType.IMAGE);
-            logHeld("enqueue", "command=photo reason=active_capture");
-            notifyListeners();
-            return Submission.HELD;
+            return holdPhoto(committedSelection, " reason=active_capture");
+        }
+        if (inFlight != null
+                && inFlight.operation() == ProcessCameraRuntimeBackend.Operation.START_RECORDING) {
+            return holdPhoto(committedSelection, " reason=recording_start");
+        }
+        if (inFlight != null
+                && inFlight.operation() == ProcessCameraRuntimeBackend.Operation.STOP_RECORDING) {
+            return holdPhoto(committedSelection, " reason=recording_stop");
         }
         if (canHoldCommands()) {
-            if (pendingPhoto != null) {
-                logHeld("coalesce", "command=photo");
-                return Submission.COALESCED;
-            }
-            pendingPhoto = heldCommand(transitionTarget, false, DcamFileType.IMAGE);
-            logHeld("enqueue", "command=photo");
-            notifyListeners();
-            return Submission.HELD;
+            return holdPhoto(transitionTarget, "");
         }
         if (pendingPhoto != null) {
-            logHeld("coalesce", "command=photo reason=media_reservation");
+            logHeld(HELD_ACTION_COALESCE, HELD_COMMAND_PHOTO + " reason=media_reservation");
             return Submission.COALESCED;
         }
         if ((state != CameraRuntimeState.READY && state != CameraRuntimeState.RECORDING)
@@ -484,6 +500,17 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             return Submission.HELD;
         }
         return beginImmediate(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO);
+    }
+
+    private Submission holdPhoto(CameraRuntimeSelection selection, String reason) {
+        if (pendingPhoto != null) {
+            logHeld(HELD_ACTION_COALESCE, HELD_COMMAND_PHOTO + reason);
+            return Submission.COALESCED;
+        }
+        pendingPhoto = heldCommand(selection, false, DcamFileType.IMAGE);
+        logHeld(HELD_ACTION_ENQUEUE, HELD_COMMAND_PHOTO + reason);
+        notifyListeners();
+        return Submission.HELD;
     }
 
     public synchronized Submission reportGlobalFailure(String detail) {
@@ -540,16 +567,32 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         transitionGeneration++;
         transitionTarget = target;
         transitionPrevious = committedSelection;
-        recoverySelection = operation == ProcessCameraRuntimeBackend.Operation.RESTORE_EXACT
-                ? target : committedSelection == null ? target : committedSelection;
+        recoverySelection = recoverySelectionFor(operation, target);
         watchAvailabilityLocked(recoverySelection);
-        state = operation == ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED
-                || operation == ProcessCameraRuntimeBackend.Operation.RESTORE_EXACT
-                ? CameraRuntimeState.BINDING
-                : operation == ProcessCameraRuntimeBackend.Operation.RECOVER
-                        ? CameraRuntimeState.RECOVERING : CameraRuntimeState.VERIFYING;
+        state = transitionStateFor(operation);
         scheduleWatchdogLocked();
         return begin(operation, Optional.of(target), Optional.ofNullable(committedSelection));
+    }
+
+    private CameraRuntimeSelection recoverySelectionFor(
+            ProcessCameraRuntimeBackend.Operation operation, CameraRuntimeSelection target) {
+        if (operation == ProcessCameraRuntimeBackend.Operation.RESTORE_EXACT
+                || committedSelection == null) {
+            return target;
+        }
+        return committedSelection;
+    }
+
+    private static CameraRuntimeState transitionStateFor(
+            ProcessCameraRuntimeBackend.Operation operation) {
+        if (operation == ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED
+                || operation == ProcessCameraRuntimeBackend.Operation.RESTORE_EXACT) {
+            return CameraRuntimeState.BINDING;
+        }
+        if (operation == ProcessCameraRuntimeBackend.Operation.RECOVER) {
+            return CameraRuntimeState.RECOVERING;
+        }
+        return CameraRuntimeState.VERIFYING;
     }
 
     private boolean beginPendingTransition() {
@@ -633,36 +676,46 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                 return;
             }
             switch (command.operation()) {
-                case INITIALIZE, SWITCH_CAMERA, VERIFY_SETTING -> finishTargetTransition(
-                        command, result);
+                case INITIALIZE, SWITCH_CAMERA, VERIFY_SETTING -> finishTargetTransition(result);
                 case BIND_COMMITTED, RESTORE_EXACT, RECOVER -> finishBind(command, result);
                 case RELEASE -> finishRelease(result);
-                case START_RECORDING -> finishStartRecording(result);
+                case START_RECORDING -> finishStartRecording(command, result);
                 case STOP_RECORDING -> finishStopRecording(result);
                 case CAPTURE_PHOTO -> finishPhoto(result);
             }
         }
     }
 
-    private void finishTargetTransition(ProcessCameraRuntimeBackend.Command command,
-            ProcessCameraRuntimeBackend.Result result) {
+    private void finishTargetTransition(ProcessCameraRuntimeBackend.Result result) {
         if (result.outcome() == ProcessCameraRuntimeBackend.Outcome.READY) {
-            if (!acceptTargetResult(result)) {
-                enterRecovery("target_binding_mismatch");
-                return;
-            }
-            acceptReady(result);
+            finishReadyTargetTransition(result);
             return;
         }
         if (result.outcome() == ProcessCameraRuntimeBackend.Outcome.ROLLED_BACK_READY) {
-            if (transitionPrevious == null || !sameSelection(
-                    transitionPrevious, result.selection().orElseThrow())) {
-                enterRecovery("rollback_binding_mismatch");
-                return;
-            }
-            acceptRollbackReady(result);
+            finishRolledBackTargetTransition(result);
             return;
         }
+        finishTerminalTargetTransition(result);
+    }
+
+    private void finishReadyTargetTransition(ProcessCameraRuntimeBackend.Result result) {
+        if (!acceptTargetResult(result)) {
+            enterRecovery("target_binding_mismatch");
+            return;
+        }
+        acceptReady(result);
+    }
+
+    private void finishRolledBackTargetTransition(ProcessCameraRuntimeBackend.Result result) {
+        if (transitionPrevious == null || !sameSelection(
+                transitionPrevious, result.selection().orElseThrow())) {
+            enterRecovery("rollback_binding_mismatch");
+            return;
+        }
+        acceptRollbackReady(result);
+    }
+
+    private void finishTerminalTargetTransition(ProcessCameraRuntimeBackend.Result result) {
         CameraRuntimeSelection previous = transitionPrevious;
         clearTransition();
         activeBinding = null;
@@ -670,25 +723,35 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         cancelHeld("target_terminal");
         if (result.outcome() == ProcessCameraRuntimeBackend.Outcome.CANCELLED
                 && beginPendingTransition()) return;
-        if (result.outcome() == ProcessCameraRuntimeBackend.Outcome.TARGET_FAILED
-                || result.outcome() == ProcessCameraRuntimeBackend.Outcome.CANCELLED) {
-            if (previous == null) {
-                if (recoveryAttemptInFlight) enterRecovery(result.detail());
-                else {
-                    releaseRequested = false;
-                    state = CameraRuntimeState.CLOSED;
-                    notifyListeners();
-                }
-                return;
-            }
-            transitionTarget = previous;
-            transitionPrevious = previous;
-            state = CameraRuntimeState.BINDING;
-            begin(ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED,
-                    Optional.of(previous), Optional.of(previous));
+        if (isTargetTerminalFailure(result)) {
+            restorePreviousTargetSelection(result, previous);
             return;
         }
         enterRecovery(result.detail());
+    }
+
+    private static boolean isTargetTerminalFailure(ProcessCameraRuntimeBackend.Result result) {
+        return result.outcome() == ProcessCameraRuntimeBackend.Outcome.TARGET_FAILED
+                || result.outcome() == ProcessCameraRuntimeBackend.Outcome.CANCELLED;
+    }
+
+    private void restorePreviousTargetSelection(ProcessCameraRuntimeBackend.Result result,
+            CameraRuntimeSelection previous) {
+        if (previous == null) {
+            if (recoveryAttemptInFlight) {
+                enterRecovery(result.detail());
+            } else {
+                releaseRequested = false;
+                state = CameraRuntimeState.CLOSED;
+                notifyListeners();
+            }
+            return;
+        }
+        transitionTarget = previous;
+        transitionPrevious = previous;
+        state = CameraRuntimeState.BINDING;
+        begin(ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED,
+                Optional.of(previous), Optional.of(previous));
     }
 
     private void finishBind(ProcessCameraRuntimeBackend.Command command,
@@ -728,7 +791,14 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         }
     }
 
-    private void finishStartRecording(ProcessCameraRuntimeBackend.Result result) {
+    private void finishStartRecording(ProcessCameraRuntimeBackend.Command command,
+            ProcessCameraRuntimeBackend.Result result) {
+        boolean recordingStarted = result.outcome() == ProcessCameraRuntimeBackend.Outcome.PASS;
+        if (!acceptRetainedBinding(result, recordingStarted
+                ? command.target().orElse(null) : null)) {
+            enterRecovery("recording_binding_mismatch");
+            return;
+        }
         if (result.outcome() == ProcessCameraRuntimeBackend.Outcome.PASS) {
             state = CameraRuntimeState.RECORDING;
             notifyListeners();
@@ -770,6 +840,10 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             requestRecoveryLocked(result.detail());
             return;
         }
+        if (!acceptRetainedBinding(result, null)) {
+            enterRecovery("photo_binding_mismatch");
+            return;
+        }
         notifyListeners();
         if (releaseRequested) {
             beginImmediate(state == CameraRuntimeState.RECORDING
@@ -777,7 +851,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                     : ProcessCameraRuntimeBackend.Operation.RELEASE);
         } else if (pendingRecordingStop) {
             pendingRecordingStop = false;
-            logHeld("execute", "command=record_stop");
+            logHeld(HELD_ACTION_EXECUTE, "command=record_stop");
             beginImmediate(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING);
         } else {
             drainHeld();
@@ -858,11 +932,11 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         cancelMediaReservationDrainLocked();
         if (next.recordStart) {
             pendingRecordStart = null;
-            logHeld("execute", "command=record_start");
+            logHeld(HELD_ACTION_EXECUTE, HELD_COMMAND_RECORD_START);
             beginImmediate(ProcessCameraRuntimeBackend.Operation.START_RECORDING);
         } else {
             pendingPhoto = null;
-            logHeld("execute", "command=photo");
+            logHeld(HELD_ACTION_EXECUTE, HELD_COMMAND_PHOTO);
             beginImmediate(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO);
         }
     }
@@ -890,10 +964,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     private void enterRecovery(String detail, CameraRuntimeSelection preferredSelection) {
-        CameraRuntimeSelection candidate = preferredSelection != null
-                ? preferredSelection : committedSelection != null
-                        ? committedSelection : transitionTarget != null
-                                ? transitionTarget : activeSelection;
+        CameraRuntimeSelection candidate = recoveryCandidate(preferredSelection);
         if (candidate != null) recoverySelection = candidate;
         if (state != CameraRuntimeState.RECOVERING) healthGeneration++;
         recoveryAttemptInFlight = false;
@@ -911,6 +982,13 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                 + " transitionGeneration=" + transitionGeneration
                 + " healthGeneration=" + healthGeneration + " detail=" + detail);
         scheduleWatchdogLocked();
+    }
+
+    private CameraRuntimeSelection recoveryCandidate(CameraRuntimeSelection preferredSelection) {
+        if (preferredSelection != null) return preferredSelection;
+        if (committedSelection != null) return committedSelection;
+        if (transitionTarget != null) return transitionTarget;
+        return activeSelection;
     }
 
     private void finishProcessCancellation() {
@@ -1000,6 +1078,13 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                 && first.tuple().equals(second.tuple());
     }
 
+    private static boolean sameCameraPipeline(CameraRuntimeSelection first,
+            CameraRuntimeSelection second) {
+        return first.cameraId().equals(second.cameraId())
+                && first.verificationPipelineId().equals(second.verificationPipelineId())
+                && first.codec() == second.codec();
+    }
+
     private void requestRecoveryLocked(String detail) {
         pendingRecoveryDetail = detail;
         pendingTransition = null;
@@ -1051,49 +1136,86 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     private void watchdogTick(long token) {
         executor.execute(() -> {
             synchronized (this) {
-                if (token != watchdogGeneration || processCancelled || !cameraUseAllowed
-                        || !cameraExpectedActive) return;
-                if (state == CameraRuntimeState.RECOVERING) {
-                    if (inFlight == null) attemptRecoveryLocked("watchdog");
-                    else scheduleWatchdogLocked();
-                    return;
-                }
-                if (inFlight != null || activeBinding == null || backend == null) {
-                    scheduleWatchdogLocked();
-                    return;
-                }
-                Optional<ProcessCameraRuntimeBackend.HealthSnapshot> probe;
-                try {
-                    probe = backend.healthSnapshot(activeBinding);
-                } catch (RuntimeException error) {
-                    logger.warn("camera_runtime watchdog health_probe_failed", error);
-                    requestRecoveryLocked("watchdog_probe_exception");
-                    return;
-                }
-                if (probe.isEmpty()) {
-                    scheduleWatchdogLocked();
-                    return;
-                }
-                ProcessCameraRuntimeBackend.HealthSnapshot current = probe.orElseThrow();
-                ProcessCameraRuntimeBackend.HealthSnapshot previous = lastHealthSnapshot;
-                lastHealthSnapshot = current;
-                if (current.recoveryRequired() || !current.sessionBound()) {
-                    requestRecoveryLocked("watchdog:" + current.detail());
-                    return;
-                }
-                boolean sourceStalled = previous != null
-                        && current.sourceFrameCount() == previous.sourceFrameCount();
-                boolean previewStalled = previewExpected && previous != null
-                        && current.previewFrameCount() == previous.previewFrameCount();
-                if (sourceStalled || previewStalled
-                        || (previewExpected && !current.previewSignalAvailable())) {
-                    requestRecoveryLocked("watchdog_stall:source=" + sourceStalled
-                            + ";preview=" + previewStalled);
-                    return;
-                }
-                scheduleWatchdogLocked();
+                watchdogTickLocked(token);
             }
         });
+    }
+
+    private void watchdogTickLocked(long token) {
+        if (token != watchdogGeneration || processCancelled || !cameraUseAllowed
+                || !cameraExpectedActive) return;
+        if (state == CameraRuntimeState.RECOVERING) {
+            handleRecoveryWatchdogTick();
+            return;
+        }
+        if (inFlight != null || activeBinding == null || backend == null) {
+            scheduleWatchdogLocked();
+            return;
+        }
+        probeWatchdogHealth();
+    }
+
+    private void handleRecoveryWatchdogTick() {
+        if (inFlight == null) {
+            attemptRecoveryLocked("watchdog");
+        } else {
+            scheduleWatchdogLocked();
+        }
+    }
+
+    private boolean acceptRetainedBinding(ProcessCameraRuntimeBackend.Result result,
+            CameraRuntimeSelection exactExpected) {
+        if (result.selection().isEmpty()) return true;
+        CameraRuntimeSelection retained = result.selection().orElseThrow();
+        if (committedSelection == null
+                || (exactExpected != null && !sameSelection(exactExpected, retained))
+                || (exactExpected == null
+                && !sameCameraPipeline(committedSelection, retained))) {
+            return false;
+        }
+        activeSelection = retained;
+        activeBinding = result.activeBinding().orElseThrow();
+        cameraExpectedActive = true;
+        watchAvailabilityLocked(retained);
+        resetHealthBaseline();
+        scheduleWatchdogLocked();
+        return true;
+    }
+
+    private void probeWatchdogHealth() {
+        Optional<ProcessCameraRuntimeBackend.HealthSnapshot> probe;
+        try {
+            probe = backend.healthSnapshot(activeBinding);
+        } catch (RuntimeException error) {
+            logger.warn("camera_runtime watchdog health_probe_failed", error);
+            requestRecoveryLocked("watchdog_probe_exception");
+            return;
+        }
+        if (probe.isEmpty()) {
+            scheduleWatchdogLocked();
+            return;
+        }
+        evaluateWatchdogHealth(probe.orElseThrow());
+    }
+
+    private void evaluateWatchdogHealth(ProcessCameraRuntimeBackend.HealthSnapshot current) {
+        ProcessCameraRuntimeBackend.HealthSnapshot previous = lastHealthSnapshot;
+        lastHealthSnapshot = current;
+        if (current.recoveryRequired() || !current.sessionBound()) {
+            requestRecoveryLocked("watchdog:" + current.detail());
+            return;
+        }
+        boolean sourceStalled = previous != null
+                && current.sourceFrameCount() == previous.sourceFrameCount();
+        boolean previewStalled = previewExpected && previous != null
+                && current.previewFrameCount() == previous.previewFrameCount();
+        if (sourceStalled || previewStalled
+                || (previewExpected && !current.previewSignalAvailable())) {
+            requestRecoveryLocked("watchdog_stall:source=" + sourceStalled
+                    + ";preview=" + previewStalled);
+            return;
+        }
+        scheduleWatchdogLocked();
     }
 
     private void scheduleWatchdogLocked() {
@@ -1129,7 +1251,9 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
                         executor.execute(() -> ProcessCameraRuntimeOwner.this.onAvailable(token, cameraId));
                     }
 
-                    @Override public void onUnavailable(CameraId cameraId) {}
+                    @Override public void onUnavailable(CameraId cameraId) {
+                        // The app owns this camera; loss of availability alone is not a failure.
+                    }
                 });
     }
 

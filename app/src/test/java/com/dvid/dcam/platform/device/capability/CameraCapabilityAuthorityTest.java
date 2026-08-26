@@ -1,7 +1,6 @@
 package com.dvid.dcam.platform.device.capability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.Snapshot;

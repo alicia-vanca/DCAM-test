@@ -12,7 +12,6 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
-import android.content.SharedPreferences;
 import android.database.ContentObserver;
 import android.graphics.Color;
 import android.hardware.display.DisplayManager;
@@ -33,6 +32,7 @@ import android.view.Display;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.EditText;
@@ -54,6 +54,8 @@ import com.dvid.dcam.R;
 import com.dvid.dcam.app.devmode.DeveloperFeatureToggles;
 import com.dvid.dcam.app.resourcemonitor.ResourceMonitorController;
 import com.dvid.dcam.app.ui.ActivityChromeController;
+import com.dvid.dcam.app.ui.CameraIdentityPresentation;
+import com.dvid.dcam.app.ui.CaptureFailureNoticePolicy;
 import com.dvid.dcam.app.ui.camera.CameraFlowCoordinator;
 import com.dvid.dcam.app.ui.FloatingNotice;
 import com.dvid.dcam.app.ui.MediaBrowserRenderer;
@@ -66,6 +68,7 @@ import com.dvid.dcam.app.ui.MainUiState;
 import com.dvid.dcam.app.ui.MainViewModel;
 import com.dvid.dcam.app.ui.MainViewModelFactory;
 import com.dvid.dcam.app.ui.LocationTrackingCoordinator;
+import com.dvid.dcam.app.ui.StorageWarningNoticePolicy;
 import com.dvid.dcam.core.featuregate.domain.FeatureGate;
 import com.dvid.dcam.databinding.ActivityMainBinding;
 import com.dvid.dcam.databinding.ScreenCameraBinding;
@@ -126,6 +129,7 @@ public final class MainActivity extends ComponentActivity {
     private static final long CAPTURE_VIBRATION_MS = 150L;
     private static final long SAVED_NOTICE_MAX_AGE_MS = FloatingNotice.TRANSIENT_DURATION_MS;
     private static final long SCREEN_OFF_CAMERA_RELEASE_DELAY_MS = 60_000L;
+    private static final long STORAGE_WARNING_REFRESH_INTERVAL_MS = 5_000L;
     private static int activityInstanceCount;
     private static final int CAPTURE_VIBRATION_AMPLITUDE = 255;
     private static final List<DeveloperSettingsStore.Mode> CAMERA_PIPELINE_MODES = List.of(
@@ -138,6 +142,10 @@ public final class MainActivity extends ComponentActivity {
     private static final String STATE_CAPTURE_PERMISSION_SETTINGS_IN_FLIGHT = "capture_permission_settings_in_flight";
     private static final String STATE_STARTUP_GPS_PERMISSION_HANDLED = "startup_gps_permission_handled";
     private static final String STATE_DEVICE_IDENTITY_PENDING = "device_identity_pending";
+    private static final String PACKAGE_URI_PREFIX = "package:";
+    private static final String UNKNOWN_VALUE = "unknown";
+    private static final String LOG_SCREEN_SUFFIX = " screen=";
+    private static final String LOG_CAPTURE_MODE_SUFFIX = " captureMode=";
     private static final float RECORDING_BADGE_ACTIVE_ALPHA = 1f;
     private final Handler cameraClock = new Handler(Looper.getMainLooper());
     private final ExecutorService identityIoExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -155,6 +163,7 @@ public final class MainActivity extends ComponentActivity {
         }
     };
     private long nextRecordingDurationTickAtMillis;
+    private long nextStorageWarningRefreshAtMillis;
     private long idleScreenOffCameraReleaseAtMillis;
     private final Runnable recordingDurationTick = new Runnable() {
         @Override
@@ -172,7 +181,6 @@ public final class MainActivity extends ComponentActivity {
     private final Runnable cameraSwitchActionRefresh = this::updateCameraSwitchAction;
     private final Runnable idleScreenOffCameraRelease = this::releaseIdleCameraIfScreenOffNow;
     private FrameLayout root;
-    private ActivityMainBinding activityBinding;
     private AppComposition composition;
     private AppComposition.CameraCapabilityRecheckSubscription cameraCapabilityRecheckSubscription;
     private CameraFlowCoordinator.StateSubscription idleCameraReleaseStateSubscription;
@@ -186,7 +194,6 @@ public final class MainActivity extends ComponentActivity {
     private boolean redirectingToHomeTask;
     private boolean firmwareHardwareButtonReceiverRegistered;
     private volatile boolean screenOff;
-    private OpenMediaUseCase openMedia;
     private LanguageSettingsUseCase languageSettings;
     private DeviceSerialNumberUseCase deviceSerialNumbers;
     private DeveloperFeatureToggles developerFeatureToggles;
@@ -268,15 +275,17 @@ public final class MainActivity extends ComponentActivity {
     private final DisplayManager.DisplayListener displayRotationListener = new DisplayManager.DisplayListener() {
         @Override
         public void onDisplayAdded(int displayId) {
+            // Only changes to the active display affect this activity's rotation.
         }
 
         @Override
         public void onDisplayRemoved(int displayId) {
+            // The active display is not removed while this activity is attached.
         }
 
         @Override
         public void onDisplayChanged(int displayId) {
-            Display display = getDisplay();
+            Display display = currentActivityDisplay();
             if (display == null || display.getDisplayId() != displayId)
                 return;
             refreshDisplayRotationIfNeeded(display);
@@ -467,7 +476,7 @@ public final class MainActivity extends ComponentActivity {
         menuModel = new MainMenuModel();
 
         getWindow().setNavigationBarColor(Color.BLACK);
-        activityBinding = ActivityMainBinding.inflate(getLayoutInflater());
+        ActivityMainBinding activityBinding = ActivityMainBinding.inflate(getLayoutInflater());
         activityChrome = new ActivityChromeController(this, activityBinding, androidRuntime::isDeviceOwner);
         recordingStatusRenderer = new RecordingStatusRenderer(
                 activityBinding, () -> cameraScreen, () -> latestState, () -> renderedScreen);
@@ -489,7 +498,7 @@ public final class MainActivity extends ComponentActivity {
                     logger.info("PERMISSION_TRACE runtime-result captureGranted=" + captureGranted
                             + " missingCapturePermissions="
                             + androidRuntime.missingCapturePermissions().length);
-                    prepareCameraProfilesIfCameraGranted("runtime-result");
+                    prepareCameraProfilesIfCameraGranted();
                     if (!captureGranted) {
                         showCapturePermissionRequired();
                         return;
@@ -500,7 +509,7 @@ public final class MainActivity extends ComponentActivity {
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     capturePermissionSettingsRequestInFlight = false;
-                    prepareCameraProfilesIfCameraGranted("settings-result");
+                    prepareCameraProfilesIfCameraGranted();
                     if (androidRuntime.capturePermissionsGranted()) {
                         completeCapturePermissionGate("settings-result");
                     } else {
@@ -579,7 +588,6 @@ public final class MainActivity extends ComponentActivity {
             }
         });
 
-        openMedia = composition.createOpenMediaUseCase(this);
         logger.info("Authentication is "
                 + (developerFeatureToggles.isEffectivelyEnabled(FeatureGate.AUTHENTICATION)
                         ? "enabled"
@@ -624,7 +632,7 @@ public final class MainActivity extends ComponentActivity {
     private void startStartupPermissionFlow() {
         if (!ensureAllFilesAccess())
             return;
-        prepareCameraProfilesIfCameraGranted("startup");
+        prepareCameraProfilesIfCameraGranted();
         requestDefaultHomeIfNeeded();
         applyKioskPolicyThenRequestCorePermissions();
     }
@@ -655,7 +663,7 @@ public final class MainActivity extends ComponentActivity {
         try {
             allFilesAccessLauncher.launch(new Intent(
                     Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
+                    Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             allFilesAccessRequestInFlight = false;
             logger.error("STORAGE_TRACE all-files-settings-failed", error);
@@ -719,7 +727,7 @@ public final class MainActivity extends ComponentActivity {
         }));
     }
 
-    private void prepareCameraProfilesIfCameraGranted(String source) {
+    private void prepareCameraProfilesIfCameraGranted() {
         if (!androidRuntime.cameraPermissionGranted())
             return;
         composition.prepareCameraProfilesIfPermitted();
@@ -747,7 +755,7 @@ public final class MainActivity extends ComponentActivity {
         try {
             capturePermissionSettingsLauncher.launch(new Intent(
                     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName())));
+                    Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             capturePermissionSettingsRequestInFlight = false;
             logger.error("PERMISSION_TRACE app-settings-failed", error);
@@ -794,7 +802,7 @@ public final class MainActivity extends ComponentActivity {
         try {
             legacyStorageSettingsLauncher.launch(new Intent(
                     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName())));
+                    Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             legacyStorageSettingsRequestInFlight = false;
             logger.error("STORAGE_TRACE legacy-storage-settings-failed", error);
@@ -956,6 +964,7 @@ public final class MainActivity extends ComponentActivity {
             input.addTextChangedListener(new TextWatcher() {
                 @Override
                 public void beforeTextChanged(CharSequence text, int start, int count, int after) {
+                    // Validation is handled from onTextChanged.
                 }
 
                 @Override
@@ -969,6 +978,7 @@ public final class MainActivity extends ComponentActivity {
 
                 @Override
                 public void afterTextChanged(Editable text) {
+                    // No post-edit work is needed after onTextChanged.
                 }
             });
             save.setEnabled(false);
@@ -1020,16 +1030,16 @@ public final class MainActivity extends ComponentActivity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        refreshDisplayRotationIfNeeded(getDisplay());
+        refreshDisplayRotationIfNeeded(currentActivityDisplay());
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        String currentScreen = latestState == null ? "unknown"
+        String currentScreen = latestState == null ? UNKNOWN_VALUE
                 : String.valueOf(latestState.getScreen())
                         .toLowerCase(Locale.ROOT).replace('_', ' ');
-        String captureMode = latestState == null ? "unknown"
+        String captureMode = latestState == null ? UNKNOWN_VALUE
                 : String.valueOf(latestState.getCapture().getMode())
                         .toLowerCase(Locale.ROOT).replace('_', ' ');
         logger.info("MainActivity resumed. Screen: " + currentScreen
@@ -1062,7 +1072,7 @@ public final class MainActivity extends ComponentActivity {
             viewModel.refreshDeviceStatus();
         if (captureRuntime != null && androidRuntime.capturePermissionsGranted()) {
             captureRuntime.refreshCameraState();
-            refreshDisplayRotationIfNeeded(getDisplay());
+            refreshDisplayRotationIfNeeded(currentActivityDisplay());
         }
         if (capturePermissionPolicyApplied && !capturePermissionRequestInFlight
                 && !capturePermissionSettingsRequestInFlight
@@ -1112,9 +1122,9 @@ public final class MainActivity extends ComponentActivity {
         unsubscribeCameraCapabilityRecheck();
         unregisterReceiver(locationModeChangedReceiver);
         logger.info("LIFECYCLE_TRACE onStop activity=" + identity(this)
-                + " screen=" + (latestState == null ? "unknown" : latestState.getScreen())
-                + " captureMode=" + (latestState == null
-                        ? "unknown"
+                + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
+                + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
+                        ? UNKNOWN_VALUE
                         : latestState.getCapture().getMode())
                 + " captureRuntime=" + identity(captureRuntime)
                 + " windowFocus=" + hasWindowFocus()
@@ -1140,6 +1150,13 @@ public final class MainActivity extends ComponentActivity {
         runtime.refreshDisplayRotation();
         refreshedDisplayRotationRuntime = runtime;
         refreshedDisplayRotation = rotation;
+    }
+
+    private Display currentActivityDisplay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+            return getDisplay();
+        WindowManager windowManager = getSystemService(WindowManager.class);
+        return windowManager == null ? null : windowManager.getDefaultDisplay();
     }
 
     private void registerDisplayRotationListener() {
@@ -1201,9 +1218,9 @@ public final class MainActivity extends ComponentActivity {
         if (logger != null) {
             logger.info("LIFECYCLE_TRACE windowFocus=" + hasFocus
                     + " activity=" + identity(this)
-                    + " screen=" + (latestState == null ? "unknown" : latestState.getScreen())
-                    + " captureMode=" + (latestState == null
-                            ? "unknown"
+                    + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
+                    + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
+                            ? UNKNOWN_VALUE
                             : latestState.getCapture().getMode()));
         }
         if (!hasFocus && hardwareButtons != null)
@@ -1228,9 +1245,9 @@ public final class MainActivity extends ComponentActivity {
     @Override
     protected void onPause() {
         logger.info("LIFECYCLE_TRACE onPause activity=" + identity(this)
-                + " screen=" + (latestState == null ? "unknown" : latestState.getScreen())
-                + " captureMode=" + (latestState == null
-                        ? "unknown"
+                + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
+                + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
+                        ? UNKNOWN_VALUE
                         : latestState.getCapture().getMode())
                 + " captureRuntime=" + identity(captureRuntime)
                 + " windowFocus=" + hasWindowFocus()
@@ -1347,7 +1364,8 @@ public final class MainActivity extends ComponentActivity {
                 || !androidRuntime.isScreenInteractive())
             return;
         String message = state.getMessage();
-        if (message == null || !message.startsWith("Saved ")
+        boolean storageStopped = isStorageCaptureStoppedMessage(message);
+        if (message == null || (!message.startsWith("Saved ") && !storageStopped)
                 || message.equals(previousState.getMessage()))
             return;
         long savedNoticeAgeMillis =
@@ -1356,37 +1374,30 @@ public final class MainActivity extends ComponentActivity {
                 || savedNoticeAgeMillis >= SAVED_NOTICE_MAX_AGE_MS)
             return;
 
-        FloatingNotice.show(this, getString(R.string.media_saved, message.substring(6)));
+        if (storageStopped) {
+            FloatingNotice.show(this, R.string.storage_capture_stopped);
+        } else {
+            FloatingNotice.show(this, getString(R.string.media_saved, message.substring(6)));
+        }
     }
 
     private void showCaptureFailureNotice(
             MainUiState previousState, MainUiState state) {
-        if (previousState == null)
+        CaptureFailureNoticePolicy.Notice notice = CaptureFailureNoticePolicy.notice(
+                previousState == null ? null : previousState.getMessage(),
+                state.getMessage(),
+                getString(R.string.sd_card_unavailable),
+                getString(R.string.low_storage_recording_blocked, "%1$s")).orElse(null);
+        if (notice == null)
             return;
-        String message = state.getMessage();
-        if (message == null || message.equals(previousState.getMessage()))
-            return;
-        if (message.startsWith("Finalization failed:")) {
-            FloatingNotice.show(this, R.string.media_save_failed);
-        } else if (isLowStorageRecordingBlockedMessage(message)) {
-            FloatingNotice.show(this, message.substring("Storage failed: ".length()),
+        switch (notice.kind()) {
+            case FINALIZATION_FAILED -> FloatingNotice.show(this, R.string.media_save_failed);
+            case LOW_STORAGE_RECORDING_BLOCKED -> FloatingNotice.show(this, notice.detail(),
                     FloatingNotice.ERROR_TEXT_COLOR);
-        } else if (message.equals("Storage failed: " + getString(R.string.sd_card_unavailable))) {
-            FloatingNotice.show(this, R.string.sd_card_unavailable);
-        } else if (message.startsWith("Storage failed:")) {
-            FloatingNotice.show(this, R.string.capture_storage_unavailable);
+            case SD_CARD_UNAVAILABLE -> FloatingNotice.show(this, R.string.sd_card_unavailable);
+            case STORAGE_UNAVAILABLE -> FloatingNotice.show(this,
+                    R.string.capture_storage_unavailable);
         }
-    }
-
-    private boolean isLowStorageRecordingBlockedMessage(String message) {
-        String marker = "%1$s";
-        String template = getString(R.string.low_storage_recording_blocked, marker);
-        int markerIndex = template.indexOf(marker);
-        if (markerIndex < 0 || !message.startsWith("Storage failed: "))
-            return false;
-        String payload = message.substring("Storage failed: ".length());
-        return payload.startsWith(template.substring(0, markerIndex))
-                && payload.endsWith(template.substring(markerIndex + marker.length()));
     }
 
     private void renderCamera() {
@@ -1445,9 +1456,8 @@ public final class MainActivity extends ComponentActivity {
         if (cameraScreen == null)
             return;
         String savedSerial = deviceSerialNumbers.load();
-        cameraScreen.accountId.setText(deviceSerialNumbers.isConfigured(savedSerial)
-                ? "CAM " + savedSerial
-                : "CAM —");
+        cameraScreen.accountId.setText(CameraIdentityPresentation.cameraLabel(
+                savedSerial, deviceSerialNumbers.isConfigured(savedSerial)));
     }
 
     private void ensureCameraScreen() {
@@ -1526,7 +1536,13 @@ public final class MainActivity extends ComponentActivity {
     private void layoutVisibleMenuTiles(List<View> visibleTiles) {
         GridLayout grid = menuScreen.settingsGrid;
         grid.removeAllViews();
-        grid.setColumnCount(Math.max(1, Math.min(3, visibleTiles.size())));
+        int columnCount = visibleTiles.size();
+        if (columnCount < 1) {
+            columnCount = 1;
+        } else if (columnCount > 3) {
+            columnCount = 3;
+        }
+        grid.setColumnCount(columnCount);
         for (View tile : visibleTiles) {
             grid.addView(tile, menuTileLayoutParams());
         }
@@ -1549,9 +1565,10 @@ public final class MainActivity extends ComponentActivity {
         clearScreenBindings();
         removeNonCameraScreens();
         fileExplorerScreen = ScreenFileExplorerBinding.inflate(getLayoutInflater(), root, false);
+        OpenMediaUseCase openMediaUseCase = composition.createOpenMediaUseCase(this);
         mediaBrowserRenderer = new MediaBrowserRenderer(this, getLayoutInflater(), fileExplorerScreen,
                 relativePath -> viewModel.openMediaFolder(relativePath),
-                entry -> openMedia != null && openMedia.execute(entry));
+                entry -> openMediaUseCase.execute(entry));
         root.addView(fileExplorerScreen.getRoot());
     }
 
@@ -2259,7 +2276,7 @@ public final class MainActivity extends ComponentActivity {
 
     private static String settingName(String stableId) {
         if (stableId == null || stableId.isBlank())
-            return "unknown";
+            return UNKNOWN_VALUE;
         return stableId.toLowerCase(Locale.ROOT)
                 .replace('_', ' ').replace('-', ' ').replace(':', ' ');
     }
@@ -2270,6 +2287,7 @@ public final class MainActivity extends ComponentActivity {
         try {
             return " for camera " + CameraSettingControlId.parse(stableId).cameraId();
         } catch (IllegalArgumentException ignored) {
+            // Fall back to the pipeline-selection parser for non-camera setting IDs.
         }
         return CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState
                 .cameraId(stableId)
@@ -2505,16 +2523,17 @@ public final class MainActivity extends ComponentActivity {
         refreshedDisplayRotationRuntime = null;
         refreshedDisplayRotation = -1;
         applyAutoRotate(androidRuntime.isAutoRotateEnabled());
-        if (!locked) cameraClock.post(() -> refreshDisplayRotationIfNeeded(getDisplay()));
+        if (!locked) cameraClock.post(
+                () -> refreshDisplayRotationIfNeeded(currentActivityDisplay()));
     }
 
     private void applyAutoRotate(boolean enabled) {
         boolean locked = recordingRotationLocked
                 || composition != null && composition.cameraRecordingActiveForUi();
-        setRequestedOrientation(locked
-                ? ActivityInfo.SCREEN_ORIENTATION_LOCKED
-                : enabled ? ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-                        : ActivityInfo.SCREEN_ORIENTATION_LOCKED);
+        int requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LOCKED;
+        if (!locked && enabled)
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+        setRequestedOrientation(requestedOrientation);
     }
 
     private void syncAutoRotateFromDevice() {
@@ -2537,7 +2556,7 @@ public final class MainActivity extends ComponentActivity {
                 || writeSettingsDialog != null && writeSettingsDialog.isShowing())
             return;
         Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                Uri.parse("package:" + getPackageName()));
+                Uri.parse(PACKAGE_URI_PREFIX + getPackageName()));
         if (intent.resolveActivity(getPackageManager()) == null) {
             FloatingNotice.show(this, R.string.write_settings_unavailable);
             return;
@@ -2718,14 +2737,6 @@ public final class MainActivity extends ComponentActivity {
         return menuModel.safeScreen(screen, this::isMenuTileVisible);
     }
 
-    private void bindFeatureAction(View view, FeatureGate feature, Runnable action) {
-        boolean enabled = developerFeatureToggles.isEffectivelyEnabled(feature);
-        view.setVisibility(enabled ? View.VISIBLE : View.GONE);
-        view.setOnClickListener(enabled
-                ? ignored -> developerFeatureToggles.runIfEnabled(feature, action)
-                : null);
-    }
-
     private static int settingsTitle(MainScreen screen) {
         switch (screen) {
             case RECORD_SETTINGS:
@@ -2793,8 +2804,6 @@ public final class MainActivity extends ComponentActivity {
     private void updateStatus(MainUiState state) {
         recordingStatusRenderer.updateFloatingRecordingStatus(state);
         if (cameraScreen != null) {
-            boolean videoRecording = (state.getCapture().isVideoRecording()
-                    && !state.getCapture().isSaving());
             cameraScreen.recordingBadge.setAlpha(RECORDING_BADGE_ACTIVE_ALPHA);
             updateGpsStatusLine();
             if (state.getOperatorSession() != null) {
@@ -2824,9 +2833,16 @@ public final class MainActivity extends ComponentActivity {
     private String localizedMessage(String message) {
         if (message == null)
             return "";
+        if (isStorageCaptureStoppedMessage(message))
+            return getString(R.string.storage_capture_stopped);
         return message.startsWith("Saved ")
                 ? getString(R.string.media_saved, message.substring(6))
                 : message;
+    }
+
+    private static boolean isStorageCaptureStoppedMessage(String message) {
+        return message != null
+                && message.startsWith(MainViewModel.STORAGE_STOPPED_MESSAGE_PREFIX);
     }
 
     private void refreshStorageVolumes() {
@@ -2853,8 +2869,12 @@ public final class MainActivity extends ComponentActivity {
                 || latestState == null || latestState.getScreen() != MainScreen.CAMERA) {
             FloatingNotice.hideLowPriorityPersistent();
             storageWarningVisible = null;
+            nextStorageWarningRefreshAtMillis = 0L;
             return;
         }
+        long nowMillis = SystemClock.uptimeMillis();
+        if (nowMillis < nextStorageWarningRefreshAtMillis) return;
+        nextStorageWarningRefreshAtMillis = nowMillis + STORAGE_WARNING_REFRESH_INTERVAL_MS;
         if (!storageWarningRefreshInFlight.compareAndSet(false, true)) return;
         composition.readStorageWarning(warning -> {
             storageWarningRefreshInFlight.set(false);
@@ -2865,15 +2885,17 @@ public final class MainActivity extends ComponentActivity {
                 return;
             }
             long free = warning.getFreeBytes();
-            boolean warningVisible = warning.isVisible();
-            if (warningVisible) {
+            var notice = StorageWarningNoticePolicy.notice(warning,
+                    getString(R.string.low_storage_preview_warning, storageSize(free)));
+            if (notice.isPresent()) {
+                StorageWarningNoticePolicy.Notice value = notice.orElseThrow();
                 FloatingNotice.showLowPriorityPersistent(this,
-                        getString(R.string.low_storage_preview_warning, storageSize(free)),
-                        warning.isRecordingBlocked() ? FloatingNotice.ERROR_TEXT_COLOR : FloatingNotice.WARNING_TEXT_COLOR);
+                        value.message(), value.severity() == StorageWarningNoticePolicy.Severity.ERROR
+                                ? FloatingNotice.ERROR_TEXT_COLOR : FloatingNotice.WARNING_TEXT_COLOR);
             } else if (storageWarningVisible == null || storageWarningVisible) {
                 FloatingNotice.hideLowPriorityPersistent();
             }
-            storageWarningVisible = warningVisible;
+            storageWarningVisible = warning.isVisible();
         });
     }
 
@@ -2885,13 +2907,11 @@ public final class MainActivity extends ComponentActivity {
                 return getString(R.string.gps_permission_required);
             case LOCATION_DISABLED:
                 return getString(R.string.gps_location_disabled);
-            case LOCATION_UNAVAILABLE:
-            case NO_PROVIDER:
+            case LOCATION_UNAVAILABLE, NO_PROVIDER:
                 return getString(R.string.gps_unavailable);
             case ERROR:
                 return getString(R.string.gps_provider_error);
-            case WAITING_FOR_LOCATION_INFO:
-            case AVAILABLE:
+            case WAITING_FOR_LOCATION_INFO, AVAILABLE:
                 return getString(R.string.gps_waiting_for_location_info);
             case STOPPED:
             default:
@@ -2982,7 +3002,7 @@ public final class MainActivity extends ComponentActivity {
     private void openLocationPermissionSettings() {
         try {
             Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
+                    Uri.parse(PACKAGE_URI_PREFIX + getPackageName()));
             startActivity(intent);
         } catch (RuntimeException ignored) {
             FloatingNotice.show(this, R.string.gps_permission_required);
@@ -3035,8 +3055,9 @@ public final class MainActivity extends ComponentActivity {
             viewModel.show(MainScreen.MENU);
         else if (screen == MainScreen.MENU)
             viewModel.show(MainScreen.CAMERA);
-        else if (screen == MainScreen.FILES && viewModel.navigateMediaUp())
-            return;
+        else if (screen == MainScreen.FILES && viewModel.navigateMediaUp()) {
+            // The media navigation handled the back action.
+        }
         else if (screen == MainScreen.DEVELOPER_USERS
                 || screen == MainScreen.DEVELOPER_BUTTON_BINDINGS) {
             viewModel.show(MainScreen.DEVELOPER_SETTINGS);

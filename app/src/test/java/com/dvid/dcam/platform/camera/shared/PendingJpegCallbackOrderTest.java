@@ -1,5 +1,7 @@
 package com.dvid.dcam.platform.camera.shared;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
@@ -40,6 +42,13 @@ final class PendingJpegCallbackOrderTest {
         assertNull(request.markStarted(42L));
         assertNull(request.accept(payload(41L)));
         assertSame(matching, request.accept(matching));
+    }
+
+    @Test void jpegPayloadValueEqualityIncludesEncodedBytes() {
+        assertEquals(payload(42L), payload(42L));
+        assertNotEquals(payload(42L), new AbstractSharedCameraPipeline.JpegPayload(
+                42L, new byte[] {2}, new CameraResolution(1, 1)));
+        assertEquals(payload(42L).hashCode(), payload(42L).hashCode());
     }
 
     private static AbstractSharedCameraPipeline.PendingJpeg request() {

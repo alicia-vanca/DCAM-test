@@ -20,6 +20,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import androidx.annotation.RequiresApi;
 import com.dvid.dcam.R;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
@@ -381,19 +382,14 @@ public final class SharedCameraPreviewView extends FrameLayout {
         int systemTop = windowInsets == null ? 0 : windowInsets.getSystemWindowInsetTop();
         int systemRight = windowInsets == null ? 0 : windowInsets.getSystemWindowInsetRight();
         int systemBottom = windowInsets == null ? 0 : windowInsets.getSystemWindowInsetBottom();
-        DisplayCutout cutout = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
-                && windowInsets != null ? windowInsets.getDisplayCutout() : null;
-        int cutoutLeft = cutout == null ? 0 : cutout.getSafeInsetLeft();
-        int cutoutTop = cutout == null ? 0 : cutout.getSafeInsetTop();
-        int cutoutRight = cutout == null ? 0 : cutout.getSafeInsetRight();
-        int cutoutBottom = cutout == null ? 0 : cutout.getSafeInsetBottom();
+        Rect cutoutInsets = displayCutoutInsets(windowInsets);
         Rect insetSafeBounds = new Rect(
-                rootLocation[0] + Math.max(systemLeft, cutoutLeft),
-                rootLocation[1] + Math.max(systemTop, cutoutTop),
+                rootLocation[0] + Math.max(systemLeft, cutoutInsets.left),
+                rootLocation[1] + Math.max(systemTop, cutoutInsets.top),
                 rootLocation[0] + getRootView().getWidth()
-                        - Math.max(systemRight, cutoutRight),
+                        - Math.max(systemRight, cutoutInsets.right),
                 rootLocation[1] + getRootView().getHeight()
-                        - Math.max(systemBottom, cutoutBottom));
+                        - Math.max(systemBottom, cutoutInsets.bottom));
         Rect safeAreaBounds = new Rect(insetSafeBounds);
         if (!safeAreaBounds.intersect(visibleFrame)) safeAreaBounds.setEmpty();
         Rect renderedPreviewBounds = new Rect(
@@ -433,8 +429,8 @@ public final class SharedCameraPreviewView extends FrameLayout {
                 + " textureScreen=" + textureLocation[0] + "," + textureLocation[1]
                 + " systemBarInsets=" + systemLeft + "," + systemTop + ","
                 + systemRight + "," + systemBottom
-                + " displayCutoutInsets=" + cutoutLeft + "," + cutoutTop + ","
-                + cutoutRight + "," + cutoutBottom
+                + " displayCutoutInsets=" + cutoutInsets.left + "," + cutoutInsets.top + ","
+                + cutoutInsets.right + "," + cutoutInsets.bottom
                 + " windowVisibleFrame=" + visibleFrame.toShortString()
                 + " safeAreaBounds=" + safeAreaBounds.toShortString()
                 + " renderedPreviewBounds=" + renderedPreviewBounds.toShortString()
@@ -447,6 +443,25 @@ public final class SharedCameraPreviewView extends FrameLayout {
                 + " viewMatrix=" + matrixValues(viewTransform)
                 + " surfaceTextureMatrix=" + matrixValues(surfaceTextureTransform), null);
     }
+
+    private static Rect displayCutoutInsets(WindowInsets windowInsets) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || windowInsets == null) {
+            return new Rect();
+        }
+        return displayCutoutInsetsApi28(windowInsets);
+    }
+
+    @RequiresApi(Build.VERSION_CODES.P)
+    private static Rect displayCutoutInsetsApi28(WindowInsets windowInsets) {
+        DisplayCutout cutout = windowInsets.getDisplayCutout();
+        if (cutout == null) return new Rect();
+        return new Rect(
+                cutout.getSafeInsetLeft(),
+                cutout.getSafeInsetTop(),
+                cutout.getSafeInsetRight(),
+                cutout.getSafeInsetBottom());
+    }
+
     private static String matrixValues(Matrix matrix) {
         float[] values = new float[9];
         matrix.getValues(values);

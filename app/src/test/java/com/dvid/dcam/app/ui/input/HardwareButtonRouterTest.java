@@ -308,7 +308,7 @@ public class HardwareButtonRouterTest {
         assertEquals(1, videos.stops);
     }
 
-    @Test public void recordAndImportantPressesHapticWhilePendingStartIsIgnored() {
+    @Test public void recordAndImportantPressesDoNotHapticWhenPendingStartIsIgnored() {
         FakeRecordingCommands videos = new FakeRecordingCommands();
         videos.mode = RecordingMode.VIDEO;
         videos.startPending = true;
@@ -326,10 +326,10 @@ public class HardwareButtonRouterTest {
         assertEquals(0, videos.starts);
         assertEquals(0, videos.impStarts);
         assertEquals(0, videos.stops);
-        assertEquals(2, haptics[0]);
+        assertEquals(0, haptics[0]);
     }
 
-    @Test public void commandHapticRunsOncePerInitializedButtonOrSwitchCommand() {
+    @Test public void commandHapticRunsForCommandsNotRawButtonEvents() {
         int[] haptics = {0};
         HardwareButtonRouter router = router(
                 new FakePhotoCapture(), new FakeRecordingCommands(), () -> haptics[0]++);
@@ -341,13 +341,13 @@ public class HardwareButtonRouterTest {
         assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 1, 1000L));
         assertEquals(2, haptics[0]);
         assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F10, 0, 1001L));
+        assertEquals(2, haptics[0]);
+        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
         assertEquals(3, haptics[0]);
         assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
-        assertEquals(4, haptics[0]);
-        assertTrue(router.onKeyUp(KeyEvent.KEYCODE_F10));
-        assertEquals(5, haptics[0]);
+        assertEquals(3, haptics[0]);
         assertTrue(router.onKeyDown(KeyEvent.KEYCODE_F3, 0, 2000L));
-        assertEquals(6, haptics[0]);
+        assertEquals(4, haptics[0]);
     }
 
     @Test public void sosHapticRunsOnlyWhenHoldCommandInitializes() {
@@ -438,7 +438,7 @@ public class HardwareButtonRouterTest {
 
         assertTrue(router.onKeyDown(KeyEvent.KEYCODE_CAMERA, 0, 0L));
         assertEquals(0, photos.photos);
-        assertEquals(1, haptics[0]);
+        assertEquals(0, haptics[0]);
     }
 
     private static HardwareButtonRouter router(

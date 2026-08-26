@@ -71,12 +71,14 @@ public final class SharedCameraGatewayFactory {
         CameraManager cameraManager = context.getSystemService(CameraManager.class);
         SharedCameraPipelineProvider pipelines = new DefaultSharedCameraPipelineProvider(
                 context, logger, diagnosticOutput, preRecordGopDurationMillis,
-                captureLocation, capabilities::cameraOrientationDegrees,
-                () -> displayRotationDegrees(context),
-                cameraId -> isFrontFacing(cameraManager, cameraId));
+                captureLocation,
+                new DefaultSharedCameraPipelineProvider.OrientationSources(
+                        capabilities::cameraOrientationDegrees,
+                        () -> displayRotationDegrees(context),
+                        cameraId -> isFrontFacing(cameraManager, cameraId)));
         SharedCameraMediaLifecycle mediaLifecycle = new AndroidSharedCameraMediaLifecycle(
                 context, mediaOutput, deviceSerialNumber, operatorFileUserId,
-                mediaEncryptionEnabled);
+                mediaEncryptionEnabled, logger);
         SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
                 pipelines, previewSurface, mediaLifecycle, capabilities, captureEvents, logger);
         SharedCameraGateway gateway = new SharedCameraGateway(

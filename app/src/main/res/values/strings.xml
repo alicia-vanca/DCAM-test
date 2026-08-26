@@ -57,7 +57,10 @@
     <string name="recording_camera_setting_change_blocked">This setting can\'t be changed while recording</string>
     <string name="camera_capabilities_recheck_finished_summary">Camera capability check finished — A: %1$s, B: %2$s</string>
     <string name="camera_capabilities_result_title">Camera capability result</string>
-    <string name="camera_capabilities_result_failed">Camera capability check failed: %1$s</string>
+    <string name="camera_capabilities_result_failed">Camera capability check could not be completed.
+
+Try again. If the problem continues, provide this technical detail to the developer:
+%1$s</string>
     <string name="camera_capabilities_failed_tuples_title">Failed tuples</string>
     <string name="camera_capabilities_no_failed_tuples">No failed tuples</string>
     <string name="camera_capabilities_failure_header">Profile %1$s — Camera %2$s</string>

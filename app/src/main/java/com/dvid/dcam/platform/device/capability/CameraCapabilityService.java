@@ -50,6 +50,14 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 public final class CameraCapabilityService implements CameraCapabilityStore {
+    private static final String SELECTION_RESOLVER = "selectionResolver";
+    private static final String SNAPSHOT = "snapshot";
+    private static final String CAPABILITY_SNAPSHOT_UNAVAILABLE =
+            "capability snapshot unavailable";
+    private static final String PIPELINE = "pipeline";
+    private static final String REQUESTED = "requested";
+    private static final String CAMERA_ID_FRAGMENT = " cameraId=";
+
     public record PipelineSelection(String cameraId, String pipelineId, int tupleCount) {
         public PipelineSelection {
             if (cameraId == null || cameraId.isBlank()
@@ -62,10 +70,10 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public record RecheckProgress(String profile, String cameraId, String stage,
             int completed, int total, String detail) {
         public RecheckProgress {
-            profile = Objects.requireNonNull(profile, "profile");
-            cameraId = Objects.requireNonNull(cameraId, "cameraId");
-            stage = Objects.requireNonNull(stage, "stage");
-            detail = Objects.requireNonNull(detail, "detail");
+            Objects.requireNonNull(profile, "profile");
+            Objects.requireNonNull(cameraId, "cameraId");
+            Objects.requireNonNull(stage, "stage");
+            Objects.requireNonNull(detail, "detail");
             if (profile.isBlank() || cameraId.isBlank() || stage.isBlank()
                     || detail.isBlank()) {
                 throw new IllegalArgumentException("progress text is required");
@@ -115,7 +123,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         this.store = Objects.requireNonNull(store, "store");
         this.selections = Objects.requireNonNull(selections, "selections");
         this.runtimeOwner = Objects.requireNonNull(runtimeOwner, "runtimeOwner");
-        this.selectionResolver = Objects.requireNonNull(selectionResolver, "selectionResolver");
+        this.selectionResolver = Objects.requireNonNull(selectionResolver, SELECTION_RESOLVER);
         this.callbackExecutor = Objects.requireNonNull(callbackExecutor, "callbackExecutor");
         this.scanExecutor = Objects.requireNonNull(scanExecutor, "scanExecutor");
     }
@@ -179,7 +187,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     @Override
     public synchronized void requestWrite(Snapshot snapshot) {
-        Snapshot value = Objects.requireNonNull(snapshot, "snapshot");
+        Snapshot value = Objects.requireNonNull(snapshot, SNAPSHOT);
         if (deferredWrites) {
             deferredSnapshot = value;
             logger.info("camera_capability_owner stage=deferred_write action=hold");
@@ -191,7 +199,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     @Override
     public synchronized void writeNow(Snapshot snapshot) {
-        Snapshot value = Objects.requireNonNull(snapshot, "snapshot");
+        Snapshot value = Objects.requireNonNull(snapshot, SNAPSHOT);
         if (deferredWrites) {
             deferredSnapshot = value;
             logger.info("camera_capability_owner stage=deferred_write action=hold");
@@ -204,7 +212,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public synchronized void restoreSelectedRecordingProfile(
             CameraId cameraId, Optional<SelectedRecordingProfile> selection) {
         Snapshot current = authority.snapshot()
-                .orElseThrow(() -> new IllegalStateException("capability snapshot unavailable"));
+                .orElseThrow(() -> new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE));
         Snapshot restored;
         try {
             restored = CameraCapabilitySnapshotMapper.withSelectedRecordingProfile(
@@ -214,11 +222,11 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 throw invalidSelection;
             restored = CameraCapabilitySnapshotMapper.withSelectedRecordingProfile(
                     current, cameraId, Optional.empty());
-            logger.warn("camera_capability_owner stage=selection_restore cameraId=" + cameraId
+            logger.warn("camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
                     + " action=clear_invalid_previous", invalidSelection);
         }
         requestWrite(restored);
-        logger.info("camera_capability_owner stage=selection_restore cameraId=" + cameraId
+        logger.info("camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
                 + " selectionPresent=" + restored.cameras().stream()
                         .filter(camera -> camera.cameraId().equals(cameraId))
                         .findFirst().orElseThrow().selectedRecordingProfile().isPresent());
@@ -253,7 +261,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     public synchronized void configurePipelineSelection(
             Optional<VerificationPipelineId> pipeline) {
-        forcedPipeline = Objects.requireNonNull(pipeline, "pipeline");
+        forcedPipeline = Objects.requireNonNull(pipeline, PIPELINE);
         forcedPipelines.clear();
         logger.info(pipeline.isEmpty()
                 ? "Camera pipeline selection is automatic."
@@ -263,7 +271,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public synchronized void configurePipelineSelection(String cameraId,
             Optional<VerificationPipelineId> pipeline) {
         String id = requiredCameraId(cameraId);
-        Optional<VerificationPipelineId> value = Objects.requireNonNull(pipeline, "pipeline");
+        Optional<VerificationPipelineId> value = Objects.requireNonNull(pipeline, PIPELINE);
         forcedPipelines.put(id, value);
         logger.info(value.isEmpty()
                 ? "Camera " + id + " uses automatic pipeline selection."
@@ -273,9 +281,9 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public synchronized void persistPipelineSelection(
             Optional<VerificationPipelineId> pipeline) {
         Snapshot current = authority.snapshot()
-                .orElseThrow(() -> new IllegalStateException("capability snapshot unavailable"));
+                .orElseThrow(() -> new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE));
         Snapshot updated = selectionSnapshotForMode(current,
-                Objects.requireNonNull(pipeline, "pipeline"), selectionResolver);
+                Objects.requireNonNull(pipeline, PIPELINE), selectionResolver);
         requireCompletePipelineSelection(updated);
         writeNow(updated);
     }
@@ -283,9 +291,9 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public synchronized void persistPipelineSelection(String cameraId,
             Optional<VerificationPipelineId> pipeline) {
         Snapshot current = authority.snapshot()
-                .orElseThrow(() -> new IllegalStateException("capability snapshot unavailable"));
+                .orElseThrow(() -> new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE));
         Snapshot updated = selectionSnapshotForCameraMode(current, requiredCameraId(cameraId),
-                Objects.requireNonNull(pipeline, "pipeline"), selectionResolver);
+                Objects.requireNonNull(pipeline, PIPELINE), selectionResolver);
         requireCompletePipelineSelection(updated);
         writeNow(updated);
     }
@@ -297,7 +305,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         if (current == null || id == null)
             return false;
         return hasPipelineEvidence(current, id, scanPipelinesForSelection(
-                Objects.requireNonNull(pipeline, "pipeline")));
+                Objects.requireNonNull(pipeline, PIPELINE)));
     }
 
     private static boolean hasPipelineEvidence(Snapshot current, CameraId cameraId,
@@ -366,7 +374,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     public synchronized void markInitializationReusable() {
         Snapshot current = authority.snapshot()
-                .orElseThrow(() -> new IllegalStateException("capability snapshot unavailable"));
+                .orElseThrow(() -> new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE));
         Snapshot selected = selectionSnapshotForConfiguredModes(current);
         requireCompletePipelineSelection(selected);
         if (!CameraCapabilitySnapshotMapper.hasVerifiedSelectionForMainCamera(selected)) return;
@@ -425,7 +433,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public Optional<CandidateKey> requestedProfileCandidate(CandidateKey currentProfile,
             Optional<VerificationPipelineId> pipeline) {
         Objects.requireNonNull(currentProfile, "currentProfile");
-        Snapshot selected = selectionSnapshot(Objects.requireNonNull(pipeline, "pipeline"));
+        Snapshot selected = selectionSnapshot(Objects.requireNonNull(pipeline, PIPELINE));
         if (selected == null || currentProfile.tuple().isEmpty())
             return Optional.empty();
         return selectionResolver.requestedProfileCandidate(selected, currentProfile.cameraId(),
@@ -444,7 +452,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     }
 
     public void applyRecordingFallback(CandidateKey requested, CandidateKey effective) {
-        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(requested, REQUESTED);
         Objects.requireNonNull(effective, "effective");
         Snapshot current = authority.snapshot().orElse(null);
         if (current == null)
@@ -468,31 +476,32 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         }
     }
 
+    @SuppressWarnings("java:S3776")
     static boolean recordingVideoSelectionAvailable(Snapshot snapshot,
             CandidateKey requested, boolean requireRequestedFrameRate) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(snapshot, SNAPSHOT);
+        Objects.requireNonNull(requested, REQUESTED);
         var requestedVideo = requested.videoMode().orElseThrow();
         for (var camera : snapshot.cameras()) {
-            if (!camera.cameraId().equals(requested.cameraId()))
-                continue;
-            for (var codec : camera.codecs()) {
-                if (codec.codec() != requested.codec())
-                    continue;
-                for (var pipeline : codec.pipelines()) {
-                    if (!pipeline.verificationPipelineId().equals(
-                            requested.verificationPipelineId()))
-                        continue;
-                    for (CandidateKey candidate : pipeline.effectiveCandidates()) {
-                        if (candidate.kind() != CandidateKey.Kind.TUPLE)
-                            continue;
-                        var video = candidate.videoMode().orElseThrow();
-                        if (!video.resolution().label().equals(
-                                requestedVideo.resolution().label()))
-                            continue;
-                        if (!requireRequestedFrameRate
-                                || video.framesPerSecond() == requestedVideo.framesPerSecond()) {
-                            return true;
+            if (camera.cameraId().equals(requested.cameraId())) {
+                for (var codec : camera.codecs()) {
+                    if (codec.codec() == requested.codec()) {
+                        for (var pipeline : codec.pipelines()) {
+                            if (pipeline.verificationPipelineId().equals(
+                                    requested.verificationPipelineId())) {
+                                for (CandidateKey candidate : pipeline.effectiveCandidates()) {
+                                    if (candidate.kind() == CandidateKey.Kind.TUPLE) {
+                                        var video = candidate.videoMode().orElseThrow();
+                                        if (video.resolution().label().equals(
+                                                requestedVideo.resolution().label())
+                                                && (!requireRequestedFrameRate
+                                                        || video.framesPerSecond()
+                                                        == requestedVideo.framesPerSecond())) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -501,8 +510,9 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         return false;
     }
 
+    @SuppressWarnings("java:S3776")
     public VerificationOutcome standaloneImageOutcome(CandidateKey requested) {
-        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(requested, REQUESTED);
         Snapshot current = authority.snapshot().orElse(null);
         if (current == null)
             return VerificationOutcome.UNKNOWN;
@@ -525,51 +535,29 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         return VerificationOutcome.UNKNOWN;
     }
 
-    public synchronized Optional<String> recordStandaloneImageOutcome(
+    public synchronized Optional<CandidateKey> recordStandaloneImageOutcome(
             CandidateKey requested, VerificationOutcome outcome) {
-        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(requested, REQUESTED);
         Objects.requireNonNull(outcome, "outcome");
         if (outcome != VerificationOutcome.VERIFIED_PASS
                 && outcome != VerificationOutcome.DEFINITIVE_UNSUPPORTED) {
             throw new IllegalArgumentException("standalone image outcome must be durable");
         }
         Snapshot current = authority.snapshot()
-                .orElseThrow(() -> new IllegalStateException("capability snapshot unavailable"));
+                .orElseThrow(() -> new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE));
         Snapshot updated = CameraCapabilitySnapshotUpdates.withStandaloneImageEvidence(
                 current, requested, outcome);
         requestWrite(updated);
         if (outcome == VerificationOutcome.VERIFIED_PASS)
             return Optional.empty();
         Snapshot selectedUpdated = selectionSnapshotForConfiguredModes(updated);
-        CaptureQuality fallback = standaloneImageFallback(
-                CameraCapabilityOptions.imageQualities(selectedUpdated,
-                        requested.cameraId().value(), selections.runtimeRejections()),
-                requested.imageMode().orElseThrow().resolution().actual().width(),
-                requested.imageMode().orElseThrow().resolution().actual().height());
-        if (fallback == null)
-            return Optional.empty();
-        selections.saveImageQuality(requested.cameraId(), fallback.getId());
-        return Optional.of(fallback.getId());
-    }
-
-    static CaptureQuality standaloneImageFallback(List<CaptureQuality> qualities,
-            int requestedWidth, int requestedHeight) {
-        Objects.requireNonNull(qualities, "qualities");
-        long requestedArea = (long) requestedWidth * requestedHeight;
-        CaptureQuality lower = null;
-        CaptureQuality higher = null;
-        for (CaptureQuality quality : qualities) {
-            long area = (long) quality.getWidth() * quality.getHeight();
-            if (area <= requestedArea) {
-                if (lower == null || area > (long) lower.getWidth() * lower.getHeight()) {
-                    lower = quality;
-                }
-            } else if (higher == null
-                    || area < (long) higher.getWidth() * higher.getHeight()) {
-                higher = quality;
-            }
-        }
-        return lower == null ? higher : lower;
+        Optional<CandidateKey> fallback =
+                CameraCapabilityOptions.nextLowerStandaloneImageCandidate(
+                        selectedUpdated, requested, selections.runtimeRejections());
+        fallback.ifPresent(candidate -> selections.saveImageQuality(
+                requested.cameraId(), candidate.imageMode().orElseThrow()
+                        .resolution().label().name()));
+        return fallback;
     }
 
     public Optional<CandidateKey> committedCandidate(String cameraId) {
@@ -662,7 +650,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     public void ensurePipelineEvidence(Optional<VerificationPipelineId> pipeline,
             Consumer<Boolean> completion) {
-        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(pipeline, PIPELINE);
         Objects.requireNonNull(completion, "completion");
         List<VerificationPipelineId> required = scanPipelinesForSelection(pipeline);
         AtomicBoolean delivered = new AtomicBoolean();
@@ -676,7 +664,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public void ensurePipelineEvidence(String cameraId,
             Optional<VerificationPipelineId> pipeline, Consumer<Boolean> completion) {
         String id = requiredCameraId(cameraId);
-        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(pipeline, PIPELINE);
         Objects.requireNonNull(completion, "completion");
         if (hasPipelineEvidence(id, pipeline)) {
             dispatch(() -> completion.accept(true));
@@ -689,7 +677,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                     available = quickScanPipelineEvidence(id, pipeline);
                 } catch (Exception | LinkageError error) {
                     logger.warn("camera_capability_owner stage=targeted_fast_scan"
-                            + " cameraId=" + id + " outcome=unavailable", error);
+                            + CAMERA_ID_FRAGMENT + id + " outcome=unavailable", error);
                     available = false;
                 }
                 boolean result = available;
@@ -697,7 +685,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             });
         } catch (RuntimeException error) {
             logger.warn("camera_capability_owner stage=targeted_fast_scan"
-                    + " cameraId=" + id + " outcome=schedule_failed", error);
+                    + CAMERA_ID_FRAGMENT + id + " outcome=schedule_failed", error);
             dispatch(() -> completion.accept(false));
         }
     }
@@ -966,7 +954,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     public int cameraOrientationDegrees(String cameraId) {
         Snapshot current = snapshot();
         if (current == null) {
-            throw new IllegalStateException("camera capability snapshot unavailable");
+            throw new IllegalStateException(CAPABILITY_SNAPSHOT_UNAVAILABLE);
         }
         String resolved = resolvedCameraId(cameraId);
         if (resolved.isBlank()) {
@@ -1000,6 +988,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         return pipelineSelections(selectionSnapshot(Optional.empty()));
     }
 
+    @SuppressWarnings("java:S3776")
     private static List<PipelineSelection> pipelineSelections(Snapshot current) {
         if (current == null)
             return List.of();
@@ -1028,7 +1017,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     }
 
     static int displayedTupleCount(PipelineEvidence pipeline, boolean fullyVerified) {
-        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(pipeline, PIPELINE);
         return Math.toIntExact((fullyVerified
                 ? pipeline.effectiveCandidates().stream()
                         .filter(candidate -> pipeline.outcome(candidate) == VerificationOutcome.VERIFIED_PASS)
@@ -1037,6 +1026,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 .count());
     }
 
+    @SuppressWarnings("java:S3776")
     public OptionalInt verifiedCaptureTupleCount(String cameraId,
             VerificationPipelineId pipelineId) {
         Objects.requireNonNull(pipelineId, "pipelineId");
@@ -1066,6 +1056,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         return OptionalInt.empty();
     }
 
+    @SuppressWarnings("java:S3776")
     public OptionalInt fastCaptureTupleCount(String cameraId,
             VerificationPipelineId pipelineId) {
         Objects.requireNonNull(pipelineId, "pipelineId");
@@ -1222,11 +1213,12 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 + (imageId == null ? "" : imageId);
         selections.addRuntimeRejection(rejection);
         logger.warn("camera_capability_owner stage=runtime_rejection"
-                + " cameraId=" + cameraId + " video=" + videoId + " fps=" + frameRate
+                + CAMERA_ID_FRAGMENT + cameraId + " video=" + videoId + " fps=" + frameRate
                 + " image=" + (imageId == null ? "" : imageId)
-                + " reason=" + String.valueOf(reason), null);
+                + " reason=" + reason, null);
     }
 
+    @SuppressWarnings({"java:S6541", "java:S3776"})
     private void runScan(long currentGeneration,
             List<VerificationPipelineId> requestedPipelines) {
         long startedNanos = System.nanoTime();
@@ -1301,7 +1293,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                         profile, "all", "fast_scan", 0, fastBuildTotal,
                         "pipeline=" + pipeline.value() + " camera=all"));
                 Result result = executeFastScan(scanner, pipeline,
-                        progress -> publishFastRecheckProgress(profile, pipeline, progress));
+                        progress -> publishFastRecheckProgress(profile, progress));
                 completions.add(pipeline.value() + "="
                         + result.completion().name().toLowerCase());
                 if (result.complete() && result.authoritativeSnapshot().isPresent()) {
@@ -1401,7 +1393,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     static List<VerificationPipelineId> scanPipelinesForSelection(
             Optional<VerificationPipelineId> pipeline) {
-        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(pipeline, PIPELINE);
         return pipeline.map(List::of).orElseGet(() -> List.of(
                 NativeSurfaceSharingFastProbe.PIPELINE_ID,
                 EglFanOutFastProbe.PIPELINE_ID));
@@ -1475,7 +1467,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     }
 
     private void publishFastRecheckProgress(String profile,
-            VerificationPipelineId pipeline, BuildFastCameraCapabilitiesUseCase.Progress progress) {
+            BuildFastCameraCapabilitiesUseCase.Progress progress) {
         publishRecheckProgress(new ProductionCameraCapabilityRecheck.Progress(
                 profile, progress.cameraId().value(), "fast_scan", progress.completed(),
                 progress.total(), progress.detail()));
@@ -1580,7 +1572,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             Optional<VerificationPipelineId> pipeline,
             ResolveCameraRuntimeSelectionUseCase selectionResolver) {
         return selectionSnapshotForModes(current, Map.of(),
-                Objects.requireNonNull(pipeline, "pipeline"), selectionResolver);
+                Objects.requireNonNull(pipeline, PIPELINE), selectionResolver);
     }
 
     static Snapshot selectionSnapshotForCameraMode(Snapshot current, String cameraId,
@@ -1588,8 +1580,8 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             ResolveCameraRuntimeSelectionUseCase selectionResolver) {
         Objects.requireNonNull(current, "current");
         String id = requiredCameraId(cameraId);
-        Objects.requireNonNull(pipeline, "pipeline");
-        Objects.requireNonNull(selectionResolver, "selectionResolver");
+        Objects.requireNonNull(pipeline, PIPELINE);
+        Objects.requireNonNull(selectionResolver, SELECTION_RESOLVER);
         List<CameraCapabilityStore.CameraSnapshot> cameras = new ArrayList<>();
         boolean found = false;
         for (var camera : current.cameras()) {
@@ -1612,7 +1604,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         Objects.requireNonNull(current, "current");
         Objects.requireNonNull(pipelines, "pipelines");
         Objects.requireNonNull(fallback, "fallback");
-        Objects.requireNonNull(selectionResolver, "selectionResolver");
+        Objects.requireNonNull(selectionResolver, SELECTION_RESOLVER);
         List<CameraCapabilityStore.CameraSnapshot> cameras = new ArrayList<>();
         for (var camera : current.cameras()) {
             Optional<VerificationPipelineId> pipeline = pipelines.getOrDefault(
@@ -1697,7 +1689,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     static Optional<CandidateKey> validatedSavedCandidate(Snapshot snapshot, CameraId cameraId,
             String videoId, int frameRate, String imageId, Set<String> runtimeRejections) {
-        Objects.requireNonNull(snapshot, "snapshot");
+        Objects.requireNonNull(snapshot, SNAPSHOT);
         Objects.requireNonNull(cameraId, "cameraId");
         Objects.requireNonNull(runtimeRejections, "runtimeRejections");
         return selectedProfileCandidate(snapshot, cameraId)

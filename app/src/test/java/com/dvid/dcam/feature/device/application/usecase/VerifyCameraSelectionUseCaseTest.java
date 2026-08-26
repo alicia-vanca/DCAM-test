@@ -10,7 +10,6 @@ import com.dvid.dcam.feature.device.application.port.CameraVerificationClock;
 import com.dvid.dcam.feature.device.domain.camera.CameraFailureClass;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
-import com.dvid.dcam.feature.device.domain.camera.CameraOperationDeadline;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationResult;
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineDiagnostics;
@@ -854,10 +853,6 @@ final class VerifyCameraSelectionUseCaseTest {
             lastVideoWrong = false;
             lastImageWrong = false;
             return execute(context, CameraPipelineOperation.BIND_SESSION);
-        }
-
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            return execute(context, CameraPipelineOperation.UPDATE_SESSION);
         }
 
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {

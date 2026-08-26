@@ -16,7 +16,6 @@ import com.dvid.dcam.platform.recording.RecordingForegroundService;
 public final class DcamApplication extends Application implements Configuration.Provider {
     private static final int WORK_MANAGER_JOB_ID_MIN = 0xE000;
     private static final int WORK_MANAGER_JOB_ID_MAX = 0xEFFF;
-    private LogglyProcessSupervisor logglySupervisor;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -25,7 +24,7 @@ public final class DcamApplication extends Application implements Configuration.
         AppLogger.bootstrap(this);
         DeviceInfo deviceInfo = new AndroidDeviceRepositoryImpl(this, getFilesDir()).readInfo();
         AppLogger.init(this, deviceInfo);
-        logglySupervisor = new LogglyProcessSupervisor(this);
+        LogglyProcessSupervisor logglySupervisor = new LogglyProcessSupervisor(this);
         logglySupervisor.start();
         AppComposition.loadConfiguredDeviceSerial(this);
         AppComposition.startCameraCapabilities(this, AppLogger.get());

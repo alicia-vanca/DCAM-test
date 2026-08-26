@@ -14,11 +14,20 @@ import java.util.Locale;
 import java.util.Objects;
 
 public final class SharedCameraGateway implements CameraGateway {
+    private static final String PHOTO_OPERATION = "Photo";
     private static final AudioPreparationEvents NO_STORAGE_PREPARATION_EVENTS =
             new AudioPreparationEvents() {
-        @Override public void onPreparing(String message) {}
-        @Override public void onCleared() {}
-        @Override public void onUnavailable(String message) {}
+        @Override public void onPreparing(String message) {
+            // Storage preparation feedback is optional until a UI listener is installed.
+        }
+
+        @Override public void onCleared() {
+            // Storage preparation feedback is optional until a UI listener is installed.
+        }
+
+        @Override public void onUnavailable(String message) {
+            // Storage preparation feedback is optional until a UI listener is installed.
+        }
     };
     private final ProcessCameraRuntimeOwner runtimeOwner;
     private final SharedCameraGatewayBackend backend;
@@ -220,10 +229,10 @@ public final class SharedCameraGateway implements CameraGateway {
     @Override public void takePhoto() {
         ProcessCameraRuntimeOwner.Submission submission = runtimeOwner.capturePhoto();
         if (accepted(submission)) return;
-        String detail = submissionMessage("Photo", submission);
-        captureEvents.photoFailed("Photo", detail);
+        String detail = submissionMessage(PHOTO_OPERATION, submission);
+        captureEvents.photoFailed(PHOTO_OPERATION, detail);
         showTransientError(detail);
-        logRejected("Photo", submission);
+        logRejected(PHOTO_OPERATION, submission);
     }
 
     @Override public void startVideo() {

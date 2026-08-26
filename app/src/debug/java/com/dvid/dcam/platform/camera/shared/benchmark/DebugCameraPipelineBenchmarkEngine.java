@@ -7,6 +7,7 @@ import android.os.Looper;
 import android.os.Build;
 import android.os.PowerManager;
 import android.util.JsonWriter;
+import androidx.annotation.NonNull;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.CameraSnapshot;
@@ -30,13 +31,11 @@ import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.
 import com.dvid.dcam.feature.device.domain.camera.CameraPipelineBenchmarkReport.TupleOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
 import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
-import com.dvid.dcam.feature.device.domain.camera.PipelineAvailability;
 import com.dvid.dcam.feature.device.domain.camera.PipelineEvidence;
 import com.dvid.dcam.feature.device.domain.camera.VerificationPipelineId;
 import com.dvid.dcam.feature.device.domain.camera.VideoCodec;
 import com.dvid.dcam.platform.camera.shared.egl.EglFanOutPipelineFactory;
 import com.dvid.dcam.platform.camera.shared.outputsharing.NativeSurfaceSharingPipelineFactory;
-import com.dvid.dcam.platform.camera.shared.api.SharedCameraPipeline;
 import com.dvid.dcam.platform.camera.shared.verification.SharedCameraVerificationRuntime;
 import com.dvid.dcam.platform.device.capability.catalog.AndroidCameraCatalogSource;
 import com.dvid.dcam.platform.device.capability.probe.egl.EglFanOutFastProbe;
@@ -51,10 +50,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.stream.Collectors;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,7 +68,7 @@ public final class DebugCameraPipelineBenchmarkEngine
     private static final long CANDIDATE_TIMEOUT_MILLIS = 5_000;
     private static final String H264_CONFIGURATION = "device-default-avc-profile-level-bitrate";
     private static final String CROP_ROTATION_POLICY = "sensor-native-video-jpeg-preview-display-only";
-    private static final String THERMAL_GATE = "thermal-status<=moderate";
+    private static final String THERMAL_POLICY = "thermal-status-not-gated";
 
     private final Context context;
     private final Logger logger;
@@ -95,11 +91,11 @@ public final class DebugCameraPipelineBenchmarkEngine
         if (cameraManager != null) {
             cameraManager.registerAvailabilityCallback(
                     new CameraManager.AvailabilityCallback() {
-                        @Override public void onCameraUnavailable(String cameraId) {
+                        @Override public void onCameraUnavailable(@NonNull String cameraId) {
                             unavailableCameraIds.add(cameraId);
                         }
 
-                        @Override public void onCameraAvailable(String cameraId) {
+                        @Override public void onCameraAvailable(@NonNull String cameraId) {
                             unavailableCameraIds.remove(cameraId);
                         }
                     }, new Handler(Looper.getMainLooper()));
@@ -138,7 +134,7 @@ public final class DebugCameraPipelineBenchmarkEngine
             progress(progressListener, "real_verify", 1, 4,
                     "cameras=" + plan.cameras().size());
             if (request.pipelineSelection() == DebugCameraBenchmarkUseCase.PipelineSelection.BOTH) {
-                return runBoth(request, fast, plan, cancellationSignal, progressListener,
+                return runBoth(fast, plan, cancellationSignal, progressListener,
                         startedNanos);
             }
             return runSingle(request, fast, plan, cancellationSignal, progressListener,
@@ -176,7 +172,7 @@ public final class DebugCameraPipelineBenchmarkEngine
     }
 
     private DebugCameraBenchmarkUseCase.RunResult runBoth(
-            DebugCameraBenchmarkUseCase.Request request, FastResults fast,
+            FastResults fast,
             CameraPipelineBenchmarkPlan plan, BooleanSupplier cancellationSignal,
             Consumer<DebugCameraBenchmarkUseCase.Progress> progressListener,
             long startedNanos) {
@@ -199,11 +195,9 @@ public final class DebugCameraPipelineBenchmarkEngine
                 publisher, runnerA, runnerB, logger);
         CompareCameraPipelinesUseCase.Result result = useCase.execute(
                 new CompareCameraPipelinesUseCase.Request(baseline, plan),
-                cancellationSignal, value -> {
-                    progress(progressListener, value.stage(),
-                            Math.min(4, value.completed() + 1), Math.max(4, value.total() + 1),
-                            value.detail());
-                });
+                cancellationSignal, value -> progress(progressListener, value.stage(),
+                        Math.min(4, value.completed() + 1), Math.max(4, value.total() + 1),
+                        value.detail()));
         if (result.report().status() == CameraPipelineBenchmarkReport.Status.CANCELLED
                 || cancellationSignal.getAsBoolean()) {
             return cancelled(startedNanos, result.report().detail());
@@ -231,8 +225,8 @@ public final class DebugCameraPipelineBenchmarkEngine
                 : EglFanOutPipelineFactory.PIPELINE_ID;
         SharedCameraPipelineBenchmarkRunner runner = createRunner(
                 pipelineId, pipelineA ? fast.fastA() : fast.fastB(), plan);
-        PipelineRun run = null;
-        boolean cleanup = false;
+        PipelineRun run;
+        boolean cleanup;
         try {
             run = runner.runCoverage(plan, cancellationSignal,
                     value -> progress(progressListener, value.stage(),
@@ -249,7 +243,7 @@ public final class DebugCameraPipelineBenchmarkEngine
         }
         File reportFile = new File(workingDirectory, "last-single.json");
         try {
-            writeSingleReport(reportFile, request, plan, run);
+            writeSingleReport(reportFile, request, run);
         } catch (IOException error) {
             logger.warn("camera_devmode stage=single_report outcome=failed", error);
             return incomplete(startedNanos, "report_write_failed");
@@ -268,18 +262,16 @@ public final class DebugCameraPipelineBenchmarkEngine
         BuildFastCameraCapabilitiesUseCase.Result resultA = null;
         BuildFastCameraCapabilitiesUseCase.Result resultB = null;
         if (request.pipelineSelection() != DebugCameraBenchmarkUseCase.PipelineSelection.B) {
-            resultA = fastResult(NativeSurfaceSharingFastProbe.PIPELINE_ID,
-                    new AndroidFastCameraCapabilityProbe(
+            resultA = fastResult(new AndroidFastCameraCapabilityProbe(
                             new NativeSurfaceSharingFastProbe(context, logger), logger),
                     cancellationSignal);
             progress(progressListener, "fast_scan_a", 1, 4, resultA.detail());
         }
         if (cancellationSignal.getAsBoolean()) {
-            return FastResults.cancelled(resultA, resultB);
+            return FastResults.cancelled(resultA);
         }
         if (request.pipelineSelection() != DebugCameraBenchmarkUseCase.PipelineSelection.A) {
-            resultB = fastResult(EglFanOutFastProbe.PIPELINE_ID,
-                    new AndroidFastCameraCapabilityProbe(
+            resultB = fastResult(new AndroidFastCameraCapabilityProbe(
                             new EglFanOutFastProbe(context, logger), logger),
                     cancellationSignal);
             progress(progressListener, "fast_scan_b", 2, 4, resultB.detail());
@@ -289,7 +281,6 @@ public final class DebugCameraPipelineBenchmarkEngine
     }
 
     private BuildFastCameraCapabilitiesUseCase.Result fastResult(
-            VerificationPipelineId pipelineId,
             com.dvid.dcam.feature.device.application.port.FastCameraCapabilityProbe probe,
             BooleanSupplier cancellationSignal) {
         return new BuildFastCameraCapabilitiesUseCase(
@@ -326,7 +317,7 @@ public final class DebugCameraPipelineBenchmarkEngine
         FrozenEnvironment environment = new FrozenEnvironment(
                 source.rawCatalog().hardwareSignatureInput(), signatures, VideoCodec.H264,
                 H264_CONFIGURATION, CROP_ROTATION_POLICY, CANDIDATE_TIMEOUT_MILLIS,
-                storagePath, THERMAL_GATE);
+                storagePath, THERMAL_POLICY);
         CameraPipelineBenchmarkPlan.BenchmarkProtocol protocol =
                 new CameraPipelineBenchmarkPlan.BenchmarkProtocol(
                         request.measuredBlocks(),
@@ -392,8 +383,7 @@ public final class DebugCameraPipelineBenchmarkEngine
         return requested -> {
             long thermalStatus = power == null || Build.VERSION.SDK_INT < 29
                     ? Long.MAX_VALUE : power.getCurrentThermalStatus();
-            boolean ready = requested.equals(plan.environment())
-                    && thermalStatus <= PowerManager.THERMAL_STATUS_MODERATE;
+            boolean ready = requested.equals(plan.environment());
             return new SharedCameraPipelineBenchmarkRunner.EnvironmentValidation(
                     ready, "thermalStatus=" + thermalStatus + ",ready=" + ready);
         };
@@ -409,8 +399,10 @@ public final class DebugCameraPipelineBenchmarkEngine
         List<CameraSnapshot> cameras = new ArrayList<>();
         for (CameraScope scope : plan.cameras()) {
             List<PipelineEvidence> pipelines = new ArrayList<>();
-            if (a.containsKey(scope.cameraId())) pipelines.add(a.get(scope.cameraId()).evidence());
-            if (b.containsKey(scope.cameraId())) pipelines.add(b.get(scope.cameraId()).evidence());
+            CameraFastSnapshot fastA = a.get(scope.cameraId());
+            if (fastA != null) pipelines.add(fastA.evidence());
+            CameraFastSnapshot fastB = b.get(scope.cameraId());
+            if (fastB != null) pipelines.add(fastB.evidence());
             var frozen = frozenA.containsKey(scope.cameraId()) ? frozenA : frozenB;
             cameras.add(new CameraSnapshot(scope.cameraId(), scope.hardwareSignature(),
                     List.of(new CodecSnapshot(VideoCodec.H264,
@@ -432,7 +424,7 @@ public final class DebugCameraPipelineBenchmarkEngine
     }
 
     private void writeSingleReport(File target, DebugCameraBenchmarkUseCase.Request request,
-            CameraPipelineBenchmarkPlan plan, PipelineRun run) throws IOException {
+            PipelineRun run) throws IOException {
         File temporary = new File(target.getParentFile(), target.getName() + ".tmp");
         try (FileOutputStream output = new FileOutputStream(temporary);
                 OutputStreamWriter writer = new OutputStreamWriter(output, StandardCharsets.UTF_8);
@@ -504,11 +496,6 @@ public final class DebugCameraPipelineBenchmarkEngine
                     SharedCameraPipelineBenchmarkRunner.FrozenFastCoverage.from(camera));
         }
         return values;
-    }
-
-    private static Map<CameraId, CameraFastSnapshot> byCamera(
-            Map<CameraId, SharedCameraPipelineBenchmarkRunner.FrozenFastCoverage> ignored) {
-        return Map.of();
     }
 
     private static Map<CameraId, CameraFastSnapshot> byCamera(
@@ -621,10 +608,8 @@ public final class DebugCameraPipelineBenchmarkEngine
             };
         }
 
-        private static FastResults cancelled(
-                BuildFastCameraCapabilitiesUseCase.Result resultA,
-                BuildFastCameraCapabilitiesUseCase.Result resultB) {
-            return new FastResults(resultA, resultB, true, "cancelled");
+        private static FastResults cancelled(BuildFastCameraCapabilitiesUseCase.Result resultA) {
+            return new FastResults(resultA, null, true, "cancelled");
         }
     }
 }

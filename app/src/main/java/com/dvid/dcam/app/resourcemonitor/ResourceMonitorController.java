@@ -35,6 +35,7 @@ import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
 /** Foreground-only controller for Resource Monitor sampling and overlay rendering. */
@@ -44,6 +45,7 @@ public final class ResourceMonitorController implements AutoCloseable {
     private static final long PSS_INTERVAL_MS = 4_000L;
     private static final long BATTERY_INTERVAL_MS = 5_000L;
     private static final int DIAGNOSTIC_REQUEST_LIMIT = 5;
+    private static final String ACTION_LABEL = ". Action: ";
 
     private final Activity activity;
     private final Context applicationContext;
@@ -62,6 +64,49 @@ public final class ResourceMonitorController implements AutoCloseable {
         @Override public void onReceive(Context context, Intent intent) {
             receiveProcessSample(intent);
         }
+
+        private void receiveProcessSample(Intent intent) {
+            if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
+                logger.info("Resource Monitor response receiver callback in PID " + Process.myPid()
+                        + ACTION_LABEL + intent.getAction() + ". Request: "
+                        + intent.getStringExtra(ResourceMonitorProcessReporter.EXTRA_REQUEST_ID)
+                        + ". Response PID: "
+                        + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_PID, -1)
+                        + ". Response UID: "
+                        + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_UID, -1)
+                        + ".");
+            }
+            if (!ResourceMonitorProcessReporter.responseAction(applicationContext)
+                    .equals(intent.getAction())) return;
+            String requestId = intent.getStringExtra(
+                    ResourceMonitorProcessReporter.EXTRA_REQUEST_ID);
+            int uid = intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_UID, -1);
+            int pid = intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_PID, -1);
+            if (uid != Process.myUid() || pid <= 0) return;
+            String processName = intent.getStringExtra(
+                    ResourceMonitorProcessReporter.EXTRA_PROCESS_NAME);
+            if (processName == null || processName.trim().isEmpty()) {
+                processName = applicationContext.getPackageName();
+            }
+            ProcessSample sample = new ProcessSample(pid, processName,
+                    intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_CPU_TIME_MS, -1L),
+                    intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_HEAP_USED_BYTES, -1L),
+                    intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_HEAP_LIMIT_BYTES, -1L),
+                    intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_PSS_BYTES, -1L));
+            boolean accepted;
+            synchronized (responseLock) {
+                accepted = Objects.equals(activeRequestId, requestId);
+                if (accepted) {
+                    processResponses.put(pid, sample);
+                    responseLock.notifyAll();
+                }
+            }
+            if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
+                logger.info("Resource Monitor " + (accepted ? "accepted" : "ignored")
+                        + " process sample response " + requestId + " from " + processName
+                        + " PID " + pid + ".");
+            }
+        }
     };
 
     private ScheduledExecutorService executor;
@@ -69,7 +114,7 @@ public final class ResourceMonitorController implements AutoCloseable {
     private boolean visible;
     private boolean receiverRegistered;
     private volatile boolean active;
-    private volatile long generation;
+    private final AtomicLong generation = new AtomicLong();
     private long requestSequence;
     private int diagnosticRequestCount;
     private String activeRequestId;
@@ -123,7 +168,7 @@ public final class ResourceMonitorController implements AutoCloseable {
 
     private void start() {
         active = true;
-        generation++;
+        long session = generation.incrementAndGet();
         resetSessionState();
         diagnosticRequestCount = 0;
         registerProcessReceiver();
@@ -134,7 +179,6 @@ public final class ResourceMonitorController implements AutoCloseable {
             thread.setDaemon(true);
             return thread;
         });
-        long session = generation;
         executor.scheduleWithFixedDelay(() -> sample(session), 0L,
                 SAMPLE_INTERVAL_MS, TimeUnit.MILLISECONDS);
         logger.info("Resource Monitor started while the app is visible.");
@@ -146,7 +190,7 @@ public final class ResourceMonitorController implements AutoCloseable {
             return;
         }
         active = false;
-        generation++;
+        generation.incrementAndGet();
         synchronized (responseLock) {
             activeRequestId = null;
             processResponses.clear();
@@ -206,7 +250,7 @@ public final class ResourceMonitorController implements AutoCloseable {
         String requestAction = ResourceMonitorProcessReporter.requestAction(applicationContext);
         if (diagnostic) {
             logger.info("Resource Monitor preparing process sample request " + requestId
-                    + " from PID " + Process.myPid() + ". Action: " + requestAction
+                    + " from PID " + Process.myPid() + ACTION_LABEL + requestAction
                     + ". Package: " + applicationContext.getPackageName()
                     + ". Response receiver registered: " + receiverRegistered
                     + ". Discovered app PIDs: " + runningProcesses.keySet() + ".");
@@ -235,12 +279,10 @@ public final class ResourceMonitorController implements AutoCloseable {
                         .containsAll(runningProcesses.keySet());
                 boolean foundUndiscoveredProcess = processResponses.size()
                         > runningProcesses.size();
-                if (allDiscoveredProcessesResponded
-                        && (runningProcesses.size() > 1 || foundUndiscoveredProcess)) {
-                    break;
-                }
                 long remainingMs = responseDeadlineMs - nowMs;
-                if (remainingMs <= 0L) break;
+                boolean processCollectionComplete = allDiscoveredProcessesResponded
+                        && (runningProcesses.size() > 1 || foundUndiscoveredProcess);
+                if (processCollectionComplete || remainingMs <= 0L) break;
                 try {
                     responseLock.wait(remainingMs);
                 } catch (InterruptedException error) {
@@ -283,48 +325,6 @@ public final class ResourceMonitorController implements AutoCloseable {
         }
     }
 
-    private void receiveProcessSample(Intent intent) {
-        if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
-            logger.info("Resource Monitor response receiver callback in PID " + Process.myPid()
-                    + ". Action: " + intent.getAction() + ". Request: "
-                    + intent.getStringExtra(ResourceMonitorProcessReporter.EXTRA_REQUEST_ID)
-                    + ". Response PID: "
-                    + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_PID, -1)
-                    + ". Response UID: "
-                    + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_UID, -1)
-                    + ".");
-        }
-        if (!ResourceMonitorProcessReporter.responseAction(applicationContext)
-                .equals(intent.getAction())) return;
-        String requestId = intent.getStringExtra(ResourceMonitorProcessReporter.EXTRA_REQUEST_ID);
-        int uid = intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_UID, -1);
-        int pid = intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_PID, -1);
-        if (uid != Process.myUid() || pid <= 0) return;
-        String processName = intent.getStringExtra(
-                ResourceMonitorProcessReporter.EXTRA_PROCESS_NAME);
-        if (processName == null || processName.trim().isEmpty()) {
-            processName = applicationContext.getPackageName();
-        }
-        ProcessSample sample = new ProcessSample(pid, processName,
-                intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_CPU_TIME_MS, -1L),
-                intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_HEAP_USED_BYTES, -1L),
-                intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_HEAP_LIMIT_BYTES, -1L),
-                intent.getLongExtra(ResourceMonitorProcessReporter.EXTRA_PSS_BYTES, -1L));
-        boolean accepted;
-        synchronized (responseLock) {
-            accepted = Objects.equals(activeRequestId, requestId);
-            if (accepted) {
-                processResponses.put(pid, sample);
-                responseLock.notifyAll();
-            }
-        }
-        if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
-            logger.info("Resource Monitor " + (accepted ? "accepted" : "ignored")
-                    + " process sample response " + requestId + " from " + processName
-                    + " PID " + pid + ".");
-        }
-    }
-
     private ProcessCpuResult appCpu(long nowMs, Map<Integer, ProcessSample> current) {
         long elapsedMs = previousProcessSampleAtMs <= 0L
                 ? -1L : nowMs - previousProcessSampleAtMs;
@@ -357,7 +357,8 @@ public final class ResourceMonitorController implements AutoCloseable {
         return new ProcessCpuResult(percent);
     }
 
-  private DeviceCpuResult deviceCpu() {
+    @SuppressWarnings("java:S6885") // Math.clamp is unavailable on the API-26 runtime target.
+    private DeviceCpuResult deviceCpu() {
         if (!deviceOwner.getAsBoolean()) {
             previousDeviceCpu = null;
             return DeviceCpuResult.unsupported("Device CPU telemetry is unavailable");
@@ -386,12 +387,14 @@ public final class ResourceMonitorController implements AutoCloseable {
         for (int index = 0; index < count; index++) {
             CpuUsageInfo before = previous[index];
             CpuUsageInfo after = current[index];
-            if (before == null || after == null) continue;
-            long nextActive = after.getActive() - before.getActive();
-            long nextTotal = after.getTotal() - before.getTotal();
-            if (nextActive < 0L || nextTotal <= 0L) continue;
-            activeDelta += nextActive;
-            totalDelta += nextTotal;
+            if (before != null && after != null) {
+                long nextActive = after.getActive() - before.getActive();
+                long nextTotal = after.getTotal() - before.getTotal();
+                if (nextActive >= 0L && nextTotal > 0L) {
+                    activeDelta += nextActive;
+                    totalDelta += nextTotal;
+                }
+            }
         }
         double percent = totalDelta <= 0L
                 ? -1.0 : Math.max(0.0, Math.min(100.0,
@@ -492,7 +495,7 @@ public final class ResourceMonitorController implements AutoCloseable {
         if (receiverRegistered) return;
         String responseAction = ResourceMonitorProcessReporter.responseAction(applicationContext);
         logger.info("Resource Monitor registering process response receiver in PID "
-                + Process.myPid() + ". Action: " + responseAction + ".");
+                + Process.myPid() + ACTION_LABEL + responseAction + ".");
         ContextCompat.registerReceiver(applicationContext, processResponseReceiver,
                 new IntentFilter(responseAction), ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
@@ -507,7 +510,7 @@ public final class ResourceMonitorController implements AutoCloseable {
     }
 
     private boolean isActive(long session) {
-        return active && generation == session && !Thread.currentThread().isInterrupted();
+        return active && generation.get() == session && !Thread.currentThread().isInterrupted();
     }
 
     private void resetSessionState() {
@@ -622,12 +625,46 @@ public final class ResourceMonitorController implements AutoCloseable {
             Map<Integer, Long> pssBytes, BatterySnapshot battery) {
         String display(String packageName) {
             StringBuilder text = new StringBuilder();
+            boolean hasDisplaySection = false;
 
             List<String> cpuLines = new ArrayList<>();
             addCpuLine(cpuLines, "Device", deviceCpuPercent, logicalCoreCount);
             addCpuLine(cpuLines, "DCAM", appCpu.percent, logicalCoreCount);
-            appendSection(text, "---- CPU ----", cpuLines);
+            hasDisplaySection = appendSection(text, "---- CPU ----", cpuLines,
+                    hasDisplaySection);
 
+            List<RunningProcess> running = new ArrayList<>(runningProcesses.values());
+            running.sort(Comparator.comparing(RunningProcess::name)
+                    .thenComparingInt(RunningProcess::pid));
+            hasDisplaySection = appendSection(text, "---- RAM ----",
+                    ramLines(packageName, deviceMemory, running, pssBytes), hasDisplaySection);
+
+            List<String> heapLines = new ArrayList<>();
+            for (RunningProcess process : running) {
+                ProcessSample sample = processSamples.get(process.pid);
+                if (sample == null || sample.heapLimitBytes <= 0L
+                        || sample.heapUsedBytes < 0L) {
+                    continue;
+                }
+                heapLines.add("• " + shortProcessName(packageName, process.name)
+                        + ": Allowed " + ResourceMonitorMath.formatBytes(sample.heapLimitBytes)
+                        + " | Used " + ResourceMonitorMath.formatBytes(sample.heapUsedBytes)
+                        + " (" + ResourceMonitorMath.formatRatioPercent(
+                                sample.heapUsedBytes, sample.heapLimitBytes) + ")");
+            }
+            hasDisplaySection = appendSection(text, "---- JAVA HEAP ----", heapLines,
+                    hasDisplaySection);
+
+            String batteryLine = battery.display();
+            if (!batteryLine.isEmpty()) {
+                appendSection(text, "---- BATTERY ----", Collections.singletonList(batteryLine),
+                        hasDisplaySection);
+            }
+            return text.toString();
+        }
+
+        private static List<String> ramLines(String packageName, DeviceMemory deviceMemory,
+                List<RunningProcess> running, Map<Integer, Long> pssBytes) {
             List<String> ramLines = new ArrayList<>();
             if (deviceMemory.totalBytes > 0L && deviceMemory.usedBytes >= 0L) {
                 ramLines.add("Device: Total "
@@ -636,9 +673,6 @@ public final class ResourceMonitorController implements AutoCloseable {
                         + " (" + ResourceMonitorMath.formatRatioPercent(
                                 deviceMemory.usedBytes, deviceMemory.totalBytes) + ")");
             }
-            List<RunningProcess> running = new ArrayList<>(runningProcesses.values());
-            running.sort(Comparator.comparing(RunningProcess::name)
-                    .thenComparingInt(RunningProcess::pid));
             List<String> processRamLines = new ArrayList<>();
             long appRamUsedBytes = 0L;
             boolean completeAppRam = !running.isEmpty();
@@ -666,29 +700,7 @@ public final class ResourceMonitorController implements AutoCloseable {
                 ramLines.add(appLine);
                 ramLines.addAll(processRamLines);
             }
-            appendSection(text, "---- RAM ----", ramLines);
-
-            List<String> heapLines = new ArrayList<>();
-            for (RunningProcess process : running) {
-                ProcessSample sample = processSamples.get(process.pid);
-                if (sample == null || sample.heapLimitBytes <= 0L
-                        || sample.heapUsedBytes < 0L) {
-                    continue;
-                }
-                heapLines.add("• " + shortProcessName(packageName, process.name)
-                        + ": Allowed " + ResourceMonitorMath.formatBytes(sample.heapLimitBytes)
-                        + " | Used " + ResourceMonitorMath.formatBytes(sample.heapUsedBytes)
-                        + " (" + ResourceMonitorMath.formatRatioPercent(
-                                sample.heapUsedBytes, sample.heapLimitBytes) + ")");
-            }
-            appendSection(text, "---- JAVA HEAP ----", heapLines);
-
-            String batteryLine = battery.display();
-            if (!batteryLine.isEmpty()) {
-                appendSection(text, "---- BATTERY ----",
-                        Collections.singletonList(batteryLine));
-            }
-            return text.toString();
+            return ramLines;
         }
 
         private static void addCpuLine(List<String> lines, String label,
@@ -703,11 +715,13 @@ public final class ResourceMonitorController implements AutoCloseable {
             return Math.round(bytes / (1024.0 * 1024.0)) * 1024L * 1024L;
         }
 
-        private static void appendSection(StringBuilder text, String title, List<String> lines) {
-            if (lines.isEmpty()) return;
-            if (text.length() != 0) text.append('\n');
+        private static boolean appendSection(StringBuilder text, String title, List<String> lines,
+                boolean hasPreviousSection) {
+            if (lines.isEmpty()) return hasPreviousSection;
+            if (hasPreviousSection) text.append('\n');
             text.append(title);
             for (String line : lines) text.append('\n').append(line);
+            return true;
         }
 
         private static String shortProcessName(String packageName, String processName) {

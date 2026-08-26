@@ -46,12 +46,16 @@ public final class AndroidDeviceRepositoryImpl implements DeviceRepository {
         try {
             BatteryManager battery = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
             if (battery != null) batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-        } catch (RuntimeException ignored) {}
+        } catch (RuntimeException ignored) {
+            // Keep the battery status unknown when the system service cannot be read.
+        }
         try {
             File storage = storageRoot.get();
             if (storage == null) storage = context.getFilesDir();
             availableBytes = new StatFs(storage.getAbsolutePath()).getAvailableBytes();
-        } catch (RuntimeException ignored) {}
+        } catch (RuntimeException ignored) {
+            // Keep the available storage unknown when the filesystem cannot be queried.
+        }
         try {
             LocationManager location = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
             if (location == null || !context.getPackageManager().hasSystemFeature("android.hardware.location.gps")) {
@@ -60,7 +64,9 @@ public final class AndroidDeviceRepositoryImpl implements DeviceRepository {
                 gpsStatus = location.isProviderEnabled(LocationManager.GPS_PROVIDER)
                         ? CapabilityStatus.AVAILABLE : CapabilityStatus.DISABLED;
             }
-        } catch (RuntimeException ignored) {}
+        } catch (RuntimeException ignored) {
+            // Keep the GPS status unknown when the location service cannot be queried.
+        }
         return new DeviceStatus(batteryPercent, availableBytes, gpsStatus);
     }
 
@@ -93,7 +99,7 @@ public final class AndroidDeviceRepositoryImpl implements DeviceRepository {
             Class<?> systemProperties = Class.forName("android.os.SystemProperties");
             Method get = systemProperties.getMethod("get", String.class);
             Object value = get.invoke(null, name);
-            return value instanceof String ? (String) value : null;
+            return value instanceof String string ? string : null;
         } catch (ReflectiveOperationException | RuntimeException ignored) {
             return null;
         }

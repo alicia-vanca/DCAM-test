@@ -14,7 +14,6 @@ final class SharedCameraPipelineContractTest {
     private static final Set<String> OPERATIONS = Set.of(
             "bindSession",
             "bindStandaloneImageSession",
-            "updateSession",
             "previewProgress",
             "startEncoder",
             "stopEncoder",

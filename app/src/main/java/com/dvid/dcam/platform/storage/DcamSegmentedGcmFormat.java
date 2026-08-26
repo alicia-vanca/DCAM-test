@@ -198,20 +198,20 @@ final class DcamSegmentedGcmFormat {
             throw new IOException("Segmented-GCM record header CRC is invalid.");
         }
 
-        ByteBuffer record = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
-        record.position(RECORD_MAGIC.length);
-        int headerBytes = Short.toUnsignedInt(record.getShort());
-        int type = Byte.toUnsignedInt(record.get());
-        int flags = Byte.toUnsignedInt(record.get());
-        long totalBytesLong = Integer.toUnsignedLong(record.getInt());
-        long sequence = record.getLong();
-        long transactionId = record.getLong();
-        long blockIndex = record.getLong();
-        long plaintextBytesLong = Integer.toUnsignedLong(record.getInt());
-        long relatedCountLong = Integer.toUnsignedLong(record.getInt());
-        long logicalLength = record.getLong();
+        ByteBuffer recordBuffer = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
+        recordBuffer.position(RECORD_MAGIC.length);
+        int headerBytes = Short.toUnsignedInt(recordBuffer.getShort());
+        int type = Byte.toUnsignedInt(recordBuffer.get());
+        int flags = Byte.toUnsignedInt(recordBuffer.get());
+        long totalBytesLong = Integer.toUnsignedLong(recordBuffer.getInt());
+        long sequence = recordBuffer.getLong();
+        long transactionId = recordBuffer.getLong();
+        long blockIndex = recordBuffer.getLong();
+        long plaintextBytesLong = Integer.toUnsignedLong(recordBuffer.getInt());
+        long relatedCountLong = Integer.toUnsignedLong(recordBuffer.getInt());
+        long logicalLength = recordBuffer.getLong();
         byte[] nonce = new byte[NONCE_BYTES];
-        record.get(nonce);
+        recordBuffer.get(nonce);
 
         if (headerBytes != RECORD_HEADER_BYTES || flags != 0 || !isZero(encoded, 64, 28)
                 || totalBytesLong > Integer.MAX_VALUE
@@ -246,24 +246,26 @@ final class DcamSegmentedGcmFormat {
         validateMetadata(header, metadata);
 
         byte[] encoded = new byte[RECORD_HEADER_BYTES];
-        ByteBuffer record = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
-        record.put(RECORD_MAGIC);
-        record.putShort((short) RECORD_HEADER_BYTES);
-        record.put((byte) metadata.type);
-        record.put((byte) 0);
-        record.putInt(RECORD_FIXED_BYTES + plaintextBytes);
-        record.putLong(metadata.sequence);
-        record.putLong(metadata.transactionId);
-        record.putLong(metadata.blockIndex);
-        record.putInt(plaintextBytes);
-        record.putInt(metadata.relatedCount);
-        record.putLong(metadata.logicalLength);
-        record.put(metadata.nonce);
-        record.position(RECORD_HEADER_CRC_OFFSET);
-        record.putInt(crc32(encoded, 0, RECORD_HEADER_CRC_OFFSET));
+        ByteBuffer recordBuffer = ByteBuffer.wrap(encoded).order(ByteOrder.BIG_ENDIAN);
+        recordBuffer.put(RECORD_MAGIC);
+        recordBuffer.putShort((short) RECORD_HEADER_BYTES);
+        recordBuffer.put((byte) metadata.type);
+        recordBuffer.put((byte) 0);
+        recordBuffer.putInt(RECORD_FIXED_BYTES + plaintextBytes);
+        recordBuffer.putLong(metadata.sequence);
+        recordBuffer.putLong(metadata.transactionId);
+        recordBuffer.putLong(metadata.blockIndex);
+        recordBuffer.putInt(plaintextBytes);
+        recordBuffer.putInt(metadata.relatedCount);
+        recordBuffer.putLong(metadata.logicalLength);
+        recordBuffer.put(metadata.nonce);
+        recordBuffer.position(RECORD_HEADER_CRC_OFFSET);
+        recordBuffer.putInt(crc32(encoded, 0, RECORD_HEADER_CRC_OFFSET));
         return encoded;
     }
 
+    // Integer constant labels cannot use Java's pattern-only `when` guard syntax.
+    @SuppressWarnings("java:S6916")
     private static void validateMetadata(Header header, RecordMetadata metadata)
             throws IOException {
         if (metadata.sequence <= 0L || metadata.transactionId < 0L
@@ -336,7 +338,6 @@ final class DcamSegmentedGcmFormat {
             }
             return derived;
         } catch (GeneralSecurityException error) {
-            if (derived != null) Arrays.fill(derived, (byte) 0);
             throw new IOException("Cannot derive segmented-GCM media key.", error);
         } finally {
             Arrays.fill(initialInput, (byte) 0);
@@ -417,6 +418,8 @@ final class DcamSegmentedGcmFormat {
         }
     }
 
+    // Constructor fields map directly to the fixed binary record header; grouping would obscure it.
+    @SuppressWarnings("java:S107")
     static final class RecordMetadata {
         final int type;
         final long sequence;

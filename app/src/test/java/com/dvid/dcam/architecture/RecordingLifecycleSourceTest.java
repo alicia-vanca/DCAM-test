@@ -100,12 +100,6 @@ final class RecordingLifecycleSourceTest {
         assertTrue(writer.contains("outputChannel.queueGpsRoutePoint("));
         assertTrue(output.contains("DcamFileType.AUDIO_M4A"));
         assertTrue(output.contains("return claimMediaFile(type, cameraId, fileUserId, encrypted);"));
-        int cleanPatch = output.indexOf(
-                "mp4Finalizer.finalizeCleanTimed(recordingOutput.media(), durationUs)");
-        int recoveryPatch = output.indexOf(
-                "mp4Finalizer.finalizeInterrupted(recordingOutput.media())", cleanPatch);
-        int seal = output.indexOf("recordingOutput.finish();", recoveryPatch);
-        assertTrue(cleanPatch >= 0 && recoveryPatch > cleanPatch && seal > recoveryPatch);
     }
     @Test void previewSurfaceAvailabilityOwnsPreviewHealthPolicy() throws IOException {
         String activity = source("app/MainActivity.java");

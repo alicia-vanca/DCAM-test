@@ -5,41 +5,64 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.util.Objects;
+import java.util.function.LongSupplier;
 
 public final class DcamRecordingOutput implements SeekableByteChannel {
     private final File file;
     private final DcamRandomAccessMedia media;
     private final boolean segmentedAesGcm;
+    private final LongSupplier availableBytes;
 
     public static DcamRecordingOutput openPlain(File file) throws IOException {
-        return openPlain(file, false);
+        File target = Objects.requireNonNull(file, "file");
+        return openPlain(target, false, target::getUsableSpace);
     }
 
     static DcamRecordingOutput openPlain(File file, boolean forceOnCheckpoint)
             throws IOException {
         File target = Objects.requireNonNull(file, "file");
+        return openPlain(target, forceOnCheckpoint, target::getUsableSpace);
+    }
+
+    static DcamRecordingOutput openPlain(
+            File file, boolean forceOnCheckpoint, LongSupplier availableBytes)
+            throws IOException {
+        File target = Objects.requireNonNull(file, "file");
         return new DcamRecordingOutput(target,
-                PlainDcamRandomAccessMedia.create(target, forceOnCheckpoint), false);
+                PlainDcamRandomAccessMedia.create(target, forceOnCheckpoint), false,
+                availableBytes);
     }
 
     static DcamRecordingOutput openSegmentedAesGcm(File file, String password)
             throws IOException {
+        File target = Objects.requireNonNull(file, "file");
         return openSegmentedAesGcm(
-                file, password, SegmentedAesGcmMediaStore.RECORDING_BLOCK_BYTES);
+                target, password, SegmentedAesGcmMediaStore.RECORDING_BLOCK_BYTES,
+                target::getUsableSpace);
     }
 
     static DcamRecordingOutput openSegmentedAesGcm(
             File file, String password, int blockBytes) throws IOException {
         File target = Objects.requireNonNull(file, "file");
+        return openSegmentedAesGcm(target, password, blockBytes, target::getUsableSpace);
+    }
+
+    static DcamRecordingOutput openSegmentedAesGcm(
+            File file, String password, int blockBytes, LongSupplier availableBytes)
+            throws IOException {
+        File target = Objects.requireNonNull(file, "file");
         return new DcamRecordingOutput(
-                target, SegmentedAesGcmMediaStore.create(target, password, blockBytes), true);
+                target, SegmentedAesGcmMediaStore.create(target, password, blockBytes), true,
+                availableBytes);
     }
 
     private DcamRecordingOutput(
-            File file, DcamRandomAccessMedia media, boolean segmentedAesGcm) {
+            File file, DcamRandomAccessMedia media, boolean segmentedAesGcm,
+            LongSupplier availableBytes) {
         this.file = file;
         this.media = media;
         this.segmentedAesGcm = segmentedAesGcm;
+        this.availableBytes = Objects.requireNonNull(availableBytes, "availableBytes");
     }
 
     public File file() {
@@ -56,6 +79,10 @@ public final class DcamRecordingOutput implements SeekableByteChannel {
 
     public long finalizationReserveBytes() {
         return media.finalizationReserveBytes();
+    }
+
+    public long availableBytes() {
+        return Math.max(0L, availableBytes.getAsLong());
     }
 
     public void checkpoint() throws IOException {

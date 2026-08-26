@@ -25,6 +25,7 @@ import com.dvid.dcam.platform.device.DcamDeviceAdminReceiver;
 import com.dvid.dcam.platform.database.AppDatabase;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /** Foreground :loggly owner for normal Room and crash-spool delivery. */
 public final class LogglyUploadService extends Service {
@@ -78,6 +79,22 @@ public final class LogglyUploadService extends Service {
         logLaunchEvent("service onCreate pid=" + android.os.Process.myPid());
         super.onCreate();
         createNotificationChannel();
+        ensureForeground();
+        keepAliveWhenIdle = shouldStayBound(this);
+        stopped = false;
+        ensureObserver();
+        registerNetworkCallback();
+        uploadExecutor.execute(this::drainLoop);
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        ensureForeground();
+        logLaunchEvent("service onStartCommand startId=" + startId);
+        wakeSignal.wake();
+        return START_STICKY;
+    }
+
+    private void ensureForeground() {
         Notification notification = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_recording_notification)
                 .setContentTitle(getString(R.string.loggly_notification_title))
@@ -90,17 +107,6 @@ public final class LogglyUploadService extends Service {
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
-        keepAliveWhenIdle = shouldStayBound(this);
-        stopped = false;
-        ensureObserver();
-        registerNetworkCallback();
-        uploadExecutor.execute(this::drainLoop);
-    }
-
-    @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        logLaunchEvent("service onStartCommand startId=" + startId);
-        wakeSignal.wake();
-        return START_STICKY;
     }
 
     @Override public void onTimeout(int startId, int fgsType) {
@@ -151,10 +157,13 @@ public final class LogglyUploadService extends Service {
                 stopSelf();
                 return;
             }
-            long waitMillis = nextRetryAtMillis == null
-                    ? (observer == null ? OBSERVER_RECHECK_MS : 0L)
-                    : Math.max(MIN_RETRY_WAIT_MS,
-                            nextRetryAtMillis - System.currentTimeMillis());
+            long waitMillis;
+            if (nextRetryAtMillis == null) {
+                waitMillis = observer == null ? OBSERVER_RECHECK_MS : 0L;
+            } else {
+                waitMillis = Math.max(MIN_RETRY_WAIT_MS,
+                        nextRetryAtMillis - System.currentTimeMillis());
+            }
             waitForWake(observedWake, waitMillis);
         }
     }
@@ -287,7 +296,22 @@ public final class LogglyUploadService extends Service {
         synchronized void await(long observedGeneration, long waitMillis)
                 throws InterruptedException {
             if (generation != observedGeneration) return;
-            wait(waitMillis);
+            if (waitMillis == 0L) {
+                while (generation == observedGeneration) {
+                    wait();
+                }
+                return;
+            }
+            long startedAtNanos = System.nanoTime();
+            long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(waitMillis);
+            while (generation == observedGeneration) {
+                long remainingNanos = timeoutNanos - (System.nanoTime() - startedAtNanos);
+                if (remainingNanos <= 0L) return;
+                long remainingMillis = TimeUnit.NANOSECONDS.toMillis(remainingNanos);
+                int remainingNanoPart = (int) (remainingNanos
+                        - TimeUnit.MILLISECONDS.toNanos(remainingMillis));
+                wait(remainingMillis, remainingNanoPart);
+            }
         }
     }
 

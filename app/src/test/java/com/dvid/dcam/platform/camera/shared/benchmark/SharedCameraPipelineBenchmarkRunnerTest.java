@@ -419,10 +419,6 @@ final class SharedCameraPipelineBenchmarkRunnerTest {
             return pass(context, CameraPipelineOperation.BIND_SESSION);
         }
 
-        @Override public CameraOperationResult updateSession(CameraOperationContext context) {
-            return pass(context, CameraPipelineOperation.UPDATE_SESSION);
-        }
-
         @Override public CameraOperationResult previewProgress(CameraOperationContext context) {
             previewCalls.incrementAndGet();
             return previewPass

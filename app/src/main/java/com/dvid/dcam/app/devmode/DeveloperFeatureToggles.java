@@ -77,7 +77,7 @@ public final class DeveloperFeatureToggles {
     }
 
     public boolean isEffectivelyEnabled(FeatureGate gate) {
-        DeveloperFeatureToggle toggle = requireInstalled(gate);
+        requireInstalled(gate);
         return gates.isEffectivelyEnabled(gate);
     }
 

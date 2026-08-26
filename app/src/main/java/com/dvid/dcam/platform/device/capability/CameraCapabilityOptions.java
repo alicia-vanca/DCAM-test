@@ -6,6 +6,8 @@ import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.Snaps
 import com.dvid.dcam.feature.device.domain.CaptureQuality;
 import com.dvid.dcam.feature.device.domain.camera.CameraModeOrder;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
+import com.dvid.dcam.feature.device.domain.camera.CaptureModeTuple;
+import com.dvid.dcam.feature.device.domain.camera.ImageMode;
 import com.dvid.dcam.feature.device.domain.camera.PipelineEvidence;
 import com.dvid.dcam.feature.device.domain.camera.StandardResolution;
 import com.dvid.dcam.feature.device.domain.camera.StandardResolutionLabel;
@@ -19,7 +21,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
 final class CameraCapabilityOptions {
@@ -164,6 +165,25 @@ final class CameraCapabilityOptions {
         return List.copyOf(result);
     }
 
+    static Optional<CandidateKey> nextLowerStandaloneImageCandidate(
+            Snapshot snapshot, CandidateKey requested, Set<String> runtimeRejections) {
+        Objects.requireNonNull(requested, "requested");
+        Objects.requireNonNull(runtimeRejections, "runtimeRejections");
+        PipelineEvidence pipeline = pipeline(snapshot, requested);
+        if (pipeline == null || requested.tuple().isEmpty()) return Optional.empty();
+        ImageMode requestedImage = requested.imageMode().orElseThrow();
+        return effective(pipeline, runtimeRejections).stream()
+                .filter(candidate -> candidate.kind() == CandidateKey.Kind.IMAGE)
+                .map(candidate -> candidate.imageMode().orElseThrow())
+                .filter(image -> CameraModeOrder.resolutions().compare(
+                        image.resolution(), requestedImage.resolution()) < 0)
+                .max((left, right) -> CameraModeOrder.resolutions().compare(
+                        left.resolution(), right.resolution()))
+                .map(image -> CandidateKey.forTuple(requested.cameraId(), requested.codec(),
+                        requested.verificationPipelineId(), new CaptureModeTuple(
+                                requested.videoMode().orElseThrow(), image)));
+    }
+
     static CaptureQuality selectedVideo(Snapshot snapshot, String cameraId,
             String requestedId, int requestedFrameRate, Set<String> rejections) {
         List<CaptureQuality> videos = recordQualities(snapshot, cameraId, rejections);
@@ -171,8 +191,14 @@ final class CameraCapabilityOptions {
         if (selected == null) selected = defaultQuality(videos);
         if (selected == null) return null;
         List<Integer> rates = frameRates(snapshot, cameraId, selected.getId(), rejections);
-        int rate = rates.contains(requestedFrameRate) ? requestedFrameRate
-                : rates.isEmpty() ? 0 : rates.get(rates.size() - 1);
+        int rate;
+        if (rates.contains(requestedFrameRate)) {
+            rate = requestedFrameRate;
+        } else if (rates.isEmpty()) {
+            rate = 0;
+        } else {
+            rate = rates.get(rates.size() - 1);
+        }
         return selected.withFrameRate(rate);
     }
 
@@ -181,37 +207,6 @@ final class CameraCapabilityOptions {
         List<CaptureQuality> images = imageQualities(snapshot, cameraId, rejections);
         CaptureQuality selected = find(images, requestedId);
         return selected == null ? defaultQuality(images) : selected;
-    }
-
-    private static CaptureQuality committedVideo(Snapshot snapshot, String cameraId) {
-        CandidateKey candidate = committedCandidate(snapshot, cameraId);
-        if (candidate == null) return null;
-        VideoMode mode = candidate.videoMode().orElseThrow();
-        return new CaptureQuality(mode.resolution().label().name(),
-                mode.resolution().actual().width(), mode.resolution().actual().height(),
-                mode.framesPerSecond());
-    }
-
-    private static CaptureQuality committedImage(Snapshot snapshot, String cameraId) {
-        CandidateKey candidate = committedCandidate(snapshot, cameraId);
-        if (candidate == null) return null;
-        var mode = candidate.imageMode().orElseThrow();
-        return new CaptureQuality(mode.resolution().label().name(),
-                mode.resolution().actual().width(), mode.resolution().actual().height());
-    }
-
-    private static CandidateKey committedCandidate(Snapshot snapshot, String cameraId) {
-        CameraSnapshot camera = camera(snapshot, cameraId).orElse(null);
-        PipelineEvidence pipeline = pipeline(snapshot, cameraId);
-        if (camera == null || pipeline == null || camera.selectedRecordingProfile().isEmpty()) {
-            return null;
-        }
-        var selection = camera.selectedRecordingProfile().orElseThrow();
-        if (!selection.verificationPipelineId().equals(
-                pipeline.verificationPipelineId())) return null;
-        CandidateKey candidate = CandidateKey.forTuple(camera.cameraId(), selection.codec(),
-                selection.verificationPipelineId(), selection.tuple());
-        return pipeline.isEffective(candidate) ? candidate : null;
     }
 
     static boolean containsQuality(List<CaptureQuality> values, String id) {
@@ -239,10 +234,11 @@ final class CameraCapabilityOptions {
         for (CandidateKey candidate : pipeline.effectiveCandidates()) {
             if (candidate.kind() != CandidateKey.Kind.TUPLE) continue;
             var tuple = candidate.tuple().orElseThrow();
-            if (!tuple.videoMode().resolution().equals(actual)
-                    || tuple.videoMode().framesPerSecond() != frameRate) continue;
-            if (isRejected(candidate, runtimeRejections)) continue;
-            result.add(tuple.imageMode().resolution().label().name());
+            if (tuple.videoMode().resolution().equals(actual)
+                    && tuple.videoMode().framesPerSecond() == frameRate
+                    && !isRejected(candidate, runtimeRejections)) {
+                result.add(tuple.imageMode().resolution().label().name());
+            }
         }
         return rowExists ? List.copyOf(result) : null;
     }
@@ -280,6 +276,19 @@ final class CameraCapabilityOptions {
             if (value.cameraId().value().equals(id)) return Optional.of(value);
         }
         return Optional.empty();
+    }
+
+    private static PipelineEvidence pipeline(Snapshot snapshot, CandidateKey requested) {
+        CameraSnapshot camera = camera(snapshot, requested.cameraId().value()).orElse(null);
+        if (camera == null) return null;
+        for (CodecSnapshot codec : camera.codecs()) {
+            if (codec.codec() != requested.codec()) continue;
+            for (PipelineEvidence pipeline : codec.pipelines()) {
+                if (pipeline.verificationPipelineId().equals(
+                        requested.verificationPipelineId())) return pipeline;
+            }
+        }
+        return null;
     }
 
     private static List<CaptureQuality> atOrBelow(

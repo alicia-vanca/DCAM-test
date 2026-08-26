@@ -40,6 +40,25 @@ final class AppCompositionResetTest {
                 snapshot(CameraRuntimeState.READY, Optional.empty(), 2L), 1L));
     }
 
+    @Test void crossCaptureRequestsReachRuntimeOwnerForSerialization() {
+        assertTrue(AppComposition.cameraRuntimeAcceptsRecordingStartRequest(
+                snapshot(CameraRuntimeState.READY, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO))));
+        assertTrue(AppComposition.cameraRuntimeAcceptsPhotoRequest(
+                snapshot(CameraRuntimeState.READY, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.START_RECORDING))));
+        assertTrue(AppComposition.cameraRuntimeAcceptsPhotoRequest(
+                snapshot(CameraRuntimeState.RECORDING, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.STOP_RECORDING))));
+
+        assertFalse(AppComposition.cameraRuntimeAcceptsRecordingStartRequest(
+                snapshot(CameraRuntimeState.READY, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.VERIFY_SETTING))));
+        assertFalse(AppComposition.cameraRuntimeAcceptsPhotoRequest(
+                snapshot(CameraRuntimeState.BINDING, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED))));
+    }
+
     @Test void storageNoticeKeepsLowCapacityInLowStorageFlow() {
         var lowCapacity = CaptureStorageCheck.lowCapacity(1L, 2L, "Not enough free storage");
         var notWritable = CaptureStorageCheck.rejected(1L, 2L, "Storage is not writable");
