@@ -97,9 +97,13 @@ android {
     buildTypes {
         release {
             debuggable = false
+            vcsInfo {
+                include = false
+            }
             minifyEnabled = true
             shrinkResources = true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
             if (releaseSigningConfigured) {
                 signingConfig = signingConfigs.release
             }
@@ -136,6 +140,10 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.debug = false
 }
 
 dependencies {
