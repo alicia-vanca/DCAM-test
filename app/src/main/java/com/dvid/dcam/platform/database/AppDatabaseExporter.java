@@ -47,8 +47,8 @@ public final class AppDatabaseExporter {
         SupportSQLiteDatabase database = AppDatabase.get(context)
                 .getOpenHelper()
                 .getWritableDatabase();
-        try (Cursor ignored = database.query("PRAGMA wal_checkpoint(FULL)")) {
-            // The checkpoint makes the main database complete before it is copied.
+        try (Cursor checkpoint = database.query("PRAGMA wal_checkpoint(FULL)")) {
+            validateCheckpoint(checkpoint);
         }
 
         File source = context.getDatabasePath(DATABASE_NAME);
@@ -56,6 +56,23 @@ public final class AppDatabaseExporter {
             throw new IOException("Dcam Room database is unavailable.");
         }
         return source;
+    }
+
+    static void validateCheckpoint(Cursor checkpoint) throws IOException {
+        // PRAGMA query execution is lazy until the cursor is read.
+        if (!checkpoint.moveToFirst() || checkpoint.getColumnCount() < 3) {
+            throw new IOException("SQLite WAL checkpoint returned no status.");
+        }
+        requireCompleteCheckpoint(
+                checkpoint.getInt(0), checkpoint.getLong(1), checkpoint.getLong(2));
+    }
+
+    static void requireCompleteCheckpoint(int busy, long walFrames, long checkpointedFrames)
+            throws IOException {
+        if (busy != 0 || checkpointedFrames < walFrames) {
+            throw new IOException("SQLite WAL checkpoint was incomplete: busy=" + busy
+                    + ", frames=" + walFrames + ", checkpointed=" + checkpointedFrames + '.');
+        }
     }
 
     private static void exportToMediaStore(ContentResolver resolver, File source)
