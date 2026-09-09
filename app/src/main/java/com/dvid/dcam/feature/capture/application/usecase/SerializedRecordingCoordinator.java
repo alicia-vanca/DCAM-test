@@ -166,6 +166,11 @@ public final class SerializedRecordingCoordinator
         return requested == RecordingMode.IDLE ? pendingStartMode : requested;
     }
 
+    @Override public boolean isRecording() {
+        return pendingStartMode == RecordingMode.IDLE
+                && currentMode() != RecordingMode.IDLE;
+    }
+
     @Override public boolean isRecordingStartPending() {
         return currentMode == RecordingMode.IDLE
                 && (requestedMode != RecordingMode.IDLE
@@ -311,6 +316,10 @@ public final class SerializedRecordingCoordinator
         });
     }
 
+    @Override public void captureStorageUnavailable() {
+        queue.execute(() -> emit(CaptureEvent.storageUnavailable()));
+    }
+
     @Override public void captureFailed(String operation, String message) {
         queue.execute(() -> completeSegment(CaptureEvent.error(operation, message)));
     }
@@ -374,7 +383,6 @@ public final class SerializedRecordingCoordinator
     private void emit(CaptureEvent event) {
         listener.accept(event);
     }
-
 
     private void replayCurrentState() {
         switch (phase) {

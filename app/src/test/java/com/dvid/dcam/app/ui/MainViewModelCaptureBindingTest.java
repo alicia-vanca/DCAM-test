@@ -232,6 +232,45 @@ final class MainViewModelCaptureBindingTest {
 
         viewModel.onCleared();
     }
+
+    @Test void repeatedStorageFailuresEachPublishNoticeButReplayDoesNot() {
+        MainViewModel viewModel = viewModel();
+        TestCaptureEvents events = new TestCaptureEvents();
+        viewModel.bindCaptureEvents(events);
+
+        events.captureStorageUnavailable();
+        String firstNotice = viewModel.takeCaptureFailureNotice();
+
+        assertEquals("Storage failed: Capture storage unavailable",
+                viewModel.state().getValue().getMessage());
+        assertEquals("Storage failed: Capture storage unavailable", firstNotice);
+        assertEquals(null, viewModel.takeCaptureFailureNotice());
+
+        viewModel.unbindCaptureEvents(events);
+        viewModel.bindCaptureEvents(events);
+        assertEquals(null, viewModel.takeCaptureFailureNotice());
+
+        events.captureStorageUnavailable();
+        assertEquals(firstNotice, viewModel.takeCaptureFailureNotice());
+        viewModel.onCleared();
+    }
+
+    @Test void photoAndRecordingFailuresEachPublishNotice() {
+        MainViewModel viewModel = viewModel();
+        TestCaptureEvents events = new TestCaptureEvents();
+        viewModel.bindCaptureEvents(events);
+
+        events.photoFailed("Photo", "capture_failed:reason=3");
+        assertEquals("Photo failed: capture_failed:reason=3",
+                viewModel.takeCaptureFailureNotice());
+
+        events.captureFailed("Recording", "Camera is not ready");
+        assertEquals("Recording failed: Camera is not ready",
+                viewModel.takeCaptureFailureNotice());
+        assertEquals(null, viewModel.takeCaptureFailureNotice());
+        viewModel.onCleared();
+    }
+
     @Test void genuineSavedEventsRecordNoticeTime() {
         assertGenuineSavedEventRecordsTime(
                 events -> events.recordingCompleted("video.mp4"));
@@ -337,6 +376,9 @@ final class MainViewModelCaptureBindingTest {
         }
         @Override public void photoFailed(String operation, String message) {
             emit(CaptureEvent.photoFailed(operation, message));
+        }
+        @Override public void captureStorageUnavailable() {
+            emit(CaptureEvent.storageUnavailable());
         }
         @Override public void captureFailed(String operation, String message) {
             currentMode = RecordingMode.IDLE;

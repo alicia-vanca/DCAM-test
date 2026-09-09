@@ -1,10 +1,14 @@
 package com.dvid.dcam.platform.storage;
 
+import android.os.Environment;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.feature.storage.domain.DcamMediaFileState;
+import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -14,8 +18,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +44,24 @@ final class DcamStagedMediaRecoveryTest {
         assertFalse(media.getFile().exists());
         assertTrue(report.getRecovered() == 1);
         assertTrue(report.isResolved(media.getFileName()));
+    }
+
+    @Test
+    void recoveryMarksPublishedImageBdmaReady() throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = stagedImage(storage, false);
+        Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});
+        RecordingStateStore states = new RecordingStateStore();
+
+        StagedMediaRecoveryReport report = new DcamStagedMediaRecovery(
+                storage, new DcamMediaFinalizer(storage), (type, file) -> playable(),
+                new DcamInterruptedMp4Finalizer(), () -> false, () -> "", file -> { },
+                logger, states).recover();
+
+        assertEquals(1, report.getRecovered());
+        assertEquals(List.of(
+                new StateUpdate(DcamMediaFileState.RECOVERY_REQUIRED),
+                new StateUpdate(DcamMediaFileState.BDMA_READY)), states.updates);
     }
 
     @Test
@@ -65,16 +91,124 @@ final class DcamStagedMediaRecoveryTest {
         DcamStorage storage = new DcamStorage(root.toFile());
         DcamMediaFile media = staged(storage, false);
         Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});
+        RecordingStateStore states = new RecordingStateStore();
+        DcamStagedMediaRecovery recovery = new DcamStagedMediaRecovery(
+                storage, new DcamMediaFinalizer(storage), (type, file) -> rejected(),
+                new DcamInterruptedMp4Finalizer(), () -> false, () -> "", file -> { },
+                logger, states);
 
-        StagedMediaRecoveryReport report = recovery(storage, (type, file) -> rejected()).recover();
+        StagedMediaRecoveryReport report = recovery.recover();
+        recovery.reconcile(states.findAll(), Set.of());
 
         assertTrue(media.getFile().isFile());
         assertFalse(storage.finalFile(media).exists());
         assertTrue(report.getPreserved() == 1);
         assertFalse(report.isResolved(media.getFileName()));
+        assertEquals(DcamMediaFileState.RECOVERY_FAILED,
+                states.states.get(media.getFileName()));
         assertTrue(logger.warningMessages.stream().anyMatch(message ->
                 message.contains(media.getFileName())
                         && message.contains("Playback validation failed after finalization: MP4 is missing moov metadata")));
+    }
+
+    @Test
+    void reconciliationLeavesActiveTempStateUntouched() throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile media = stagedImage(storage, false);
+        Files.write(media.getFile().toPath(), new byte[] {1});
+        RecordingStateStore states = new RecordingStateStore();
+        states.track(media.getFile(), DcamMediaFileState.IN_PROGRESS);
+        states.updates.clear();
+
+        statefulRecovery(storage, () -> false, file -> { }, states).reconcile(
+                states.findAll(), Set.of(media.getFile().getAbsolutePath()));
+
+        assertTrue(states.updates.isEmpty());
+        assertEquals(DcamMediaFileState.IN_PROGRESS, states.states.get(media.getFileName()));
+    }
+
+    @Test
+    void reconciliationDoesNotApplyActivePathAcrossStorageRoots() throws Exception {
+        File internalRoot = root.resolve("internal").toFile();
+        File externalRoot = root.resolve("external").toFile();
+        assertTrue(externalRoot.mkdirs());
+        DcamStorage storage = new DcamStorage(
+                MediaPartitionLocation.AUTO, internalRoot, List.of(externalRoot),
+                () -> false, ignored -> Environment.MEDIA_MOUNTED, File::getUsableSpace);
+        DcamMediaFile activeInternal = stagedImage(storage, false);
+        RecordingStateStore states = new RecordingStateStore();
+        states.track(activeInternal.getFileName(), externalRoot, DcamMediaFileState.IN_PROGRESS);
+
+        statefulRecovery(storage, () -> false, file -> { }, states).reconcile(
+                states.findAll(), Set.of(activeInternal.getFile().getAbsolutePath()));
+
+        assertFalse(states.states.containsKey(activeInternal.getFileName()));
+        assertTrue(states.deleted.contains(activeInternal.getFileName()));
+    }
+
+    @Test
+    void reconciliationPromotesPublishedImageAndDeletesMissingMediaState() throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile publishedImage = stagedImage(storage, false);
+        File published = storage.finalFile(publishedImage);
+        Files.createDirectories(published.toPath().getParent());
+        Files.write(published.toPath(), new byte[] {1});
+        String deletedByBdma = "DCAM_CAM001_000001_20260812_103200.jpg";
+        RecordingStateStore states = new RecordingStateStore();
+        states.track(published, DcamMediaFileState.FINALIZING);
+        states.track(deletedByBdma, root.toFile(), DcamMediaFileState.BDMA_READY);
+
+        statefulRecovery(storage, () -> false, file -> { }, states)
+                .reconcile(states.findAll(), Set.of());
+
+        assertEquals(DcamMediaFileState.BDMA_READY,
+                states.states.get(publishedImage.getFileName()));
+        assertFalse(states.states.containsKey(deletedByBdma));
+        assertTrue(states.deleted.contains(deletedByBdma));
+    }
+
+    @Test
+    void reconciliationChecksRequiredVideoMd5PresenceAndRetriesMissing()
+            throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaFile present = stagedVideo(storage, "000001", 31);
+        DcamMediaFile missing = stagedVideo(storage, "000002", 32);
+        File presentPublished = publishForTest(storage, present, new byte[] {1});
+        File missingPublished = publishForTest(storage, missing, new byte[] {2});
+        DcamMd5Sidecar.write(presentPublished, "00000000000000000000000000000000");
+        RecordingStateStore states = new RecordingStateStore();
+        states.track(presentPublished, DcamMediaFileState.FINALIZED);
+        states.track(missingPublished, DcamMediaFileState.BDMA_READY);
+        List<File> retries = new ArrayList<>();
+
+        statefulRecovery(storage, () -> true, retries::add, states)
+                .reconcile(states.findAll(), Set.of());
+
+        assertEquals(DcamMediaFileState.BDMA_READY, states.states.get(present.getFileName()));
+        assertEquals(DcamMediaFileState.FINALIZED, states.states.get(missing.getFileName()));
+        assertTrue(retries.contains(missingPublished));
+        assertFalse(retries.contains(presentPublished));
+    }
+
+    @Test
+    void reconciliationPreservesStateForUnavailableRecordedRoot() throws Exception {
+        File internalRoot = root.resolve("internal").toFile();
+        File externalRoot = root.resolve("external").toFile();
+        assertTrue(externalRoot.mkdirs());
+        DcamStorage storage = new DcamStorage(
+                MediaPartitionLocation.EXTERNAL, internalRoot, List.of(externalRoot),
+                () -> false, ignored -> Environment.MEDIA_UNMOUNTED, File::getUsableSpace);
+        DcamMediaFile internal = stagedImage(storage, false);
+        File internalPublished = publishForTest(storage, internal, new byte[] {1});
+        RecordingStateStore states = new RecordingStateStore();
+        states.track(internalPublished.getName(), externalRoot, DcamMediaFileState.FINALIZING);
+
+        statefulRecovery(storage, () -> false, file -> { }, states)
+                .reconcile(states.findAll(), Set.of());
+
+        assertEquals(DcamMediaFileState.FINALIZING,
+                states.states.get(internalPublished.getName()));
+        assertTrue(states.deleted.isEmpty());
     }
 
     @Test
@@ -310,13 +444,19 @@ final class DcamStagedMediaRecoveryTest {
         File target = storage.finalFile(media);
         Files.createDirectories(target.toPath().getParent());
         Files.write(target.toPath(), new byte[] {9});
+        RecordingStateStore states = new RecordingStateStore();
+        DcamStagedMediaRecovery recovery =
+                statefulRecovery(storage, () -> false, file -> { }, states);
 
-        StagedMediaRecoveryReport report = recovery(storage, (type, file) -> playable()).recover();
+        StagedMediaRecoveryReport report = recovery.recover();
+        recovery.reconcile(states.findAll(), Set.of());
 
         assertTrue(media.getFile().isFile());
         assertTrue(target.length() == 1L);
         assertTrue(report.getDuplicates() == 1);
         assertFalse(report.isResolved(media.getFileName()));
+        assertEquals(DcamMediaFileState.RECOVERY_FAILED,
+                states.states.get(media.getFileName()));
     }
 
     @Test
@@ -391,11 +531,15 @@ final class DcamStagedMediaRecoveryTest {
         DcamMediaFile media = staged(storage, false);
         Files.write(media.getFile().toPath(), new byte[] {1, 2, 3});
         Files.write(root.resolve("Media"), new byte[] {9});
+        RecordingStateStore states = new RecordingStateStore();
 
-        StagedMediaRecoveryReport report = recovery(storage, (type, file) -> playable()).recover();
+        StagedMediaRecoveryReport report =
+                statefulRecovery(storage, () -> false, file -> { }, states).recover();
 
         assertTrue(media.getFile().isFile());
         assertTrue(report.getPreserved() == 1);
+        assertEquals(DcamMediaFileState.RECOVERY_FAILED,
+                states.states.get(media.getFileName()));
         assertTrue(logger.errorMessages.stream().anyMatch(message ->
                 message.contains(media.getFileName())
                         && message.contains("recovery publication failed")
@@ -571,6 +715,25 @@ final class DcamStagedMediaRecoveryTest {
                 mediaEncryptionPassword, logger);
     }
 
+    private DcamStagedMediaRecovery statefulRecovery(
+            DcamStorage storage,
+            java.util.function.BooleanSupplier createVideoMd5,
+            DcamStagedMediaRecovery.Md5RetryCallback md5RetryCallback,
+            RecordingStateStore states) {
+        return new DcamStagedMediaRecovery(
+                storage, new DcamMediaFinalizer(storage), (type, file) -> playable(),
+                new DcamInterruptedMp4Finalizer(), createVideoMd5, () -> "",
+                md5RetryCallback, logger, states);
+    }
+
+    private static File publishForTest(
+            DcamStorage storage, DcamMediaFile media, byte[] content) throws IOException {
+        File published = storage.finalFile(media);
+        Files.createDirectories(published.toPath().getParent());
+        Files.write(published.toPath(), content);
+        return published;
+    }
+
     private DcamMediaFile stagedM4a(DcamStorage storage, boolean encrypted) throws Exception {
         LocalDateTime createdAt = LocalDateTime.of(2026, 8, 14, 10, 30);
         String fileName = DcamFileName.build(
@@ -704,6 +867,15 @@ final class DcamStagedMediaRecoveryTest {
         return media;
     }
 
+    private static DcamMediaFile stagedVideo(
+            DcamStorage storage, String userId, int minute) throws Exception {
+        DcamMediaFile media = storage.mediaFile(
+                DcamFileType.VIDEO, "CAM001", userId,
+                LocalDateTime.of(2026, 7, 11, 10, minute), false);
+        Files.createDirectories(media.getFile().toPath().getParent());
+        return media;
+    }
+
     private static DcamMediaFile stagedImage(DcamStorage storage, boolean encrypted)
             throws Exception {
         DcamMediaFile media = storage.mediaFile(
@@ -713,6 +885,44 @@ final class DcamStagedMediaRecoveryTest {
         return media;
     }
 
+    private static final class RecordingStateStore implements DcamMediaStateStore {
+        private final List<StateUpdate> updates = new ArrayList<>();
+        private final Map<String, DcamMediaFileState> states = new LinkedHashMap<>();
+        private final Map<String, File> storageRoots = new LinkedHashMap<>();
+        private final List<String> deleted = new ArrayList<>();
+
+        @Override public void update(
+                String mediaFileName, File storageRoot, DcamMediaFileState state) {
+            updates.add(new StateUpdate(state));
+            states.put(mediaFileName, state);
+            storageRoots.put(mediaFileName, storageRoot);
+        }
+
+        private void track(File mediaFile, DcamMediaFileState state) {
+            track(mediaFile.getName(), DcamStorage.storageRootFor(mediaFile), state);
+        }
+
+        private void track(
+                String mediaFileName, File storageRoot, DcamMediaFileState state) {
+            update(mediaFileName, storageRoot, state);
+        }
+
+        @Override public List<TrackedState> findAll() {
+            List<TrackedState> tracked = new ArrayList<>();
+            states.forEach((fileName, state) -> tracked.add(
+                    new TrackedState(fileName, storageRoots.get(fileName), state)));
+            return List.copyOf(tracked);
+        }
+
+        @Override public void delete(String mediaFileName) {
+            deleted.add(mediaFileName);
+            states.remove(mediaFileName);
+            storageRoots.remove(mediaFileName);
+        }
+    }
+
+    private record StateUpdate(DcamMediaFileState state) {}
+
     private record RoutePoint(long presentationTimeUs, double latitude, double longitude) {}
 
     private static final class CapturingLogger implements Logger {
@@ -720,13 +930,13 @@ final class DcamStagedMediaRecoveryTest {
         private final List<String> errorMessages = new ArrayList<>();
         private final List<Throwable> errorCauses = new ArrayList<>();
 
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             warningMessages.add(message);
         }
-        @Override public void error(String message, Throwable error) {
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             errorMessages.add(message);
             errorCauses.add(error);
         }

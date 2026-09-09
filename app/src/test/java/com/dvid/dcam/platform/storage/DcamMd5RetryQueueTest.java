@@ -4,19 +4,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class DcamMd5RetryQueueTest {
     private static final Logger LOGGER = new Logger() {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     };
 
     @TempDir Path root;
@@ -49,6 +51,22 @@ final class DcamMd5RetryQueueTest {
         assertEquals("900150983cd24fb0d6963f7d28e17f72",
                 Files.readString(root.resolve("Media/video.md5")).trim());
         assertTrue(queue.pending().isEmpty());
+    }
+
+    @Test
+    void processorNotifiesAfterSuccessfulMd5Creation() throws Exception {
+        DcamMd5RetryQueue queue = new DcamMd5RetryQueue(root.toFile());
+        Path media = root.resolve("Media/video.mp4");
+        Files.createDirectories(media.getParent());
+        Files.writeString(media, "abc");
+        queue.add(media.toFile());
+        AtomicBoolean sidecarExistsAtCallback = new AtomicBoolean();
+
+        assertTrue(DcamMd5RetryProcessor.process(queue, LOGGER,
+                file -> sidecarExistsAtCallback.set(Files.isRegularFile(
+                        file.toPath().resolveSibling("video.md5")))));
+
+        assertTrue(sidecarExistsAtCallback.get());
     }
 
     @Test

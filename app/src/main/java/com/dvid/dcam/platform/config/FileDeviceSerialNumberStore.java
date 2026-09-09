@@ -1,5 +1,7 @@
 package com.dvid.dcam.platform.config;
 
+import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.feature.cloud.domain.ProvisioningState;
 import com.dvid.dcam.feature.device.application.port.DeviceSerialNumberStore;
 import com.dvid.dcam.platform.database.dao.CloudStateDao;
@@ -29,9 +31,10 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
     private final CloudStateDao identityDao;
     private final String hardwareId;
     private final Supplier<List<File>> identityBackupFiles;
+    private final Logger logger;
 
     public FileDeviceSerialNumberStore(File target) {
-        this(target, null, "", List::of);
+        this(target, null, "", List::of, null);
     }
 
     public FileDeviceSerialNumberStore(
@@ -39,15 +42,29 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
             CloudStateDao identityDao,
             String hardwareId,
             Supplier<List<File>> identityBackupFiles) {
+        this(target, identityDao, hardwareId, identityBackupFiles, null);
+    }
+
+    public FileDeviceSerialNumberStore(
+            File target,
+            CloudStateDao identityDao,
+            String hardwareId,
+            Supplier<List<File>> identityBackupFiles,
+            Logger logger) {
         if (target == null) throw new IllegalArgumentException("target is required");
         this.target = target;
         this.identityDao = identityDao;
         this.hardwareId = hardwareId == null || hardwareId.isBlank() ? "unknown" : hardwareId.trim();
         this.identityBackupFiles = identityBackupFiles == null ? List::of : identityBackupFiles;
+        this.logger = logger;
     }
 
     @Override public String load() {
-        return normalizeSerial(value(read(target), KEY));
+        String database = databaseSerial();
+        if (!database.isEmpty()) return database;
+        String cson = csonSerial();
+        if (!cson.isEmpty()) return cson;
+        return loadBackupSerial();
     }
 
     @Override public synchronized void save(String serial) throws IOException {
@@ -56,7 +73,8 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
 
 
     @Override public synchronized boolean restoreIfAvailable() throws IOException {
-        String csonSerial = load();
+        CsonProbe cson = csonProbe();
+        String csonSerial = cson.serial;
         String databaseSerial = databaseSerial();
         if (!databaseSerial.isEmpty()) {
             if (!databaseSerial.equals(csonSerial)) {
@@ -66,20 +84,37 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
             refreshBackupCopies(databaseSerial);
             return false;
         }
+        logQaFallback("QA-CSON-002: room_identity_fallback",
+                "Room identity was unavailable; falling back to the CSON configuration.");
         if (!csonSerial.isEmpty()) {
             persist(csonSerial);
             return false;
         }
+        logQaFallback("QA-CSON-002: cson_fallback",
+                "CSON configuration was " + cson.status.label
+                        + "; falling back to the SD identity backup.");
         String backupSerial = loadBackupSerial();
         if (backupSerial.isEmpty()) return false;
         persist(backupSerial);
         return true;
     }
 
+    private void logQaFallback(String eventName, String message) {
+        if (logger == null) return;
+        logger.warn(LogCategory.CONFIG,
+                eventName, null, message, null);
+    }
+
     private void persist(String serial) throws IOException {
         DeviceIdentityEntity previousDatabase = snapshot(
                 identityDao == null ? null : identityDao.deviceIdentity());
-        FileState previousCson = FileState.capture(target);
+        FileState previousCson = null;
+        try {
+            previousCson = FileState.capture(target);
+        } catch (IOException | RuntimeException unreadableCson) {
+            // The mirror may be owned by root after an ADB/root restore. Continue so
+            // writeAtomically() can replace it when the parent directory is writable.
+        }
         List<File> backupFiles = backupFiles();
         List<FileState> previousBackups = captureFiles(backupFiles);
         try {
@@ -110,7 +145,12 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
     }
 
     private List<File> backupFiles() {
-        List<File> supplied = identityBackupFiles.get();
+        List<File> supplied;
+        try {
+            supplied = identityBackupFiles.get();
+        } catch (RuntimeException unreadableBackups) {
+            return List.of();
+        }
         if (supplied == null || supplied.isEmpty()) return List.of();
         List<File> files = new ArrayList<>();
         for (File file : supplied) {
@@ -130,6 +170,7 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
     }
 
     private static void restoreFile(FileState state, Throwable error) {
+        if (state == null) return;
         try {
             state.restore();
         } catch (IOException rollbackError) {
@@ -139,8 +180,30 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
 
     private String databaseSerial() {
         if (identityDao == null) return "";
-        DeviceIdentityEntity identity = identityDao.deviceIdentity();
-        return identity == null ? "" : normalizeSerial(identity.serialNumber);
+        try {
+            DeviceIdentityEntity identity = identityDao.deviceIdentity();
+            return identity == null ? "" : normalizeSerial(identity.serialNumber);
+        } catch (RuntimeException unreadableDatabase) {
+            return "";
+        }
+    }
+
+    private String csonSerial() {
+        return csonProbe().serial;
+    }
+
+    private CsonProbe csonProbe() {
+        if (!target.exists()) return new CsonProbe(CsonStatus.MISSING, "");
+        if (!target.isFile()) return new CsonProbe(CsonStatus.UNREADABLE, "");
+        try {
+            String text = new String(Files.readAllBytes(target.toPath()), StandardCharsets.UTF_8);
+            String serial = normalizeSerial(value(text, KEY));
+            return serial.isEmpty()
+                    ? new CsonProbe(CsonStatus.INVALID, "")
+                    : new CsonProbe(CsonStatus.VALID, serial);
+        } catch (IOException | RuntimeException error) {
+            return new CsonProbe(CsonStatus.UNREADABLE, "");
+        }
     }
 
     private void saveDatabase(String serial) {
@@ -282,6 +345,21 @@ public final class FileDeviceSerialNumberStore implements DeviceSerialNumberStor
         String trimmed = serial.trim();
         return trimmed.matches("[A-Z0-9]{6,10}") ? trimmed : "";
     }
+
+    private enum CsonStatus {
+        MISSING("missing"),
+        INVALID("invalid"),
+        UNREADABLE("unreadable"),
+        VALID("valid");
+
+        private final String label;
+
+        CsonStatus(String label) {
+            this.label = label;
+        }
+    }
+
+    private record CsonProbe(CsonStatus status, String serial) {}
 
     private static String value(String text, String key) {
         String prefix = key + "=";

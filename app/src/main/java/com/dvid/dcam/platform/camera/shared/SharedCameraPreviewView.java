@@ -22,6 +22,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import androidx.annotation.RequiresApi;
 import com.dvid.dcam.R;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraResolution;
 import java.util.Objects;
@@ -80,7 +81,7 @@ public final class SharedCameraPreviewView extends FrameLayout {
                 CameraResolution buffer = surfaceHandle.restoreBufferSize();
                 previewSurfaceAvailable = true;
                 publishPreviewExpected();
-                logger.info("shared_camera_preview stage=attach outcome=surface_available"
+                logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_preview stage=attach outcome=surface_available"
                         + " view=" + width + "x" + height + " buffer=" + buffer);
             }
 
@@ -92,7 +93,7 @@ public final class SharedCameraPreviewView extends FrameLayout {
             @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture surfaceTexture) {
                 previewSurfaceAvailable = false;
                 publishPreviewExpected();
-                logger.info("shared_camera_preview stage=detach cameraLifetime=retained");
+                logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_preview stage=detach cameraLifetime=retained");
                 return false;
             }
 
@@ -404,7 +405,7 @@ public final class SharedCameraPreviewView extends FrameLayout {
         Matrix viewTransform = textureView.getTransform(null);
         float[] surfaceTextureTransform = new float[16];
         surfaceHandle.copySurfaceTextureTransform(surfaceTextureTransform);
-        logger.warn("shared_camera_preview stage=transform_validation outcome=failed"
+        logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_preview stage=transform_validation outcome=failed"
                 + " buffer=" + surfaceHandle.currentResolution()
                 + " display=" + surfaceHandle.currentDisplayResolution()
                 + " sensorDegrees=" + surfaceHandle.currentSensorOrientation()
@@ -478,7 +479,7 @@ public final class SharedCameraPreviewView extends FrameLayout {
         if (!hideStartupOnNextFrame) return;
         hideStartupOnNextFrame = false;
         startupOverlay.setVisibility(GONE);
-        logger.info("Camera preview received its first frame and hid the startup cover.");
+        logger.info(LogCategory.CAMERA, "unspecified", "Camera preview received its first frame and hid the startup cover.");
     }
 
 

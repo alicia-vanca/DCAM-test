@@ -52,7 +52,6 @@ public final class DcamMediaFinalizer {
 
     void cleanupCleanMedia(DcamMediaFile mediaFile) {
         storage.deleteEmptyStagingDateDirectory(mediaFile);
-        storage.deleteTargetMarker(mediaFile);
     }
 
     public File finalizeMedia(DcamMediaFile mediaFile, boolean createMd5) throws IOException {
@@ -68,7 +67,6 @@ public final class DcamMediaFinalizer {
             }
             deleteStagingDuplicate(staging);
             storage.deleteEmptyStagingDateDirectory(mediaFile);
-            storage.deleteTargetMarker(mediaFile);
             return published;
         } catch (IOException | RuntimeException failure) {
             throw asIOException("Media publication failed", failure);

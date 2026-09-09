@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.camera.shared.runtime;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
@@ -214,14 +215,14 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             return false;
         }
         capabilityScanReserved = true;
-        logger.info("camera_runtime capability_scan action=reserve");
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime capability_scan action=reserve");
         return true;
     }
 
     public synchronized void endCapabilityScan() {
         if (!capabilityScanReserved) return;
         capabilityScanReserved = false;
-        logger.info("camera_runtime capability_scan action=release");
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime capability_scan action=release");
     }
 
     public synchronized Submission initialize(CameraRuntimeSelection target) {
@@ -269,7 +270,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         boolean coalesced = pendingTransition != null;
         pendingTransition = new PendingTransition(operation, target);
         if (cancellable) backend.cancel(inFlight);
-        logger.info("camera_runtime transition action="
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime transition action="
                 + (cancellable ? "supersede" : "replace_after_bind")
                 + " operation=" + operation + " sequence=" + inFlight.operationSequence());
         return coalesced ? Submission.COALESCED : Submission.ACCEPTED;
@@ -325,7 +326,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         if (cameraUseAllowed == allowed) return;
         cameraUseAllowed = allowed;
         resetHealthBaseline();
-        logger.info("camera_runtime lifecycle cameraUseAllowed=" + allowed);
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime lifecycle cameraUseAllowed=" + allowed);
         if (allowed) {
             scheduleWatchdogLocked();
             if (state == CameraRuntimeState.RECOVERING) {
@@ -341,7 +342,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         previewExpected = expected;
         if (backend != null) backend.setPreviewExpected(expected);
         resetHealthBaseline();
-        logger.info("camera_runtime preview_expected=" + expected);
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime preview_expected=" + expected);
         scheduleWatchdogLocked();
     }
 
@@ -637,7 +638,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             backend.execute(command, result -> executor.execute(
                     () -> complete(command, Objects.requireNonNull(result, "result"))));
         } catch (RuntimeException error) {
-            logger.warn("camera_runtime backend_exception operation=" + command.operation(), error);
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "camera_runtime backend_exception operation=" + command.operation(), error);
             executor.execute(() -> complete(command,
                     ProcessCameraRuntimeBackend.Result.recoveryRequired("backend_exception")));
         }
@@ -647,7 +648,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             ProcessCameraRuntimeBackend.Result result) {
         synchronized (this) {
             if (inFlight != command) {
-                logger.info("camera_runtime stale_callback operation=" + command.operation()
+                logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime stale_callback operation=" + command.operation()
                         + " sequence=" + command.operationSequence());
                 return;
             }
@@ -978,7 +979,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         resetHealthBaseline();
         watchAvailabilityLocked(recoverySelection);
         notifyListeners();
-        logger.info("camera_runtime recovery camera=" + cameraId()
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime recovery camera=" + cameraId()
                 + " transitionGeneration=" + transitionGeneration
                 + " healthGeneration=" + healthGeneration + " detail=" + detail);
         scheduleWatchdogLocked();
@@ -1092,7 +1093,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         cancelHeld("global_failure");
         if (inFlight != null) return;
         if (state == CameraRuntimeState.RECORDING) {
-            logger.info("camera_runtime recovery_recording_stop detail=" + detail);
+            logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime recovery_recording_stop detail=" + detail);
             beginImmediate(ProcessCameraRuntimeBackend.Operation.STOP_RECORDING);
             return;
         }
@@ -1104,7 +1105,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     private Submission attemptRecoveryLocked(String trigger) {
         if (capabilityScanReserved) return Submission.REJECTED_TRANSITION;
         if (processCancelled || !cameraUseAllowed || !cameraExpectedActive) {
-            logger.info("camera_runtime recovery_attempt action=paused trigger=" + trigger);
+            logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime recovery_attempt action=paused trigger=" + trigger);
             return Submission.NO_OP;
         }
         if (state != CameraRuntimeState.RECOVERING || inFlight != null) {
@@ -1125,7 +1126,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         state = CameraRuntimeState.RECOVERING;
         watchAvailabilityLocked(target);
         resetHealthBaseline();
-        logger.info("camera_runtime recovery_attempt trigger=" + trigger
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime recovery_attempt trigger=" + trigger
                 + " operation=" + (committedSelection == null ? "INITIALIZE" : "RECOVER"));
         return begin(committedSelection == null
                         ? ProcessCameraRuntimeBackend.Operation.INITIALIZE
@@ -1187,7 +1188,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
         try {
             probe = backend.healthSnapshot(activeBinding);
         } catch (RuntimeException error) {
-            logger.warn("camera_runtime watchdog health_probe_failed", error);
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "camera_runtime watchdog health_probe_failed", error);
             requestRecoveryLocked("watchdog_probe_exception");
             return;
         }
@@ -1284,7 +1285,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
     }
 
     private void logHeld(String action, String detail) {
-        logger.info("camera_runtime held_command action=" + action
+        logger.info(LogCategory.CAMERA, "unspecified", "camera_runtime held_command action=" + action
                 + " camera=" + cameraId() + " transitionGeneration="
                 + transitionGeneration + " detail=" + detail);
     }
@@ -1295,7 +1296,7 @@ public final class ProcessCameraRuntimeOwner implements AutoCloseable {
             try {
                 listener.onStateChanged(value);
             } catch (RuntimeException error) {
-                logger.warn("camera_runtime listener_failed", error);
+                logger.warn(LogCategory.CAMERA, "unspecified", null, "camera_runtime listener_failed", error);
             }
         }
     }

@@ -19,6 +19,7 @@ import androidx.media3.container.Mp4OrientationData;
 import androidx.media3.muxer.FragmentedMp4Muxer;
 import androidx.media3.muxer.MuxerException;
 import androidx.media3.muxer.MuxerUtil;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCapacityPolicy;
@@ -257,8 +258,8 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     outputFormatReady.countDown();
                     firstSample.countDown();
                 }
-                SharedAvcEncoder.this.logger.warn(
-                        PIPELINE_LOG_FIELD + pipelineId + " stage=encoder_callback"
+                SharedAvcEncoder.this.logger.warn(LogCategory.RECORDING,
+                        "unspecified", null, PIPELINE_LOG_FIELD + pipelineId + " stage=encoder_callback"
                                 + " outcome=codec_error",
                         error);
             }
@@ -360,7 +361,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 codec.setParameters(parameters);
                 inputSuspended = true;
             } catch (RuntimeException error) {
-                logger.warn("Suspend idle video encoder failed. Next recording may wait for a key frame"
+                logger.warn(LogCategory.RECORDING, "unspecified", null, "Suspend idle video encoder failed. Next recording may wait for a key frame"
                         + PIPELINE_CONTEXT + pipelineId + ".", error);
             }
         }
@@ -421,11 +422,11 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 releaseAudio(prepared.codec(), null);
                 return;
             }
-            logger.info("Prime AAC encoder success" + PIPELINE_CONTEXT + pipelineId
+            logger.info(LogCategory.RECORDING, "unspecified", "Prime AAC encoder success" + PIPELINE_CONTEXT + pipelineId
                     + ELAPSED_LOG_FRAGMENT + (System.nanoTime() / 1_000_000L - startedAt) + " ms."
                     + " Microphone remains closed until recording.");
         } catch (IOException | RuntimeException error) {
-            logger.warn("Prime AAC encoder failed. Recording will retry AAC setup on demand."
+            logger.warn(LogCategory.RECORDING, "unspecified", null, "Prime AAC encoder failed. Recording will retry AAC setup on demand."
                     + " Pipeline: " + pipelineId + ". Reason: " + message(error) + ".", error);
         }
     }
@@ -611,7 +612,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             }
             if (limitListenerToRun != null) runLimitListener(limitListenerToRun);
             long completedAt = SystemClock.elapsedRealtime();
-            logger.info("Begin recording encoder segment success. Segment setup: "
+            logger.info(LogCategory.RECORDING, "unspecified", "Begin recording encoder segment success. Segment setup: "
                     + (stateReadyAt - startedAt) + " ms. Audio thread launch: "
                     + (audioLaunchedAt - stateReadyAt) + " ms. Key-frame request: "
                     + (keyFrameRequestedAt - audioLaunchedAt) + " ms. Input resume: "
@@ -681,7 +682,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             videoSampleAssembler.clear();
             clearMalformedVideoRecoveryLocked();
         }
-        logger.info("Pause recording encoder input success. Input suspend: "
+        logger.info(LogCategory.RECORDING, "unspecified", "Pause recording encoder input success. Input suspend: "
                 + (inputSuspendedAt - startedAt) + " ms. Audio stop requested: "
                 + (audioStopRequestedAt - inputSuspendedAt) + TOTAL_DURATION_LOG_FRAGMENT
                 + (audioStopRequestedAt - startedAt) + PIPELINE_DURATION_LOG_FRAGMENT + pipelineId
@@ -759,7 +760,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             }
         }
         long completedAt = SystemClock.elapsedRealtime();
-        logger.info("Finalize recording encoder segment "
+        logger.info(LogCategory.RECORDING, "unspecified", "Finalize recording encoder segment "
                 + (audioStopped && "segment_finalized".equals(result.detail())
                         ? "success" : "failed")
                 + ". Audio stop and drain: " + (audioStoppedAt - startedAt)
@@ -836,7 +837,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     return;
                 }
                 if (limitListener != null) runLimitListener(limitListener);
-                logger.info("Prepare AAC encoder on recording demand success"
+                logger.info(LogCategory.RECORDING, "unspecified", "Prepare AAC encoder on recording demand success"
                         + PIPELINE_CONTEXT + pipelineId + ELAPSED_LOG_FRAGMENT
                         + (System.nanoTime() / 1_000_000L - startedAt) + " ms.");
             }
@@ -847,7 +848,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 audioCaptureStarted = true;
                 audioCaptureReady.countDown();
             }
-            logger.info("Attach video AAC encoder to shared microphone success"
+            logger.info(LogCategory.RECORDING, "unspecified", "Attach video AAC encoder to shared microphone success"
                     + PIPELINE_CONTEXT + pipelineId + ELAPSED_LOG_FRAGMENT
                     + (System.nanoTime() / 1_000_000L - startedAt) + " ms.");
             awaitSegmentOutputReady();
@@ -896,7 +897,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 captureStartedSystemTimeUs - recordingOriginSystemTimeUs);
         long audioStartOffsetFrames = Math.max(0L, alignmentFrames);
         long discardFrames = Math.max(0L, -alignmentFrames);
-        logger.info("Align recording audio to first video sample. Audio start offset: "
+        logger.info(LogCategory.RECORDING, "unspecified", "Align recording audio to first video sample. Audio start offset: "
                 + audioPresentationTimeUs(audioStartOffsetFrames) / 1_000L
                 + " ms. Dropped microphone lead: "
                 + audioPresentationTimeUs(discardFrames) / 1_000L
@@ -1119,7 +1120,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         String reason = readFailure == null
                 ? "recording-volume free space fell below capture safety floor"
                 : "recording-volume free space could not be read";
-        logger.warn("Stop recording because " + reason + ". File: " + output.file().getName()
+        logger.warn(LogCategory.RECORDING, "unspecified", null, "Stop recording because " + reason + ". File: " + output.file().getName()
                 + ". Free: " + freeBytes + " bytes. Floor: "
                 + CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES + " bytes.", readFailure);
         return true;
@@ -1201,7 +1202,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             if (callbackError == null) callbackError = "audio_encoder_stop_timeout";
             firstSample.countDown();
         }
-        logger.info("Stop recording audio encoder failed because AAC muxer drain exceeded "
+        logger.info(LogCategory.RECORDING, "unspecified", "Stop recording audio encoder failed because AAC muxer drain exceeded "
                 + timeoutMillis + " ms. The audio worker was "
                 + (workerAliveBeforeInterrupt ? "still running" : "no longer running")
                 + " before interruption" + PIPELINE_CONTEXT + pipelineId + ".");
@@ -1230,7 +1231,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             audioCaptureReady.countDown();
             firstSample.countDown();
         }
-        logger.warn(PIPELINE_LOG_FIELD + pipelineId + " stage=" + stage
+        logger.warn(LogCategory.RECORDING, "unspecified", null, PIPELINE_LOG_FIELD + pipelineId + " stage=" + stage
                 + " outcome=global_failure", error);
     }
 
@@ -1252,7 +1253,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         } catch (RuntimeException error) {
             if (!gpsLookupFailureLogged) {
                 gpsLookupFailureLogged = true;
-                logger.warn("Recording GPS route lookup failed. Video continues without new "
+                logger.warn(LogCategory.RECORDING, "unspecified", null, "Recording GPS route lookup failed. Video continues without new "
                         + "GPS metadata until location becomes available.", error);
             }
             return null;
@@ -1344,7 +1345,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         try {
             listener.run();
         } catch (RuntimeException error) {
-            logger.warn(PIPELINE_LOG_FIELD + pipelineId
+            logger.warn(LogCategory.RECORDING, "unspecified", null, PIPELINE_LOG_FIELD + pipelineId
                     + " stage=recording_limit_callback outcome=failed", error);
         }
     }
@@ -1378,7 +1379,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     sourceBufferCount = assembled.bufferCount();
                     if (!partialVideoSampleLogged) {
                         partialVideoSampleLogged = true;
-                        logger.info("Join split H.264 encoder output into one video sample success. "
+                        logger.info(LogCategory.RECORDING, "unspecified", "Join split H.264 encoder output into one video sample success. "
                                 + "Encoder buffers: " + sourceBufferCount + ". Bytes: "
                                 + buffer.remaining() + PIPELINE_CONTEXT + pipelineId + CODEC_CONTEXT
                                 + codecName + ".");
@@ -1386,7 +1387,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     if (assembled.timestampChanged()
                             && !partialVideoTimestampMismatchLogged) {
                         partialVideoTimestampMismatchLogged = true;
-                        logger.info("Join split H.264 encoder output whose buffer timestamps "
+                        logger.info(LogCategory.RECORDING, "unspecified", "Join split H.264 encoder output whose buffer timestamps "
                                 + "differed. First timestamp retained" + PIPELINE_CONTEXT + pipelineId
                                 + CODEC_CONTEXT + codecName + ".");
                     }
@@ -1399,7 +1400,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     if (!malformedVideoRecoveryActive) {
                         malformedVideoRecoveryActive = true;
                         malformedVideoRecoveryStartedAtUs = presentationTimeUs;
-                        logger.warn("Drop malformed H.264 encoder sample before MP4 muxing. "
+                        logger.warn(LogCategory.RECORDING, "unspecified", null, "Drop malformed H.264 encoder sample before MP4 muxing. "
                                 + "Video recording continues at the next valid key frame. Sample: #"
                                 + sampleSequence + ". Timestamp: " + presentationTimeUs
                                 + " us. Bytes: " + buffer.remaining() + ". Flags: 0x"
@@ -1421,7 +1422,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 if (malformedVideoRecoveryActive) {
                     long videoGapMillis = Math.max(
                             0L, presentationTimeUs - malformedVideoRecoveryStartedAtUs) / 1_000L;
-                    logger.info("Resume H.264 video muxing at a valid key frame after malformed "
+                    logger.info(LogCategory.RECORDING, "unspecified", "Resume H.264 video muxing at a valid key frame after malformed "
                             + "encoder output. Dropped malformed samples: "
                             + malformedVideoSamplesDropped + ". Dropped dependent samples: "
                             + dependentVideoSamplesDropped + ". Video gap: " + videoGapMillis
@@ -1448,7 +1449,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 firstSample.countDown();
                 recentSamples = recentVideoSamplesLocked();
             }
-            logger.error("Write encoded H.264 output to MP4 failed. Recording segment stopped "
+            logger.error(LogCategory.RECORDING, "unspecified", null, "Write encoded H.264 output to MP4 failed. Recording segment stopped "
                     + "to protect the container. Recent complete video samples, oldest first: "
                     + recentSamples + PIPELINE_CONTEXT + pipelineId + CODEC_CONTEXT + codecName
                     + ".", error);
@@ -1507,7 +1508,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             lastGpsCoordinate = coordinate;
         } catch (RuntimeException error) {
             gpsRouteEnabled = false;
-            logger.warn("Stop embedding GPS route metadata because the MP4 output rejected a "
+            logger.warn(LogCategory.RECORDING, "unspecified", null, "Stop embedding GPS route metadata because the MP4 output rejected a "
                     + "route point. Video recording continues.", error);
         }
     }
@@ -1741,7 +1742,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
         try {
             muxer.addMetadataEntry(mp4LocationData(segmentLocation));
         } catch (RuntimeException error) {
-            logger.warn("Start recording without GPS metadata because MP4 muxer "
+            logger.warn(LogCategory.RECORDING, "unspecified", null, "Start recording without GPS metadata because MP4 muxer "
                     + "rejected current location.", error);
         }
     }
@@ -1765,7 +1766,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             audioStopRequested = true;
             videoSampleAssembler.clear();
             clearMalformedVideoRecoveryLocked();
-            logger.error("Start MP4 muxer failed while flushing buffered H.264 samples. "
+            logger.error(LogCategory.RECORDING, "unspecified", null, "Start MP4 muxer failed while flushing buffered H.264 samples. "
                     + "Recording segment stopped to protect the container. Recent complete "
                     + "video samples, oldest first: " + recentVideoSamplesLocked()
                     + PIPELINE_CONTEXT + pipelineId + CODEC_CONTEXT + codecName + ".", error);
@@ -1818,7 +1819,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
             }
             if (failure != null) {
                 muxerClosed = false;
-                logger.error("Could not finalize recording container '"
+                logger.error(LogCategory.RECORDING, "media_finalization_failed", null, "Could not finalize recording container '"
                         + segmentPath() + "'. Temp file remains available for startup recovery. "
                         + "Reason: " + message(failure) + ".", failure);
             }
@@ -1828,7 +1829,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 output.close();
             } catch (IOException failure) {
                 muxerClosed = false;
-                logger.error("Could not close recording file '" + segmentPath()
+                logger.error(LogCategory.RECORDING, "media_finalization_failed", null, "Could not close recording file '" + segmentPath()
                         + "'. Temp file remains available for startup recovery. Reason: "
                         + message(failure) + ".", failure);
             }
@@ -1890,7 +1891,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 inputSurfaceReleased = true;
                 inputSurface = null;
             } catch (RuntimeException error) {
-                logger.warn(PIPELINE_LOG_FIELD + pipelineId
+                logger.warn(LogCategory.RECORDING, "unspecified", null, PIPELINE_LOG_FIELD + pipelineId
                         + " stage=encoder_release outcome=input_surface_release_failed",
                         error);
             }
@@ -1916,7 +1917,7 @@ public final class SharedAvcEncoder implements AutoCloseable {
                     codecReleased = true;
                     codec = null;
                 } catch (RuntimeException error) {
-                    logger.warn(PIPELINE_LOG_FIELD + pipelineId
+                    logger.warn(LogCategory.RECORDING, "unspecified", null, PIPELINE_LOG_FIELD + pipelineId
                             + " stage=encoder_release outcome=codec_release_failed", error);
                 }
             }
@@ -1969,10 +1970,10 @@ public final class SharedAvcEncoder implements AutoCloseable {
                 codec.release();
                 released++;
             } catch (RuntimeException error) {
-                logger.warn("camera_benchmark codec_pool_release_failed", error);
+                logger.warn(LogCategory.RECORDING, "unspecified", null, "camera_benchmark codec_pool_release_failed", error);
             }
         }
-        logger.info("camera_benchmark codec_pool_released count=" + released);
+        logger.info(LogCategory.RECORDING, "unspecified", "camera_benchmark codec_pool_released count=" + released);
         return released;
     }
 

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.usecase.CaptureEvents;
 import com.dvid.dcam.feature.capture.domain.CaptureEvent;
@@ -14,6 +15,7 @@ import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.Snapshot;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateEvidence;
+import com.dvid.dcam.feature.device.domain.camera.CameraFailureClass;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationDeadline;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationResult;
@@ -1805,6 +1807,60 @@ final class SharedCameraRuntimeBackendTest {
         assertEquals(1, events.photoFailures.size());
     }
 
+    @Test void blockedJpegOutputFailureEmitsStorageUnavailable() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requested = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakePipeline photo = new FakePipeline();
+        photo.captureOutcome = CameraOperationOutcome.BLOCKED_EXTERNAL;
+        photo.captureFailureClass = CameraFailureClass.JPEG_OUTPUT;
+        photo.captureDetail = "jpeg_write:FileNotFoundException";
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(new FakePipeline(), photo, new FakePipeline()),
+                new FakePreviewOutput(), new FakeMedia(),
+                new FakeCapabilityAccess(requested, VerificationOutcome.VERIFIED_PASS),
+                events, new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
+                ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.BLOCKED, result.outcome());
+        assertEquals(1, events.storageUnavailable);
+        assertTrue(events.photoFailures.isEmpty());
+    }
+
+    @Test void globalJpegOutputFailureWithSameDetailRemainsGeneric() {
+        CameraRuntimeSelection effective = selection();
+        CandidateKey requested = candidate(effective,
+                image(StandardResolutionLabel.FHD, 1920, 1080));
+        FakePipeline photo = new FakePipeline();
+        photo.captureOutcome = CameraOperationOutcome.GLOBAL_FAILURE;
+        photo.captureFailureClass = CameraFailureClass.JPEG_OUTPUT;
+        photo.captureDetail = "jpeg_write:FileNotFoundException";
+        FakeEvents events = new FakeEvents();
+        SharedCameraRuntimeBackend backend = new SharedCameraRuntimeBackend(
+                new FakeProvider(new FakePipeline(), photo, new FakePipeline()),
+                new FakePreviewOutput(), new FakeMedia(),
+                new FakeCapabilityAccess(requested, VerificationOutcome.VERIFIED_PASS),
+                events, new NoOpLogger());
+        ProcessCameraRuntimeBackend.Result ready = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED, effective, 1L,
+                Optional.empty()));
+
+        ProcessCameraRuntimeBackend.Result result = execute(backend, command(
+                ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO, null, 2L,
+                ready.activeBinding()));
+
+        assertEquals(ProcessCameraRuntimeBackend.Outcome.RECOVERY_REQUIRED, result.outcome());
+        assertEquals(0, events.storageUnavailable);
+        assertEquals(List.of("Photo:jpeg_write:FileNotFoundException"), events.photoFailures);
+    }
+
     @Test void definitiveStandaloneCaptureFailureRetriesLowerResolutionInSameRequest() {
         CameraRuntimeSelection effective = selection();
         CandidateKey requested = candidate(effective,
@@ -2188,6 +2244,8 @@ final class SharedCameraRuntimeBackendTest {
                 new SharedCameraCapturePipeline.HealthSnapshot(
                         true, false, true, 1L, 1L, "healthy");
         private CameraOperationOutcome captureOutcome = CameraOperationOutcome.PASS;
+        private CameraFailureClass captureFailureClass;
+        private String captureDetail = "capture";
         private int jpegWidth;
         private int jpegHeight;
         private int outputRotationDegrees;
@@ -2333,8 +2391,7 @@ final class SharedCameraRuntimeBackendTest {
             if (captureOutcome != CameraOperationOutcome.PASS) {
                 operations.add(CameraPipelineOperation.CAPTURE_JPEG);
                 lastContext = context;
-                return new CameraOperationResult(context, CameraPipelineOperation.CAPTURE_JPEG,
-                        captureOutcome, 1L, "capture");
+                return captureFailure(context);
             }
             if (jpegWidth > 0 && jpegHeight > 0) {
                 File parent = outputFile.getParentFile();
@@ -2370,10 +2427,19 @@ final class SharedCameraRuntimeBackendTest {
             if (captureOutcome != CameraOperationOutcome.PASS) {
                 operations.add(CameraPipelineOperation.CAPTURE_JPEG);
                 lastContext = context;
-                return new CameraOperationResult(context, CameraPipelineOperation.CAPTURE_JPEG,
-                        captureOutcome, 1L, "capture");
+                return captureFailure(context);
             }
             return pass(context, CameraPipelineOperation.CAPTURE_JPEG);
+        }
+
+        private CameraOperationResult captureFailure(CameraOperationContext context) {
+            return captureFailureClass == null
+                    ? new CameraOperationResult(
+                            context, CameraPipelineOperation.CAPTURE_JPEG,
+                            captureOutcome, 1L, captureDetail)
+                    : new CameraOperationResult(
+                            context, CameraPipelineOperation.CAPTURE_JPEG,
+                            captureOutcome, captureFailureClass, 1L, captureDetail);
         }
 
         @Override public CameraOperationResult release(CameraOperationContext context) {
@@ -2541,6 +2607,7 @@ final class SharedCameraRuntimeBackendTest {
         private final List<String> failures = new ArrayList<>();
         private final List<String> storageStopped = new ArrayList<>();
         private int blockedStarts;
+        private int storageUnavailable;
         @Override public void setListener(java.util.function.Consumer<CaptureEvent> listener) {}
         @Override public void clearListener() {}
         @Override public RecordingMode currentMode() { return RecordingMode.IDLE; }
@@ -2564,6 +2631,7 @@ final class SharedCameraRuntimeBackendTest {
         @Override public void photoFailed(String operation, String message) {
             photoFailures.add(operation + ":" + message);
         }
+        @Override public void captureStorageUnavailable() { storageUnavailable++; }
         @Override public void captureFailed(String operation, String message) {
             failures.add(operation + ":" + message);
         }
@@ -2599,10 +2667,10 @@ final class SharedCameraRuntimeBackendTest {
     }
 
     private static final class NoOpLogger implements Logger {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     }
 }

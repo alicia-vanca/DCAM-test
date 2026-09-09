@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import androidx.core.content.FileProvider;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.media.application.port.MediaOpener;
 import java.io.File;
@@ -32,10 +33,10 @@ public final class AndroidMediaOpener implements MediaOpener {
             context.startActivity(intent);
             return true;
         } catch (ActivityNotFoundException | IllegalArgumentException | SecurityException error) {
-            log.warn("Could not open media " + relativePath, error);
+            log.warn(LogCategory.STORAGE, "unspecified", null, "Could not open media " + relativePath, error);
             return false;
         } catch (Exception error) {
-            log.error("Could not resolve media " + relativePath, error);
+            log.error(LogCategory.STORAGE, "unspecified", null, "Could not resolve media " + relativePath, error);
             return false;
         }
     }

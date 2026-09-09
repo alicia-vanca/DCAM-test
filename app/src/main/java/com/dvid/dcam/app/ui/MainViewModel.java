@@ -43,6 +43,7 @@ public final class MainViewModel extends ViewModel {
     private final MutableLiveData<MainUiState> state;
     private CaptureEvents captureEvents;
     private volatile long lastSavedNoticeAtMillis;
+    private String pendingCaptureFailureNotice;
     private final RefreshDeviceStatusUseCase refreshDeviceStatus;
     private final BrowseMediaUseCase browseMedia;
     private final AuthenticateOperatorUseCase authenticateOperator;
@@ -117,6 +118,12 @@ public final class MainViewModel extends ViewModel {
     public LiveData<MainUiState> state() { return state; }
 
     public long lastSavedNoticeAtMillis() { return lastSavedNoticeAtMillis; }
+
+    public String takeCaptureFailureNotice() {
+        String failure = pendingCaptureFailureNotice;
+        pendingCaptureFailureNotice = null;
+        return failure;
+    }
 
     public void bindCaptureEvents(CaptureEvents events) {
         if (captureEvents == events) return;
@@ -487,20 +494,32 @@ public final class MainViewModel extends ViewModel {
                 MainUiState photoFailed = current();
                 String photoDetail = event.getMessage() == null || event.getMessage().isBlank()
                         ? "unknown error" : event.getMessage();
-                state.setValue(photoFailed.withCapture(
+                publishCaptureFailure(photoFailed.withCapture(
                         photoFailed.getCapture().withPhotoSaving(false),
-                        event.getOperation() + " failed: " + photoDetail, event.isReplay()));
+                        event.getOperation() + " failed: " + photoDetail, event.isReplay()),
+                        event.isReplay());
+                break;
+            case STORAGE_UNAVAILABLE:
+                publishCaptureFailure(current().withMessage(
+                        event.getOperation() + " failed: " + event.getMessage(), event.isReplay()),
+                        event.isReplay());
                 break;
             case ERROR:
                 String detail = event.getMessage() == null || event.getMessage().isBlank()
                         ? "unknown error" : event.getMessage();
-                state.setValue(current().withCapture(
+                publishCaptureFailure(current().withCapture(
                         current().getCapture().withoutVideo(),
-                        event.getOperation() + " failed: " + detail, event.isReplay()));
+                        event.getOperation() + " failed: " + detail, event.isReplay()),
+                        event.isReplay());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported capture event " + event.getType());
         }
+    }
+
+    private void publishCaptureFailure(MainUiState nextState, boolean replayed) {
+        if (!replayed) pendingCaptureFailureNotice = nextState.getMessage();
+        state.setValue(nextState);
     }
 
     private MainUiState current() {

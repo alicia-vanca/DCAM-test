@@ -100,6 +100,11 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".platform.database.DcamDatabaseExportReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <activity
             android:name=".platform.logging.loggly.LogglyProcessBootstrapActivity"
             android:excludeFromRecents="true"

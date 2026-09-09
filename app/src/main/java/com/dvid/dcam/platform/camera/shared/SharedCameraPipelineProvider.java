@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.SensorManager;
 import android.view.OrientationEventListener;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import com.dvid.dcam.platform.camera.shared.egl.EglFanOutPipelineFactory;
@@ -167,7 +168,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
         pipeline.setRotation(orientation.outputRotationDegrees());
         applyPreviewOrientation(previewSurface, orientation);
         if (previousOutputDegrees != orientation.outputRotationDegrees()) {
-            logger.info("shared_camera_preview stage=orientation outcome=applied"
+            logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_preview stage=orientation outcome=applied"
                     + " cameraId=" + cameraId
                     + " sensorDegrees=" + orientation.sensorOrientationDegrees()
                     + " displayDegrees=" + orientation.displayRotationDegrees()
@@ -185,7 +186,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
         mediaOrientationTracking = true;
         if (!mediaOrientationListener.canDetectOrientation()) {
             firstSample.countDown();
-            logger.warn("Media orientation tracking unavailable because "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Media orientation tracking unavailable because "
                     + "device orientation sensor is missing; photos and videos will use preview "
                     + "orientation.", null);
             return;
@@ -200,7 +201,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
             } catch (RuntimeException cleanupError) {
                 error.addSuppressed(cleanupError);
             }
-            logger.warn("Media orientation tracking could not start; photos and videos will use "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Media orientation tracking could not start; photos and videos will use "
                     + "preview orientation. A later camera bind may retry tracking.", error);
         }
     }
@@ -213,7 +214,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
             try {
                 mediaOrientationListener.disable();
             } catch (RuntimeException error) {
-                logger.warn("Media orientation tracking could not stop cleanly.", error);
+                logger.warn(LogCategory.CAMERA, "unspecified", null, "Media orientation tracking could not stop cleanly.", error);
             }
         }
     }
@@ -230,7 +231,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
             return CameraOrientation.photoRotation(
                     sensorOrientationDegrees(cameraId), device, frontFacing(cameraId));
         } catch (RuntimeException error) {
-            logger.warn("Media orientation could not be resolved; using "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Media orientation could not be resolved; using "
                     + "preview orientation.", error);
             return fallback;
         }
@@ -245,7 +246,7 @@ final class DefaultSharedCameraPipelineProvider implements SharedCameraPipelineP
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            logger.warn("Media orientation wait interrupted; using preview orientation.", error);
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Media orientation wait interrupted; using preview orientation.", error);
         }
         return deviceOrientationDegrees;
     }

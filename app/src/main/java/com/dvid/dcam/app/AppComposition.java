@@ -15,6 +15,8 @@ import com.dvid.dcam.R;
 import com.dvid.dcam.app.devmode.DeveloperFeatureToggles;
 import com.dvid.dcam.app.ui.FloatingNotice;
 import com.dvid.dcam.app.ui.camera.CameraFlowCoordinator;
+import com.dvid.dcam.app.ui.settings.SettingsRuntime;
+import com.dvid.dcam.app.ui.settings.SettingsRuntime.CameraPipelineSelection;
 import com.dvid.dcam.app.ui.settings.camera.CameraResolutionOption;
 import com.dvid.dcam.app.ui.settings.camera.CameraSelection;
 import com.dvid.dcam.app.ui.settings.camera.CameraSettingControlId;
@@ -25,6 +27,7 @@ import com.dvid.dcam.app.ui.settings.camera.CameraSettingsStatus;
 import com.dvid.dcam.app.ui.settings.camera.CameraVideoOption;
 import com.dvid.dcam.core.featuregate.domain.FeatureGate;
 import com.dvid.dcam.core.featuregate.application.FeatureGates;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.port.AudioPreparationEvents;
 import com.dvid.dcam.feature.capture.application.port.AudioRecorder;
@@ -140,22 +143,14 @@ import java.util.concurrent.Executors;
  * Application composition root. This is the only place that selects concrete
  * adapters.
  */
-public final class AppComposition {
+public final class AppComposition implements SettingsRuntime {
     // ponytail: Pre-record stays disabled until SharedAvcEncoder gains disk-backed
     // GOP retention.
     private static final long PRE_RECORD_GOP_DURATION_MILLIS = 0L;
+    private static final String RUNTIME_ARGUMENT_NAME = "runtime";
 
     public enum CameraCapabilityRecheckStatus {
         RUNNING, SUCCEEDED, FAILED
-    }
-
-    public record CameraPipelineSelection(String cameraId, String pipelineId, int tupleCount) {
-        public CameraPipelineSelection {
-            if (cameraId == null || cameraId.isBlank()
-                    || pipelineId == null || pipelineId.isBlank() || tupleCount < 0) {
-                throw new IllegalArgumentException("invalid camera pipeline selection");
-            }
-        }
     }
 
     public record CameraCapabilityRecheckFailure(String profile, String cameraId,
@@ -311,7 +306,7 @@ public final class AppComposition {
         AppDatabase database = AppDatabase.get(context);
         deviceSerialNumbers = new DeviceSerialNumberUseCase(new FileDeviceSerialNumberStore(
                 storage.configsFile(), database.cloudState(), deviceInfo.getHardwareId(),
-                storage::identityBackupFiles));
+                storage::identityBackupFiles, AppLogger.get()));
         HardwareButtonLayout builtInHardwareButtons = HardwareButtonProfiles
                 .resolve(AndroidHardwareDeviceIdentity.read());
         configureHardwareButtons = new ConfigureHardwareButtonsUseCase(
@@ -403,10 +398,9 @@ public final class AppComposition {
         audioRecorder = new AndroidAudioRecorderImpl(context, mediaOutput, logger,
                 mediaEncryptionSettings::isMediaEncryptionEnabled, operatorFileUserId,
                 deviceSerialNumbers::load, locationTracking::latestCoordinate,
-                () -> audioFileFormat);
+                () -> audioFileFormat, recordingCoordinator);
         audioRecording = new AudioRecordingUseCase(audioRecorder, captureIoExecutor,
-                () -> DcamPermissions.captureRuntimeGranted(this.context)
-                        && !captureStorageUnavailable(),
+                () -> DcamPermissions.captureRuntimeGranted(this.context),
                 recordingCoordinator,
                 captureStorageNoticeMonitor);
     }
@@ -442,9 +436,9 @@ public final class AppComposition {
 
     private void handleStagedMediaRecovery(StagedMediaRecoveryReport report) {
         if (report.hasFailure()) {
-            logger.error("Staged media recovery failed", report.getFailure());
+            logger.error(LogCategory.STORAGE, "staged_media_recovery_failed", null, "Staged media recovery failed", report.getFailure());
         } else {
-            logger.info("Staged media recovery completed. Recovered files: "
+            logger.info(LogCategory.STORAGE, "staged_media_recovery_completed", "Staged media recovery completed. Recovered files: "
                     + report.getRecovered() + ". Preserved in Temp: "
                     + report.getPreserved() + ". Duplicates skipped: "
                     + report.getDuplicates() + ".");
@@ -483,8 +477,8 @@ public final class AppComposition {
             if (identity != null)
                 databaseSerial = identity.serialNumber;
         } catch (RuntimeException error) {
-            AppLogger.get().warn(
-                    "Could not load device serial from Room before feature startup", error);
+            AppLogger.get().warn(LogCategory.IDENTITY,
+                    "unspecified", null, "Could not load device serial from Room before feature startup", error);
         }
         MediaPartitionLocationPreferenceStore partitionPreferences = new AndroidMediaPartitionLocationPreferenceStoreImpl(
                 context, "INTERNAL");
@@ -722,17 +716,29 @@ public final class AppComposition {
         if (cameraFlow == null || cameraPipelineModes == null || recordingCamera == null) {
             return true;
         }
-        if (cameraPipelineSelectionInFlight() || cameraFlow.transitionInFlight()
-                || cameraFlow.state() != CameraFlowCoordinator.State.READY)
+        if (cameraCapabilityRecheckInFlight() || cameraPipelineSelectionInFlight())
             return false;
         ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
-        return cameraRuntimeAcceptsPhotoRequest(runtime)
-                && !captureStorageUnavailable();
+        if (cameraFlow.transitionInFlight()) {
+            return cameraRuntimeCanHoldPhotoForTupleVerification(runtime);
+        }
+        if (cameraFlow.state() != CameraFlowCoordinator.State.READY)
+            return false;
+        return cameraRuntimeAcceptsPhotoRequest(runtime);
+    }
+
+    static boolean cameraRuntimeCanHoldPhotoForTupleVerification(
+            ProcessCameraRuntimeOwner.RuntimeSnapshot runtime) {
+        Objects.requireNonNull(runtime, RUNTIME_ARGUMENT_NAME);
+        return runtime.inFlight()
+                .map(operation -> operation
+                        == ProcessCameraRuntimeBackend.Operation.VERIFY_SETTING)
+                .orElse(false);
     }
 
     static boolean cameraRuntimeAcceptsRecordingStartRequest(
             ProcessCameraRuntimeOwner.RuntimeSnapshot runtime) {
-        Objects.requireNonNull(runtime, "runtime");
+        Objects.requireNonNull(runtime, RUNTIME_ARGUMENT_NAME);
         return runtime.state() == CameraRuntimeState.READY
                 && runtime.inFlight()
                         .map(operation -> operation
@@ -742,7 +748,7 @@ public final class AppComposition {
 
     static boolean cameraRuntimeAcceptsPhotoRequest(
             ProcessCameraRuntimeOwner.RuntimeSnapshot runtime) {
-        Objects.requireNonNull(runtime, "runtime");
+        Objects.requireNonNull(runtime, RUNTIME_ARGUMENT_NAME);
         return (runtime.state() == CameraRuntimeState.READY
                 || runtime.state() == CameraRuntimeState.RECORDING)
                 && runtime.inFlight()
@@ -789,7 +795,7 @@ public final class AppComposition {
             try {
                 volumes = storageSettings.storageVolumes();
             } catch (RuntimeException error) {
-                logger.warn("Read storage volumes failed; reporting unavailable volumes.",
+                logger.warn(LogCategory.STORAGE, "unspecified", null, "Read storage volumes failed; reporting unavailable volumes.",
                         error);
                 volumes = List.of();
             }
@@ -809,7 +815,7 @@ public final class AppComposition {
                         minimumRecordingStartFreeBytes,
                         recordingCamera.snapshot().state() == CameraRuntimeState.RECORDING);
             } catch (RuntimeException error) {
-                logger.warn("Read active storage warning failed; reporting zero free bytes.",
+                logger.warn(LogCategory.STORAGE, "unspecified", null, "Read active storage warning failed; reporting zero free bytes.",
                         error);
                 warning = new StorageWarningStatus(true, true, 0L);
             }
@@ -844,17 +850,11 @@ public final class AppComposition {
                 || cameraPipelineSelectionInFlight()
                 || cameraFlow != null
                         && cameraFlow.state() == CameraFlowCoordinator.State.UNAVAILABLE
-                        && !cameraFlow.releasedCameraRecoveryPending()
-                || captureStorageUnavailable();
-    }
-
-    private boolean captureStorageUnavailable() {
-        return mediaOutput.isExternalStorageRequested()
-                && captureStorageNoticeMonitor.isUnavailable();
+                        && !cameraFlow.releasedCameraRecoveryPending();
     }
 
     private boolean cameraRecordingActive() {
-        if (recordingCoordinator.currentMode() != RecordingMode.IDLE)
+        if (recordingCoordinator.isRecording())
             return true;
         ProcessCameraRuntimeOwner.RuntimeSnapshot runtime = recordingCamera.snapshot();
         return runtime.state() == CameraRuntimeState.RECORDING
@@ -904,6 +904,34 @@ public final class AppComposition {
         });
     }
 
+    @Override public boolean selectCameraPipelineModeForSettings(
+            DeveloperSettingsStore.Mode mode,
+            Consumer<SettingsRuntime.CameraPipelineModeResult> completion) {
+        Consumer<SettingsRuntime.CameraPipelineModeResult> checked =
+                Objects.requireNonNull(completion, "completion");
+        return selectCameraPipelineMode(mode, result -> checked.accept(settingsResult(result)));
+    }
+
+    @Override public boolean selectCameraPipelineModeForSettings(String cameraId,
+            DeveloperSettingsStore.Mode mode,
+            Consumer<SettingsRuntime.CameraPipelineModeResult> completion) {
+        Consumer<SettingsRuntime.CameraPipelineModeResult> checked =
+                Objects.requireNonNull(completion, "completion");
+        return selectCameraPipelineMode(cameraId, mode,
+                result -> checked.accept(settingsResult(result)));
+    }
+
+    static SettingsRuntime.CameraPipelineModeResult settingsResult(
+            CameraPipelineModeController.Result result) {
+        return switch (result) {
+            case APPLIED -> SettingsRuntime.CameraPipelineModeResult.APPLIED;
+            case REJECTED_BUSY -> SettingsRuntime.CameraPipelineModeResult.REJECTED_BUSY;
+            case REJECTED_UNAVAILABLE ->
+                    SettingsRuntime.CameraPipelineModeResult.REJECTED_UNAVAILABLE;
+            case FAILED -> SettingsRuntime.CameraPipelineModeResult.FAILED;
+        };
+    }
+
     private void persistCameraPipelineSelection(
             String cameraId, DeveloperSettingsStore.Mode mode) {
         DeveloperSettingsStore.Mode previousMode = cameraPipelineSettings.mode(cameraId);
@@ -917,17 +945,17 @@ public final class AppComposition {
             try {
                 cameraPipelineSettings.setMode(cameraId, previousMode);
             } catch (RuntimeException rollbackError) {
-                logger.warn("camera_pipeline_selector preference_rollback_failed", rollbackError);
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_selector preference_rollback_failed", rollbackError);
             }
             try {
                 cameraCapabilities.persistPipelineSelection(cameraId, previousPipeline);
             } catch (RuntimeException rollbackError) {
-                logger.warn("camera_pipeline_selector snapshot_rollback_failed", rollbackError);
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_selector snapshot_rollback_failed", rollbackError);
             }
             try {
                 configureCameraPipelineSelection(cameraId, previousPipeline);
             } catch (RuntimeException rollbackError) {
-                logger.warn("camera_pipeline_selector configured_selection_rollback_failed",
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_selector configured_selection_rollback_failed",
                         rollbackError);
             }
             throw error;
@@ -943,7 +971,7 @@ public final class AppComposition {
     }
 
     public boolean resetCameraCapabilities() {
-        logger.info("camera_capability_recheck request"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck request"
                 + " source=AppComposition.resetCameraCapabilities");
         if (!cameraCapabilityRecheckControlEnabled())
             return false;
@@ -985,7 +1013,7 @@ public final class AppComposition {
 
     private void handleCameraCapabilityRecheckProgress(
             CameraCapabilityService.RecheckProgress progress) {
-        logger.info("camera_capability_recheck stage=progress_ui surface=preview_overlay"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck stage=progress_ui surface=preview_overlay"
                 + " profile=" + progress.profile() + " camera=" + progress.cameraId()
                 + " completed=" + progress.completed() + " total=" + progress.total());
         recordingCamera.beginCapabilityCheckPreview();
@@ -1014,7 +1042,7 @@ public final class AppComposition {
             recordingCamera.completeCapabilityCheckPreview(
                     update.status() == CameraFlowCoordinator.RecheckStatus.SUCCEEDED);
         }
-        logger.info("camera_capability_recheck stage=progress_ui surface=preview_overlay"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck stage=progress_ui surface=preview_overlay"
                 + " action=terminal status=" + update.status().name());
         CameraCapabilityRecheckStatus status = switch (update.status()) {
             case RUNNING -> CameraCapabilityRecheckStatus.RUNNING;
@@ -1089,10 +1117,10 @@ public final class AppComposition {
         return cameraFlow.releaseIdleCamera(released -> {
             if (released) {
                 RecordingForegroundService.releaseCameraReady(context);
-                logger.info("Released idle camera after screen turned off. "
+                logger.info(LogCategory.CAMERA, "unspecified", "Released idle camera after screen turned off. "
                         + "Camera will rebind before next off-screen capture.");
             } else {
-                logger.warn("Could not release idle camera after screen turned off; "
+                logger.warn(LogCategory.CAMERA, "unspecified", null, "Could not release idle camera after screen turned off; "
                         + "keeping camera-ready foreground state.", null);
             }
         });
@@ -1213,10 +1241,10 @@ public final class AppComposition {
                 try {
                     cameraCapabilities.markInitializationReusable();
                 } catch (RuntimeException error) {
-                    logger.warn("camera_pipeline_selector cameraId=" + cameraId
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_selector cameraId=" + cameraId
                             + " stage=initialization_state outcome=not_reusable", error);
                 }
-                logger.info("camera_pipeline_selector cameraId=" + cameraId
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_selector cameraId=" + cameraId
                         + " stage=commit outcome=applied mode=" + mode.name());
             }
 
@@ -1368,7 +1396,7 @@ public final class AppComposition {
                 try {
                     cameraCapabilities.markInitializationReusable();
                 } catch (RuntimeException error) {
-                    logger.warn("camera_capability_owner stage=initialization_state"
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=initialization_state"
                             + " outcome=not_reusable", error);
                 }
             }
@@ -1407,7 +1435,7 @@ public final class AppComposition {
                 return true;
             }
         }
-        logger.info("Saved camera capabilities could not be used. "
+        logger.info(LogCategory.CAPABILITY, "unspecified", "Saved camera capabilities could not be used. "
                 + "Running a fast camera capability scan.");
         return false;
     }
@@ -1417,7 +1445,7 @@ public final class AppComposition {
         try {
             cameraCapabilities.markInitializationReusable();
         } catch (RuntimeException error) {
-            logger.warn("camera_pipeline_selector startup_sync_failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_selector startup_sync_failed", error);
         }
         ready.accept(cameraCapabilities.startupCandidates());
     }
@@ -1539,7 +1567,7 @@ public final class AppComposition {
         } catch (RuntimeException error) {
             cachedMinimumRecordingStartFreeBytes =
                     CaptureStorageCapacityPolicy.MIN_CAPTURE_FREE_BYTES;
-            logger.warn("Refresh recording storage minimum failed; using safety floor.", error);
+            logger.warn(LogCategory.STORAGE, "unspecified", null, "Refresh recording storage minimum failed; using safety floor.", error);
         }
     }
 
@@ -1679,7 +1707,7 @@ public final class AppComposition {
         if (!DcamPermissions.cameraGranted(context))
             return;
         if (!RecordingForegroundService.keepCameraReady(context)) {
-            logger.warn("Could not keep hot camera runtime in foreground. "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Could not keep hot camera runtime in foreground. "
                     + "Screen-off capture may require camera reinitialization.", null);
         }
     }
@@ -1909,7 +1937,7 @@ public final class AppComposition {
         }
 
         public boolean isRecording() {
-            return captureEvents.currentMode() != RecordingMode.IDLE;
+            return videos.isRecording();
         }
 
         public void bindCameraIfPermitted() {

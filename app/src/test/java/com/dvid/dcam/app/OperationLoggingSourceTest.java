@@ -11,47 +11,53 @@ import org.junit.jupiter.api.Test;
 final class OperationLoggingSourceTest {
 
     @Test void navigationLogRunsAfterScreenRendering() throws IOException {
-        String render = method(source(), "private void render(MainUiState state)",
-                "private void updateSavingNotice");
+        String render = method(source(),
+                "private void onDestinationReady(MainScreen previous, MainScreen screen)",
+                "private void vibrateCaptureCommandStart");
+        String router = source("com/dvid/dcam/app/ui/navigation/MainScreenRouter.java");
+        int commitStart = router.indexOf("private void commitCameraLayer(MainScreen route)");
 
-        int renderComplete = render.indexOf("renderSettingsDetail(screen);");
-        int operationLog = render.indexOf("logScreenNavigation(operationLoggedScreen, screen);");
+        int renderComplete = router.indexOf("committedRoute = route;", commitStart);
+        int operationLog = router.indexOf(
+                "readyListener.onReady(previous, route);", commitStart);
         assertTrue(renderComplete >= 0);
         assertTrue(operationLog > renderComplete);
-        assertTrue(render.contains("if (operationLoggedScreen != screen)"));
-        assertTrue(render.contains("operationLoggedScreen = screen;"));
+        assertTrue(render.contains(
+                "if (navigation != null) navigation.onDestinationReady(previous, screen);"));
     }
 
     @Test void settingLogsRunOnlyAfterAcceptedChanges() throws IOException {
-        String activity = source();
-        String cameraSetting = method(activity, "private void selectCameraSetting(",
-                "private boolean canSelectDeveloperSetting");
-        String pipelineSetting = method(activity, "private void selectCameraPipelineMode(",
+        String coordinator = source(
+                "com/dvid/dcam/app/ui/settings/SettingsScreenCoordinator.java");
+        String cameraSetting = method(coordinator, "public void selectCameraSetting(",
+                "public boolean canSelectDeveloperSetting");
+        String pipelineSetting = method(coordinator, "private void selectCameraPipelineMode(",
                 "static int cameraPipelineNotice");
-        String booleanSetting = method(activity, "private void updateBooleanSetting(",
-                "private void applyAutoRotate");
-        String formatSetting = method(activity, "private void selectSetting(",
-                "protected void onNewIntent");
-        String audioSettings = method(activity, "private SettingsScreenModel settingsModel(",
-                "private List<StorageOptionUiState> storageOptions");
-        String visibility = method(activity, "private boolean isSettingVisible(",
-                "private boolean isReadOnlySettingVisible");
-        String alertVolume = method(activity, "private String alertVolumeLabel()",
+        String booleanSetting = method(coordinator, "public void updateBooleanSetting(",
+                "public void performSettingAction");
+        String formatSetting = method(coordinator, "private void selectSetting(SettingId",
+                "private boolean handleLocationSwitchChanged");
+        String audioSettings = method(coordinator, "private SettingsScreenModel settingsModel(",
+                "private SettingsScreenModel developerSettingsModel");
+        String visibility = method(coordinator, "private boolean isSettingVisible(",
+                "private SettingsScreenModel withLanguage");
+        String alertVolume = method(coordinator, "private String alertVolumeLabel()",
                 "private String[] visibleReadOnlySettings");
 
         assertTrue(cameraSetting.indexOf("return;")
                 < cameraSetting.indexOf("logSelectedSettingChanged(item, stableId, selectedIndex);"));
-        assertTrue(pipelineSetting.indexOf("result == CameraPipelineModeController.Result.APPLIED")
+        assertTrue(pipelineSetting.indexOf(
+                "result == SettingsRuntime.CameraPipelineModeResult.APPLIED")
                 < pipelineSetting.indexOf("logSelectedSettingChanged(item, stableId, selectedIndex);"));
         assertTrue(booleanSetting.contains("if (handleLocationSwitchChanged(checked))"));
-        assertTrue(booleanSetting.contains("if (!androidRuntime.setWifiEnabled(checked))"));
+        assertTrue(booleanSetting.contains("if (!platform.setWifiEnabled(checked))"));
         assertTrue(booleanSetting.contains("if (id == SettingId.FULL_SCREEN_DISPLAY)"));
         assertTrue(booleanSetting.contains(
-                "activityChrome.setFullScreenDisplayEnabled(checked);"));
+                "platform.setFullScreenDisplayEnabled(checked);"));
         assertTrue(formatSetting.contains("if (id == SettingId.AUDIO_FILE_FORMAT)"));
-        assertTrue(formatSetting.contains("composition.setAudioFileFormat(formats[selectedIndex]);"));
+        assertTrue(formatSetting.contains("runtime.setAudioFileFormat(formats[selectedIndex]);"));
         assertTrue(audioSettings.contains("screen == MainScreen.AUDIO_SETTINGS"));
-        assertTrue(audioSettings.contains("composition.audioFileFormat()"));
+        assertTrue(audioSettings.contains("runtime.audioFileFormat()"));
         assertTrue(audioSettings.contains("AudioCaptureSettings.SAMPLE_RATE_HZ"));
         assertTrue(audioSettings.contains("AudioCaptureSettings.BIT_RATE_BPS"));
         assertTrue(audioSettings.contains("AudioCaptureSettings.CHANNEL_COUNT"));
@@ -59,16 +65,20 @@ final class OperationLoggingSourceTest {
         assertTrue(formatSetting.contains("id == SettingId.AUDIO_ALERT_VOLUME"));
         assertTrue(alertVolume.contains("AudioManager.STREAM_ALARM"));
         assertTrue(visibility.contains("item.getId() == SettingId.FULL_SCREEN_DISPLAY"));
-        assertTrue(visibility.contains("!androidRuntime.isDeviceOwner()"));
+        assertTrue(visibility.contains("!platform.isDeviceOwner()"));
         assertTrue(booleanSetting.contains("logBooleanSettingChanged(item, id, checked);"));
     }
 
     @Test void operationMessagesUseHumanLanguage() throws IOException {
         String activity = source();
+        String coordinator = source(
+                "com/dvid/dcam/app/ui/settings/SettingsScreenCoordinator.java");
 
-        assertTrue(activity.contains("logger.info(\"Displayed \" + screenName(current)"));
-        assertTrue(activity.contains("logger.info(\"Changed setting \" + name"));
-        assertTrue(activity.contains("Started camera capability check from developer settings."));
+        assertTrue(activity.contains("navigation.onDestinationReady(previous, screen);"));
+        assertTrue(coordinator.contains(
+                "logger.info(LogCategory.CONFIG, \"unspecified\", \"Changed setting \" + name"));
+        assertTrue(coordinator.contains(
+                "Started camera capability check from developer settings."));
         assertTrue(activity.contains("Completed camera capability check successfully."));
         assertFalse(activity.contains("camera_capability_recheck request"));
         assertFalse(activity.contains("camera_capability_recheck outcome=failed"));
@@ -83,8 +93,12 @@ final class OperationLoggingSourceTest {
     }
 
     private static String source() throws IOException {
+        return source("com/dvid/dcam/app/MainActivity.java");
+    }
+
+    private static String source(String relative) throws IOException {
         Path root = Files.exists(Path.of("app/src/main/java"))
                 ? Path.of("app/src/main/java") : Path.of("src/main/java");
-        return Files.readString(root.resolve("com/dvid/dcam/app/MainActivity.java"));
+        return Files.readString(root.resolve(relative));
     }
 }

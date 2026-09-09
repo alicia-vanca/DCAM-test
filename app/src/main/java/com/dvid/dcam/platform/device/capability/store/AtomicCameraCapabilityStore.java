@@ -1,6 +1,7 @@
 package com.dvid.dcam.platform.device.capability.store;
 
 import android.util.AtomicFile;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
@@ -71,10 +72,10 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
         } catch (FileNotFoundException error) {
             return LoadResult.rebuildNeeded(RebuildReason.MISSING);
         } catch (UnsupportedSnapshotFormatException error) {
-            logger.warn("Saved camera capabilities use an unsupported format. A new capability scan is required.", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Saved camera capabilities use an unsupported format. A new capability scan is required.", error);
             return LoadResult.rebuildNeeded(RebuildReason.UNSUPPORTED_FORMAT);
         } catch (IOException | InvalidSnapshotXmlException | RuntimeException error) {
-            logger.warn("Saved camera capabilities could not be read. A new capability scan is required.", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Saved camera capabilities could not be read. A new capability scan is required.", error);
             return LoadResult.rebuildNeeded(RebuildReason.CORRUPT);
         }
         return LoadResult.loaded(snapshot);
@@ -88,10 +89,10 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
         } catch (FileNotFoundException error) {
             return LoadResult.rebuildNeeded(RebuildReason.MISSING);
         } catch (UnsupportedSnapshotFormatException error) {
-            logger.warn("Saved camera capabilities use an unsupported format. A new capability scan is required.", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Saved camera capabilities use an unsupported format. A new capability scan is required.", error);
             return LoadResult.rebuildNeeded(RebuildReason.UNSUPPORTED_FORMAT);
         } catch (IOException | InvalidSnapshotXmlException | RuntimeException error) {
-            logger.warn("Saved camera capabilities could not be read. A new capability scan is required.", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Saved camera capabilities could not be read. A new capability scan is required.", error);
             return LoadResult.rebuildNeeded(RebuildReason.CORRUPT);
         }
 
@@ -101,13 +102,13 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
             RebuildReason reason = filtered.invalidatedCameras().isEmpty()
                     ? RebuildReason.PIPELINE_IDENTITY_MISMATCH
                     : RebuildReason.HARDWARE_MISMATCH;
-            logger.info("Saved camera capabilities need a partial rebuild."
+            logger.info(LogCategory.CAPABILITY, "unspecified", "Saved camera capabilities need a partial rebuild."
                     + " Invalidated cameras=" + filtered.invalidatedCameras().size()
                     + ", pipelines=" + filtered.invalidatedPipelines().size() + ".");
             return LoadResult.loadedWithInvalidatedEvidence(filtered.snapshot(), reason,
                     filtered.invalidatedCameras(), filtered.invalidatedPipelines());
         }
-        logger.info("Camera image qualities loaded. "
+        logger.info(LogCategory.CAPABILITY, "unspecified", "Camera image qualities loaded. "
                 + selectedImageQualities(filtered.snapshot()) + ".");
         return LoadResult.loaded(filtered.snapshot());
     }
@@ -326,8 +327,8 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
                 }
                 scheduled.complete(error);
                 if (dropped != null) dropped.complete(error);
-                scheduled.logger().error(
-                        "Camera image quality persistence failed. Attempted image qualities: "
+                scheduled.logger().error(LogCategory.CAPABILITY,
+                        "unspecified", null, "Camera image quality persistence failed. Attempted image qualities: "
                                 + selectedImageQualities(scheduled.snapshot()) + "."
                                 + (dropped == null ? ""
                                         : " One pending update was also discarded."),
@@ -349,8 +350,8 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
                     }
                     current.complete(error);
                     if (dropped != null) dropped.complete(error);
-                    current.logger().error(
-                            "Camera image quality persistence failed. Attempted image qualities: "
+                    current.logger().error(LogCategory.CAPABILITY,
+                            "unspecified", null, "Camera image quality persistence failed. Attempted image qualities: "
                                     + selectedImageQualities(current.snapshot()) + "."
                                     + (dropped == null ? ""
                                             : " One pending update was also discarded."),
@@ -361,7 +362,7 @@ public final class AtomicCameraCapabilityStore implements CameraCapabilityStore 
                 String imageQualities = selectedImageQualities(current.snapshot());
                 if (!imageQualities.equals(lastSavedImageQualities)) {
                     String message = savedImageQualityMessage(current.snapshot());
-                    if (!message.isEmpty()) current.logger().info(message);
+                    if (!message.isEmpty()) current.logger().info(LogCategory.CAPABILITY, "unspecified", message);
                     lastSavedImageQualities = imageQualities;
                 }
                 synchronized (lock) {

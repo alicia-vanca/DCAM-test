@@ -17,6 +17,7 @@ public final class CaptureEvent {
         PHOTO_SAVING,
         PHOTO_SAVED,
         PHOTO_FAILED,
+        STORAGE_UNAVAILABLE,
         ERROR
     }
 
@@ -106,6 +107,12 @@ public final class CaptureEvent {
 
     public static CaptureEvent photoFailed(String operation, String message) {
         return new CaptureEvent(Type.PHOTO_FAILED, null, null, operation, message);
+    }
+
+    public static CaptureEvent storageUnavailable() {
+        return new CaptureEvent(
+                Type.STORAGE_UNAVAILABLE, RecordingMode.IDLE, null,
+                "Storage", "Capture storage unavailable");
     }
 
     public static CaptureEvent error(String operation, String message) {

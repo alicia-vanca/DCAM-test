@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import android.content.Context;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.CameraFacts;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.EncoderFacts;
@@ -70,19 +71,19 @@ public final class CameraEncoderCatalogDiagnosticTest {
     }
 
     private static final class PrintingLogger implements Logger {
-        @Override public void debug(String message) { System.out.println(message); }
+        @Override public void debug(LogCategory category, String eventName, String message) { System.out.println(message); }
 
-        @Override public void info(String message) { System.out.println(message); }
+        @Override public void info(LogCategory category, String eventName, String message) { System.out.println(message); }
 
-        @Override public void info(String message, Throwable error) {
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             System.out.println(message + " error=" + error);
         }
 
-        @Override public void warn(String message, Throwable error) {
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             System.out.println(message + " error=" + error);
         }
 
-        @Override public void error(String message, Throwable error) {
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             System.out.println(message + " error=" + error);
         }
     }

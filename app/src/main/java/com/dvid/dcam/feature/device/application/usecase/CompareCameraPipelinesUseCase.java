@@ -1,5 +1,6 @@
 package com.dvid.dcam.feature.device.application.usecase;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.CameraSnapshot;
@@ -180,7 +181,7 @@ public final class CompareCameraPipelinesUseCase {
                     report.status().name().toLowerCase() + " published=" + published);
             return new Result(report, published ? Optional.of(fresh) : Optional.empty());
         } catch (RuntimeException error) {
-            logger.warn("camera_pipeline_comparison outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_comparison outcome=failed", error);
             safeRelease(pipelineA);
             safeRelease(pipelineB);
             return incomplete(request, startedNanos, runA, runB,
@@ -210,14 +211,14 @@ public final class CompareCameraPipelinesUseCase {
             Measurement measurement = runner.measure(plan, cameraId, tuple,
                     invocation, cancellation);
             if (!measurement.complete() || measurement.sample().isEmpty()) {
-                logger.info("camera_pipeline_benchmark measurement_incomplete pipeline="
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark measurement_incomplete pipeline="
                         + runner.pipelineId() + " camera=" + cameraId + " tuple=" + tuple
                         + " detail=" + measurement.detail());
                 return null;
             }
             PerformanceSample sample = measurement.sample().orElseThrow();
             if (!hasRequiredMetrics(sample)) {
-                logger.info("camera_pipeline_benchmark measurement_incomplete pipeline="
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark measurement_incomplete pipeline="
                         + runner.pipelineId() + " camera=" + cameraId + " tuple=" + tuple
                         + " detail=missing_required_metrics");
                 return null;
@@ -479,7 +480,7 @@ public final class CompareCameraPipelinesUseCase {
         try {
             return snapshotPublisher.publishDurably(snapshot, report);
         } catch (RuntimeException error) {
-            logger.warn("camera_pipeline_comparison publish_failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_comparison publish_failed", error);
             return false;
         }
     }
@@ -578,7 +579,7 @@ public final class CompareCameraPipelinesUseCase {
             try {
                 listener.accept(value);
             } catch (RuntimeException error) {
-                logger.warn("camera_pipeline_comparison progress_callback_failed", error);
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_pipeline_comparison progress_callback_failed", error);
             }
         };
     }

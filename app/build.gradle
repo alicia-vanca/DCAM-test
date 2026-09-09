@@ -102,8 +102,7 @@ android {
             }
             minifyEnabled = true
             shrinkResources = true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
-                    'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
             if (releaseSigningConfigured) {
                 signingConfig = signingConfigs.release
             }
@@ -129,9 +128,11 @@ def validateReleaseBuildInputs = tasks.register('validateReleaseBuildInputs') {
 }
 
 tasks.matching { task ->
-    task.name == 'packageRelease'
-            || task.name == 'packageReleaseBundle'
-            || task.name == 'packageReleaseUniversalApk'
+    task.name in [
+            'packageRelease',
+            'packageReleaseBundle',
+            'packageReleaseUniversalApk'
+    ]
 }.configureEach {
     dependsOn validateReleaseBuildInputs
 }
@@ -162,7 +163,10 @@ dependencies {
     implementation 'com.google.android.gms:play-services-location:21.3.0'
 
     testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:${junitVersion}"
+    testRuntimeOnly "org.junit.vintage:junit-vintage-engine:${junitVersion}"
 
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
     androidTestImplementation 'androidx.test.ext:junit:1.3.0'

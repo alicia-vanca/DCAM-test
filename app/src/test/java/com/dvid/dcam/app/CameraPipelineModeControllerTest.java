@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dvid.dcam.R;
+import com.dvid.dcam.app.ui.settings.SettingsRuntime;
 import com.dvid.dcam.feature.device.application.port.DeveloperSettingsStore;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
@@ -26,15 +26,16 @@ final class CameraPipelineModeControllerTest {
     private static final CandidateKey B = candidate("0", "b-camera2-egl-fanout-v1");
     private static final CandidateKey B_INACTIVE = candidate("1", "b-camera2-egl-fanout-v1");
 
-    @Test void uiMapsEveryPipelineResultConsistently() {
-        assertEquals(R.string.camera_pipeline_applied, MainActivity.cameraPipelineNotice(
-                CameraPipelineModeController.Result.APPLIED));
-        assertEquals(R.string.camera_pipeline_busy, MainActivity.cameraPipelineNotice(
-                CameraPipelineModeController.Result.REJECTED_BUSY));
-        assertEquals(R.string.camera_pipeline_unknown, MainActivity.cameraPipelineNotice(
-                CameraPipelineModeController.Result.REJECTED_UNAVAILABLE));
-        assertEquals(R.string.camera_pipeline_failed, MainActivity.cameraPipelineNotice(
-                CameraPipelineModeController.Result.FAILED));
+    @Test void compositionMapsEveryPipelineResultToTheSettingsBoundary() {
+        assertEquals(SettingsRuntime.CameraPipelineModeResult.APPLIED,
+                AppComposition.settingsResult(CameraPipelineModeController.Result.APPLIED));
+        assertEquals(SettingsRuntime.CameraPipelineModeResult.REJECTED_BUSY,
+                AppComposition.settingsResult(CameraPipelineModeController.Result.REJECTED_BUSY));
+        assertEquals(SettingsRuntime.CameraPipelineModeResult.REJECTED_UNAVAILABLE,
+                AppComposition.settingsResult(
+                        CameraPipelineModeController.Result.REJECTED_UNAVAILABLE));
+        assertEquals(SettingsRuntime.CameraPipelineModeResult.FAILED,
+                AppComposition.settingsResult(CameraPipelineModeController.Result.FAILED));
     }
 
     @Test void forcedSwitchRequiresIdleRuntime() {

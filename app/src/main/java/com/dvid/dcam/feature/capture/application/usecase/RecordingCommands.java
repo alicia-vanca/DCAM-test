@@ -11,6 +11,11 @@ public interface RecordingCommands {
     void toggleImp();
     RecordingMode currentMode();
 
+    /** Returns true for startup and active recording, but not for a retained pre-start request. */
+    default boolean isRecording() {
+        return currentMode() != RecordingMode.IDLE;
+    }
+
     default boolean isRecordingStartPending() {
         return false;
     }

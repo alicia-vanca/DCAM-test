@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 final class StorageUnavailableFlowSourceTest {
     @Test void storageChecksStayOffUiThreadAndCoverAllCaptureCommands() throws IOException {
         String activity = source("app/MainActivity.java");
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
         String compositionSource = source("app/AppComposition.java");
         String composition = compositionSource.replaceAll("\\s+", " ");
         String storage = source("platform/storage/DcamStorage.java");
@@ -23,9 +24,9 @@ final class StorageUnavailableFlowSourceTest {
         String warning = section(activity,
                 "private void updateStorageWarning()",
                 "private String gpsCoordinatesText()");
-        String storageOptions = section(activity,
+        String storageOptions = section(coordinator,
                 "private List<StorageOptionUiState> storageOptions()",
-                "private void requestDefaultHomeIfNeeded()");
+                "private StorageOptionUiState storageOption");
         String storageReceiver = section(activity,
                 "private final BroadcastReceiver storageMountedReceiver",
                 "private final BroadcastReceiver screenStateReceiver");
@@ -62,9 +63,6 @@ final class StorageUnavailableFlowSourceTest {
         assertTrue(composition.contains("captureStorageNoticeMonitor.invalidate();"));
         assertTrue(composition.contains(
                 "captureIoExecutor.execute(captureStorageNoticeMonitor::evaluate);"));
-        assertTrue(composition.contains("&& !captureStorageUnavailable(), recordingCoordinator"));
-        assertTrue(composition.contains("&& !captureStorageUnavailable();"));
-        assertTrue(composition.contains("|| captureStorageUnavailable();"));
         assertTrue(composition.contains("captureStorageNoticeMonitor::pause"));
         assertTrue(composition.contains("storage.refreshExternalRootsAfterMount();"));
         assertFalse(storageCreation.contains("getExternalFilesDirs("));
@@ -76,18 +74,43 @@ final class StorageUnavailableFlowSourceTest {
     }
 
     @Test void storageUsageRefreshesOnEveryStorageScreenEntry() throws IOException {
-        String activity = source("app/MainActivity.java");
-        String render = section(activity,
-                "private void render(MainUiState state)",
-                "private void vibrateCaptureCommandStart()");
-        String screenEntry = section(render,
-                "if (renderedScreen != screen)",
-                "renderedScreen = screen;");
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
+        String screenEntry = section(coordinator,
+                "public void onScreenEntered(",
+                "public void onCaptureStateChanged(");
+        String stale = section(coordinator,
+                "private void markStorageVolumesStale()",
+                "private void logSelectedSettingChanged(");
 
         assertTrue(screenEntry.contains(
                 "if (screen == MainScreen.STORAGE_SETTINGS)"));
-        assertTrue(screenEntry.contains("storageVolumesGeneration++;"));
-        assertTrue(screenEntry.contains("storageVolumesStale = true;"));
+        assertTrue(screenEntry.contains("markStorageVolumesStale();"));
+        assertTrue(stale.contains("storageVolumesGeneration++;"));
+        assertTrue(stale.contains("storageVolumesStale = true;"));
+    }
+
+    @Test void storageSelectionRefreshesOnlyStorageUsageWithoutRecreatingActivity()
+            throws IOException {
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
+        String renderer = source("app/ui/settings/SettingsControlRenderer.java");
+        String selection = section(coordinator,
+                "if (id == SettingId.DEFAULT_STORAGE)",
+                "if (id == SettingId.GPS_POSITIONING_MODE)");
+        String volumeRefresh = section(coordinator,
+                "private void refreshStorageVolumes()",
+                "private void markStorageVolumesStale()");
+        String storageRefresh = section(renderer,
+                "public void refreshStorageUsage(SettingsScreenModel model)",
+                "private void applyEnabledState");
+
+        assertTrue(selection.contains("settingsUiState.select(id, selectedIndex);"));
+        assertTrue(selection.contains("Invalidation.STORAGE_USAGE"));
+        assertFalse(selection.contains("recreate();"));
+        assertTrue(volumeRefresh.contains("Invalidation.STORAGE_USAGE"));
+        assertFalse(volumeRefresh.contains("Invalidation.ROWS"));
+        assertTrue(storageRefresh.contains("SettingItem.Type.STORAGE_RADIO"));
+        assertTrue(storageRefresh.contains("refreshStorageRadio(row, item);"));
+        assertFalse(storageRefresh.contains("refreshRows("));
     }
 
     private static String section(String source, String start, String end) {

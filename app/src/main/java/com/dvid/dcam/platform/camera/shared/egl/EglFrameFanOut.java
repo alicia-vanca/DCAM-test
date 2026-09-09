@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.view.Surface;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.platform.camera.shared.CameraPipelineFailureClassifier;
 import java.nio.ByteBuffer;
@@ -332,7 +333,7 @@ final class EglFrameFanOut implements AutoCloseable {
         } else {
             initializeExternalPreviewBridge();
         }
-        logger.info("pipeline=b-camera2-egl-fanout-v1 stage=egl_init outcome=pass"
+        logger.info(LogCategory.CAMERA, "unspecified", "pipeline=b-camera2-egl-fanout-v1 stage=egl_init outcome=pass"
                 + " renderer=" + renderer + " width=" + width + " height=" + height);
     }
     private void initializeExternalPreview() throws EglException {
@@ -407,7 +408,7 @@ final class EglFrameFanOut implements AutoCloseable {
                     textureMatrix, encoderTextureMatrix);
             if (!sourceTransformLogged) {
                 sourceTransformLogged = true;
-                logger.info("Prepare pipeline B frame transforms. Preview uses the measured "
+                logger.info(LogCategory.CAMERA, "unspecified", "Prepare pipeline B frame transforms. Preview uses the measured "
                         + "SurfaceTexture transform; encoder keeps measured crop without "
                         + "preview-only rotation or mirror. Preview matrix: "
                         + java.util.Arrays.toString(textureMatrix)
@@ -538,7 +539,7 @@ final class EglFrameFanOut implements AutoCloseable {
             previewDrops++;
             listener.onPreviewDrop(previewDrops,
                     "preview_render:" + error.getClass().getSimpleName());
-            logger.warn("pipeline=b-camera2-egl-fanout-v1 stage=preview_render"
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "pipeline=b-camera2-egl-fanout-v1 stage=preview_render"
                     + " outcome=drop", error);
         } finally {
             if (textureSlot >= 0) externalPreviewTextureInUse.compareAndSet(textureSlot, -1);
@@ -558,7 +559,7 @@ final class EglFrameFanOut implements AutoCloseable {
                 || previewHeight != externalPreviewViewportHeight) {
             externalPreviewViewportWidth = previewWidth;
             externalPreviewViewportHeight = previewHeight;
-            logger.info("pipeline=b-camera2-egl-fanout-v1"
+            logger.info(LogCategory.CAMERA, "unspecified", "pipeline=b-camera2-egl-fanout-v1"
                     + " stage=external_preview_viewport outcome=updated source="
                     + width + "x" + height + " target=" + previewWidth + "x" + previewHeight);
         }
@@ -909,7 +910,7 @@ final class EglFrameFanOut implements AutoCloseable {
         try {
             return EGL14.eglDestroySurface(display, surface);
         } catch (RuntimeException error) {
-            logger.warn("pipeline=b-camera2-egl-fanout-v1 stage=egl_cleanup"
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "pipeline=b-camera2-egl-fanout-v1 stage=egl_cleanup"
                     + " outcome=global_failure detail=destroy_surface", error);
             return false;
         }
@@ -920,7 +921,7 @@ final class EglFrameFanOut implements AutoCloseable {
             action.run();
             return true;
         } catch (RuntimeException error) {
-            logger.warn("pipeline=b-camera2-egl-fanout-v1 stage=egl_cleanup"
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "pipeline=b-camera2-egl-fanout-v1 stage=egl_cleanup"
                     + " outcome=global_failure detail=" + stage, error);
             return false;
         }

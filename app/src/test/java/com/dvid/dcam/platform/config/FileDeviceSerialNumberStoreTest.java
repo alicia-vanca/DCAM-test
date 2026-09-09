@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.feature.device.application.usecase.DeviceSerialNumberUseCase;
 import com.dvid.dcam.platform.database.dao.CloudStateDao;
 import com.dvid.dcam.platform.database.entities.DeviceIdentityEntity;
@@ -33,6 +35,162 @@ public class FileDeviceSerialNumberStoreTest {
 
         assertEquals("", new FileDeviceSerialNumberStore(target).load());
         assertFalse(target.exists());
+    }
+
+    @Test public void loadFallsBackToDatabaseWhenCsonPathCannotBeRead() throws Exception {
+        File dir = Files.createTempDirectory("serial-room-fallback").toFile();
+        File blockedParent = new File(dir, "blocked");
+        Files.writeString(blockedParent.toPath(), "not a directory");
+        File target = new File(blockedParent, "dcam_config.cson");
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        dao.identity = identity("DB1234");
+
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", List::of);
+
+        assertEquals("DB1234", store.load());
+    }
+
+    @Test public void loadPrefersDatabaseSerialOverReadableCsonMirror() throws Exception {
+        File dir = Files.createTempDirectory("serial-room-authority").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        Files.createDirectories(target.getParentFile().toPath());
+        Files.writeString(target.toPath(), "serial_number=\"CSON12\"\n");
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        dao.identity = identity("DB1234");
+
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", List::of);
+
+        assertEquals("DB1234", store.load());
+    }
+
+    @Test public void loadFallsBackToExternalBackupWhenCsonCannotBeRead() throws Exception {
+        File dir = Files.createTempDirectory("serial-backup-fallback").toFile();
+        File blockedParent = new File(dir, "blocked");
+        Files.writeString(blockedParent.toPath(), "not a directory");
+        File target = new File(blockedParent, "dcam_config.cson");
+        File backup = new File(dir, "external/DCAM_FACTORY/device_identity.json");
+        Files.createDirectories(backup.getParentFile().toPath());
+        Files.writeString(backup.toPath(), backupJson("SD1234"));
+
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, new FakeCloudStateDao(), "HW123", () -> List.of(backup));
+
+        assertEquals("SD1234", store.load());
+    }
+
+    @Test public void unreadableSourcesAreAbsentWhenNoFallbackExists() throws Exception {
+        File dir = Files.createTempDirectory("serial-unreadable").toFile();
+        File blockedParent = new File(dir, "blocked");
+        Files.writeString(blockedParent.toPath(), "not a directory");
+        File target = new File(blockedParent, "dcam_config.cson");
+
+        assertEquals("", new FileDeviceSerialNumberStore(target).load());
+    }
+
+    @Test public void unreadableRoomFallsBackToReadableCson() throws Exception {
+        File dir = Files.createTempDirectory("serial-room-unreadable").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        Files.createDirectories(target.getParentFile().toPath());
+        Files.writeString(target.toPath(), "serial_number=\"CSON12\"\n");
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        dao.throwOnIdentityRead = true;
+
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", List::of);
+
+        assertEquals("CSON12", store.load());
+    }
+
+    @Test public void unavailableRoomLogsFallbackToCsonConfiguration() throws Exception {
+        File dir = Files.createTempDirectory("serial-room-cson-log").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        Files.createDirectories(target.getParentFile().toPath());
+        Files.writeString(target.toPath(), "serial_number=\"CSON12\"\n");
+        CapturingLogger logger = new CapturingLogger();
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, new FakeCloudStateDao(), "HW123", List::of, logger);
+
+        assertFalse(store.restoreIfAvailable());
+
+        assertEquals("QA-CSON-002: room_identity_fallback", logger.eventName);
+        assertEquals("Room identity was unavailable; falling back to the CSON configuration.",
+                logger.message);
+    }
+
+    @Test public void restoreKeepsCsonProbeSeparateFromDatabaseFallback() throws Exception {
+        File dir = Files.createTempDirectory("serial-room-repair").toFile();
+        File blockedParent = new File(dir, "blocked");
+        Files.writeString(blockedParent.toPath(), "not a directory");
+        File target = new File(blockedParent, "dcam_config.cson");
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        dao.identity = identity("DB1234");
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", List::of);
+
+        assertThrows(IOException.class, store::restoreIfAvailable);
+        assertEquals("DB1234", store.load());
+        assertEquals("DB1234", dao.identity.serialNumber);
+    }
+
+    @Test public void invalidCsonFallbackLogsQaEvidenceWithoutIdentityPayload() throws Exception {
+        File dir = Files.createTempDirectory("serial-invalid-cson-log").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        File backup = new File(dir, "sd/DCAM_FACTORY/device_identity.json");
+        Files.createDirectories(target.getParentFile().toPath());
+        Files.createDirectories(backup.getParentFile().toPath());
+        Files.writeString(target.toPath(), "serial_number=\"BAD-123\"\n");
+        Files.writeString(backup.toPath(), backupJson("DB1234"));
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        CapturingLogger logger = new CapturingLogger();
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", () -> List.of(backup), logger);
+
+        assertTrue(store.restoreIfAvailable());
+
+        assertEquals("QA-CSON-002: cson_fallback", logger.eventName);
+        assertEquals("CSON configuration was invalid; falling back to the SD identity backup.",
+                logger.message);
+        assertFalse(logger.message.contains("DB1234"));
+        assertFalse(logger.message.contains("BAD-123"));
+        assertEquals("serial_number=\"DB1234\"\n", Files.readString(target.toPath()));
+    }
+
+    @Test public void missingCsonAndSdBackupUnavailableLogsControlledOutcome() throws Exception {
+        File dir = Files.createTempDirectory("serial-missing-cson-log").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        CapturingLogger logger = new CapturingLogger();
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, new FakeCloudStateDao(), "HW123", List::of, logger);
+
+        assertFalse(store.restoreIfAvailable());
+
+        assertEquals("QA-CSON-002: cson_fallback", logger.eventName);
+        assertEquals("CSON configuration was missing; falling back to the SD identity backup.",
+                logger.message);
+        assertFalse(target.exists());
+    }
+
+    @Test public void unreadableCsonLogsControlledFailedFallback() throws Exception {
+        File dir = Files.createTempDirectory("serial-unreadable-cson-log").toFile();
+        File target = new File(dir, "Config/dcam_config.cson");
+        File backup = new File(dir, "sd/DCAM_FACTORY/device_identity.json");
+        Files.createDirectories(target.getParentFile().toPath());
+        Files.createDirectory(target.toPath());
+        Files.createDirectories(backup.getParentFile().toPath());
+        Files.writeString(backup.toPath(), backupJson("SD1234"));
+        FakeCloudStateDao dao = new FakeCloudStateDao();
+        CapturingLogger logger = new CapturingLogger();
+        FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
+                target, dao, "HW123", () -> List.of(backup), logger);
+
+        assertThrows(IOException.class, store::restoreIfAvailable);
+
+        assertEquals("QA-CSON-002: cson_fallback", logger.eventName);
+        assertEquals("CSON configuration was unreadable; falling back to the SD identity backup.",
+                logger.message);
+        assertFalse(logger.message.contains("SD1234"));
     }
 
     @Test public void rejectsRestoredSerialOutsideConfiguredLengthLimit() throws Exception {
@@ -260,14 +418,35 @@ public class FileDeviceSerialNumberStoreTest {
 
     private static final class FakeCloudStateDao implements CloudStateDao {
         private DeviceIdentityEntity identity;
+        private boolean throwOnIdentityRead;
 
-        @Override public DeviceIdentityEntity deviceIdentity() { return identity; }
+        @Override public DeviceIdentityEntity deviceIdentity() {
+            if (throwOnIdentityRead) throw new IllegalStateException("Room read failed");
+            return identity;
+        }
         @Override public void saveDeviceIdentity(DeviceIdentityEntity identity) { this.identity = identity; }
         @Override public void deleteDeviceIdentity() { identity = null; }
         @Override public RemoteConfigEntity remoteConfig() { return null; }
         @Override public void saveRemoteConfig(RemoteConfigEntity config) {}
         @Override public String operationalSetting(String key) { return null; }
         @Override public void saveOperationalSetting(OperationalSettingEntity setting) {}
+    }
+
+    private static final class CapturingLogger implements Logger {
+        private String eventName;
+        private String message;
+
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode,
+                String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode,
+                String message, Throwable error) {
+            this.eventName = eventName;
+            this.message = message;
+        }
+        @Override public void error(LogCategory category, String eventName, String reasonCode,
+                String message, Throwable error) {}
     }
 
     @Test public void ignoresSdBackupsOutsideConfiguredLengthLimit() throws Exception {
@@ -296,12 +475,16 @@ public class FileDeviceSerialNumberStoreTest {
         FakeCloudStateDao dao = new FakeCloudStateDao();
         File target = new File(dir, "internal/Config/dcam_config.cson");
 
+        CapturingLogger logger = new CapturingLogger();
         FileDeviceSerialNumberStore store = new FileDeviceSerialNumberStore(
-                target, dao, "HW123", () -> List.of(backup));
+                target, dao, "HW123", () -> List.of(backup), logger);
 
         assertFalse(store.restoreIfAvailable());
         assertNull(dao.identity);
         assertFalse(target.exists());
+        assertEquals("QA-CSON-002: cson_fallback", logger.eventName);
+        assertEquals("CSON configuration was missing; falling back to the SD identity backup.",
+                logger.message);
     }
 
     private static DeviceSerialNumberUseCase serialNumbers() {

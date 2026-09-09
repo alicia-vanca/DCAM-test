@@ -73,7 +73,7 @@ final class DcamKioskLifecycleTest {
         assertTrue(onNewIntent.contains("setIntent(intent)"));
         assertTrue(activity.contains("intent.hasCategory(Intent.CATEGORY_HOME)"));
         assertTrue(onNewIntent.contains("Home button requested camera preview"));
-        assertTrue(onNewIntent.contains("viewModel.show(MainScreen.CAMERA)"));
+        assertTrue(onNewIntent.contains("navigation.navigate(MainScreen.CAMERA)"));
     }
 
     @Test void receiversSchedulePolicyOutsideTheirMainThread() throws IOException {
@@ -109,12 +109,14 @@ final class DcamKioskLifecycleTest {
 
     @Test void developerModeCanReleaseDeviceOwnerWithConfirmation() throws IOException {
         String activity = source("app/MainActivity.java");
+        String settingsFragment = source("app/ui/SettingsDetailFragment.java");
         String controller = source("platform/device/DcamKioskController.java");
 
-        int users = activity.indexOf("users.setText(R.string.manage_developer_users)");
-        int remove = activity.indexOf("removeDeviceOwner.setText(R.string.remove_device_owner)");
+        int users = settingsFragment.indexOf("users.setText(R.string.manage_developer_users)");
+        int remove = settingsFragment.indexOf(
+                "removeDeviceOwner.setText(R.string.remove_device_owner)");
         assertTrue(remove > users);
-        assertTrue(activity.contains("remove_device_owner_title"));
+        assertTrue(settingsFragment.contains("remove_device_owner_title"));
         assertTrue(activity.contains("androidRuntime.removeDeviceOwner()"));
 
         int release = controller.indexOf("public boolean removeDeviceOwner()");

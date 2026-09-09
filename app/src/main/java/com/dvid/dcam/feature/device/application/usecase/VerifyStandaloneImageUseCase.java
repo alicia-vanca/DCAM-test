@@ -1,5 +1,6 @@
 package com.dvid.dcam.feature.device.application.usecase;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraHealthGenerationProvider;
 import com.dvid.dcam.feature.device.application.port.CameraRuntimeOperations;
@@ -81,12 +82,12 @@ public final class VerifyStandaloneImageUseCase {
             VerificationOutcome outcome, String detail) {
         Snapshot updated = CameraCapabilitySnapshotUpdates.withStandaloneImageEvidence(
                 request.snapshot(), request.imageCandidate(), outcome);
-        logger.info(logPrefix(request, outcome, detail));
+        logger.info(LogCategory.CAPABILITY, "unspecified", logPrefix(request, outcome, detail));
         return new Result(outcome, updated, attempt.cleanupComplete(), detail);
     }
 
     private Result nonTerminal(Request request, Attempt attempt) {
-        logger.info(logPrefix(request, attempt.outcome(), attempt.detail()));
+        logger.info(LogCategory.CAPABILITY, "unspecified", logPrefix(request, attempt.outcome(), attempt.detail()));
         return new Result(attempt.outcome(), request.snapshot(),
                 attempt.cleanupComplete(), attempt.detail());
     }
@@ -153,7 +154,7 @@ public final class VerifyStandaloneImageUseCase {
         try {
             release = Objects.requireNonNull(runtime.release(context), "release result");
         } catch (RuntimeException error) {
-            logger.warn("camera_standalone_image release_exception", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_standalone_image release_exception", error);
             return Attempt.nonTerminal(VerificationOutcome.TRANSIENT_RETRYABLE, false,
                     "standalone_image_release_exception");
         }
@@ -190,7 +191,7 @@ public final class VerifyStandaloneImageUseCase {
         try {
             result = Objects.requireNonNull(operationCall.invoke(context), "runtime result");
         } catch (RuntimeException error) {
-            logger.warn("camera_standalone_image runtime_exception operation=" + operation,
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_standalone_image runtime_exception operation=" + operation,
                     error);
             return Step.nonTerminal(VerificationOutcome.GLOBAL_FAILURE,
                     "runtime_exception=" + error.getClass().getSimpleName());
@@ -210,7 +211,7 @@ public final class VerifyStandaloneImageUseCase {
         try {
             value = Objects.requireNonNull(runtime.diagnostics(context), "diagnostics");
         } catch (RuntimeException error) {
-            logger.warn("camera_standalone_image diagnostics_exception", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_standalone_image diagnostics_exception", error);
             return Step.nonTerminal(VerificationOutcome.GLOBAL_FAILURE,
                     "diagnostics_exception=" + error.getClass().getSimpleName());
         }

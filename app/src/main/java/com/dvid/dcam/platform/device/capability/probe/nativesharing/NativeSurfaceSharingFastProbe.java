@@ -20,6 +20,7 @@ import android.os.HandlerThread;
 import android.util.Range;
 import android.view.Surface;
 import androidx.annotation.RequiresApi;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
@@ -97,7 +98,7 @@ public final class NativeSurfaceSharingFastProbe {
                                 maxSharedSurfaceCount, startedNanos),
                         List.of(), List.of(), Completion.INCOMPLETE_GLOBAL,
                         "shared_surface_count_query:" + error.getClass().getSimpleName());
-                logger.warn(logPrefix(cameraId)
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(cameraId)
                         + " stage=eligibility result=incomplete_global apiLevel=" + apiLevel,
                         error);
                 logComplete(result, imageProfileCount);
@@ -125,7 +126,7 @@ public final class NativeSurfaceSharingFastProbe {
                             maxSharedSurfaceCount, startedNanos),
                     List.of(), List.of(), Completion.INCOMPLETE_GLOBAL,
                     "encoder_catalog:" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(cameraId)
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(cameraId)
                     + " stage=eligibility result=incomplete_global apiLevel=" + apiLevel,
                     error);
             logComplete(result, imageProfileCount);
@@ -406,7 +407,7 @@ public final class NativeSurfaceSharingFastProbe {
     }
 
     private void logComplete(Result result, long imageProfileCount) {
-        logger.info(completeLog(result, imageProfileCount));
+        logger.info(LogCategory.CAPABILITY, "unspecified", completeLog(result, imageProfileCount));
     }
 
     static String completeLog(Result result, long imageProfileCount) {
@@ -444,7 +445,7 @@ public final class NativeSurfaceSharingFastProbe {
     }
 
     private void logFailure(CameraId cameraId, String stage, ProbeFailure failure) {
-        logger.warn(logPrefix(cameraId)
+        logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(cameraId)
                 + " stage=" + stage
                 + " result=" + completionId(failure.completion())
                 + " detail=" + failure.detail(), failure);

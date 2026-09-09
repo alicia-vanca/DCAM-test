@@ -7,9 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
+import com.dvid.dcam.feature.storage.domain.DcamMediaFileState;
 import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import com.dvid.dcam.feature.storage.domain.StorageMode;
+import com.dvid.dcam.platform.database.dao.MediaFileStateDao;
+import com.dvid.dcam.platform.database.entities.MediaFileStateEntity;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,6 +46,64 @@ final class DcamMediaOutputImplTest {
         try (DcamRecordingOutput recordingOutput = output.openVideoOutput(media)) {
             assertEquals(123L, recordingOutput.availableBytes());
         }
+    }
+
+    @Test void mediaFileStateTracksReservationAndSuccessfulPublication(@TempDir Path root)
+            throws Exception {
+        RecordingStateStore states = new RecordingStateStore();
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> "", new NoOpLogger(),
+                new DcamMediaReservation(), states);
+        DcamMediaFile media = output.mediaFile(
+                DcamFileType.IMAGE, "CAM001", "000001", false);
+        output.prepareImageFile(media);
+        Files.write(media.getFile().toPath(), new byte[] {1});
+
+        File published = output.finalizeSavedNow(null, media);
+
+        assertTrue(published.isFile());
+        assertEquals(List.of(
+                new StateUpdate(DcamMediaFileState.IN_PROGRESS),
+                new StateUpdate(DcamMediaFileState.FINALIZING),
+                new StateUpdate(DcamMediaFileState.BDMA_READY)), states.updates);
+        assertEquals(List.of(root.toFile(), root.toFile(), root.toFile()),
+                states.storageRoots);
+    }
+
+    @Test void failedPublicationMarksRecoveryRequired(@TempDir Path root) {
+        RecordingStateStore states = new RecordingStateStore();
+        DcamStorage storage = new DcamStorage(root.toFile());
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> "", new NoOpLogger(),
+                new DcamMediaReservation(), states);
+        DcamMediaFile media = output.mediaFile(
+                DcamFileType.IMAGE, "CAM001", "000001", false);
+        output.prepareImageFile(media);
+
+        assertThrows(IOException.class, () -> output.finalizeSavedNow(null, media));
+
+        assertEquals(new StateUpdate(DcamMediaFileState.RECOVERY_REQUIRED),
+                states.updates.get(states.updates.size() - 1));
+    }
+
+    @Test void databaseFailureDoesNotBlockPublication(@TempDir Path root) throws Exception {
+        DcamStorage storage = new DcamStorage(root.toFile());
+        NoOpLogger logger = new NoOpLogger();
+        DcamMediaStateStore states = new RoomDcamMediaStateStore(
+                new FailingMediaStateDao(), logger);
+        DcamMediaOutputImpl output = new DcamMediaOutputImpl(
+                null, storage, () -> false, () -> "", logger,
+                new DcamMediaReservation(), states);
+        DcamMediaFile media = output.mediaFile(
+                DcamFileType.IMAGE, "CAM001", "000001", false);
+        output.prepareImageFile(media);
+        Files.write(media.getFile().toPath(), new byte[] {1});
+
+        File published = output.finalizeSavedNow(null, media);
+
+        assertTrue(published.isFile());
+        assertFalse(media.getFile().exists());
     }
 
     @Test void sharedRuntimePreparationCreatesPublicStorageStagingDirectories(
@@ -607,24 +669,51 @@ final class DcamMediaOutputImplTest {
                 0x00, (byte) 0xff, (byte) 0xd9
         };
     }
+    private static final class RecordingStateStore implements DcamMediaStateStore {
+        private final List<StateUpdate> updates = new ArrayList<>();
+        private final List<File> storageRoots = new ArrayList<>();
+
+        @Override public void update(
+                String mediaFileName, File storageRoot, DcamMediaFileState state) {
+            updates.add(new StateUpdate(state));
+            storageRoots.add(storageRoot);
+        }
+    }
+
+    private record StateUpdate(DcamMediaFileState state) {}
+
+    private static final class FailingMediaStateDao implements MediaFileStateDao {
+        @Override public void upsert(MediaFileStateEntity state) {
+            throw new IllegalStateException("simulated SQLite failure");
+        }
+
+        @Override public List<MediaFileStateEntity> findAll() {
+            throw new IllegalStateException("simulated SQLite failure");
+        }
+
+        @Override public void delete(String fileName) {
+            throw new IllegalStateException("simulated SQLite failure");
+        }
+    }
+
     private static final class CapturingLogger implements Logger {
         private final List<String> infoMessages = new ArrayList<>();
         private final List<String> errorMessages = new ArrayList<>();
 
-        @Override public void debug(String message) {}
-        @Override public void info(String message) { infoMessages.add(message); }
-        @Override public void info(String message, Throwable error) { infoMessages.add(message); }
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) { infoMessages.add(message); }
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) { infoMessages.add(message); }
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             errorMessages.add(message);
         }
     }
 
     private static final class NoOpLogger implements Logger {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     }
 }

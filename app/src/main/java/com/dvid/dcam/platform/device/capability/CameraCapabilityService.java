@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.device.capability;
 import android.content.Context;
 import android.os.Process;
 import android.os.SystemClock;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.platform.camera.shared.runtime.ProcessCameraRuntimeOwner;
 import com.dvid.dcam.platform.camera.shared.benchmark.ProductionCameraCapabilityRecheck;
@@ -144,7 +145,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             Function<String, Optional<VerificationPipelineId>> pipelineSelection) {
         Objects.requireNonNull(pipelineSelection, "pipelineSelection");
         if (startupFastCollectionInFlight || scanInFlight || scanAwaitingRuntimeRelease) {
-            logger.info("camera_capability_owner stage=load_persisted"
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=load_persisted"
                     + " outcome=defer reason=scan_in_progress");
             return false;
         }
@@ -168,13 +169,13 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             forcedPipelines.putAll(configured);
             authority.current(selected);
             lastScanSuccessful = true;
-            logger.info("Loaded saved camera capabilities for " + selected.cameras().size()
+            logger.info(LogCategory.CAPABILITY, "unspecified", "Loaded saved camera capabilities for " + selected.cameras().size()
                     + " cameras. No capability scan was needed.");
             return true;
         } catch (RuntimeException error) {
             authority.unavailable("persisted_snapshot_invalid_selection");
             lastScanSuccessful = false;
-            logger.warn("Saved camera capabilities contain an invalid camera selection."
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Saved camera capabilities contain an invalid camera selection."
                     + " A new capability scan is required.", error);
             return false;
         }
@@ -190,7 +191,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         Snapshot value = Objects.requireNonNull(snapshot, SNAPSHOT);
         if (deferredWrites) {
             deferredSnapshot = value;
-            logger.info("camera_capability_owner stage=deferred_write action=hold");
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=deferred_write action=hold");
             return;
         }
         authority.current(value);
@@ -202,7 +203,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         Snapshot value = Objects.requireNonNull(snapshot, SNAPSHOT);
         if (deferredWrites) {
             deferredSnapshot = value;
-            logger.info("camera_capability_owner stage=deferred_write action=hold");
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=deferred_write action=hold");
             return;
         }
         store.writeNow(value);
@@ -222,11 +223,11 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 throw invalidSelection;
             restored = CameraCapabilitySnapshotMapper.withSelectedRecordingProfile(
                     current, cameraId, Optional.empty());
-            logger.warn("camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
                     + " action=clear_invalid_previous", invalidSelection);
         }
         requestWrite(restored);
-        logger.info("camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=selection_restore" + CAMERA_ID_FRAGMENT + cameraId
                 + " selectionPresent=" + restored.cameras().stream()
                         .filter(camera -> camera.cameraId().equals(cameraId))
                         .findFirst().orElseThrow().selectedRecordingProfile().isPresent());
@@ -237,7 +238,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             return false;
         deferredWrites = true;
         deferredSnapshot = null;
-        logger.info("camera_capability_owner stage=deferred_write action=begin");
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=deferred_write action=begin");
         return true;
     }
 
@@ -253,9 +254,9 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         if (value != null) {
             authority.current(value);
             store.requestWrite(value);
-            logger.info("camera_capability_owner stage=deferred_write action=commit");
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=deferred_write action=commit");
         } else {
-            logger.info("camera_capability_owner stage=deferred_write action=discard");
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=deferred_write action=discard");
         }
     }
 
@@ -263,7 +264,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             Optional<VerificationPipelineId> pipeline) {
         forcedPipeline = Objects.requireNonNull(pipeline, PIPELINE);
         forcedPipelines.clear();
-        logger.info(pipeline.isEmpty()
+        logger.info(LogCategory.CAPABILITY, "unspecified", pipeline.isEmpty()
                 ? "Camera pipeline selection is automatic."
                 : "Camera pipeline selection uses " + pipeline.orElseThrow().value() + ".");
     }
@@ -273,7 +274,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         String id = requiredCameraId(cameraId);
         Optional<VerificationPipelineId> value = Objects.requireNonNull(pipeline, PIPELINE);
         forcedPipelines.put(id, value);
-        logger.info(value.isEmpty()
+        logger.info(LogCategory.CAPABILITY, "unspecified", value.isEmpty()
                 ? "Camera " + id + " uses automatic pipeline selection."
                 : "Camera " + id + " uses pipeline " + value.orElseThrow().value() + ".");
     }
@@ -380,7 +381,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         if (!CameraCapabilitySnapshotMapper.hasVerifiedSelectionForMainCamera(selected)) return;
         Snapshot reusable = selected.withInitializationState(InitializationState.READY_REUSABLE);
         writeNow(reusable);
-        logger.info("camera_capability_owner stage=initialization_state"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=initialization_state"
                 + " outcome=ready_reusable cameraCount=" + reusable.cameras().size());
     }
 
@@ -391,7 +392,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             String reason = snapshot == null
                     ? "camera capability data is unavailable"
                     : "camera is not present in camera capability data";
-            logger.info("Could not select a capture profile for camera " + cameraId
+            logger.info(LogCategory.CAPABILITY, "unspecified", "Could not select a capture profile for camera " + cameraId
                     + " because " + reason + ".");
             return Optional.empty();
         }
@@ -574,11 +575,11 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         started = true;
         long appMillis = Math.max(0L, SystemClock.elapsedRealtime()
                 - Process.getStartElapsedRealtime());
-        logger.info("camera_capability_owner stage=app_t0 appMs=" + appMillis
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=app_t0 appMs=" + appMillis
                 + " owner=" + Integer.toHexString(System.identityHashCode(this)));
         if (!cameraPermissionGranted()) {
             authority.unavailable("camera_permission_required");
-            logger.info("camera_capability_owner stage=waiting_for_readiness"
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=waiting_for_readiness"
                     + " reason=camera_permission_required");
         }
     }
@@ -608,7 +609,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 lastScanSuccessful = false;
                 authority.unavailable("startup_fast_collection_schedule_exception:"
                         + error.getClass().getSimpleName());
-                logger.warn("camera_capability_owner stage=startup_fast_collection"
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=startup_fast_collection"
                         + " outcome=schedule_failed", error);
                 finishCallbacksLocked();
             }
@@ -628,14 +629,14 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                     pendingScanPipelines = List.of();
                     authority.current(selected);
                     lastScanSuccessful = true;
-                    logger.info("camera_capability_owner stage=startup_fast_collection"
+                    logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=startup_fast_collection"
                             + " outcome=skip reason=xml_complete");
                     finishCallbacksLocked();
                 }
                 return;
             }
         } catch (Exception | LinkageError error) {
-            logger.warn("camera_capability_owner stage=startup_fast_collection"
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=startup_fast_collection"
                     + " outcome=preflight_failed", error);
         }
         synchronized (this) {
@@ -676,7 +677,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 try {
                     available = quickScanPipelineEvidence(id, pipeline);
                 } catch (Exception | LinkageError error) {
-                    logger.warn("camera_capability_owner stage=targeted_fast_scan"
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=targeted_fast_scan"
                             + CAMERA_ID_FRAGMENT + id + " outcome=unavailable", error);
                     available = false;
                 }
@@ -684,7 +685,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 dispatch(() -> completion.accept(result));
             });
         } catch (RuntimeException error) {
-            logger.warn("camera_capability_owner stage=targeted_fast_scan"
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=targeted_fast_scan"
                     + CAMERA_ID_FRAGMENT + id + " outcome=schedule_failed", error);
             dispatch(() -> completion.accept(false));
         }
@@ -783,7 +784,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         scanInFlight = true;
         generation++;
         long currentGeneration = generation;
-        logger.info("camera_capability_owner stage=scan_schedule generation="
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_schedule generation="
                 + currentGeneration + " pipelines=" + pipelines);
         ScanScheduleResult schedule = scheduleCapabilityScan(
                 runtimeOwner, scanExecutor, () -> runScan(currentGeneration, pipelines), () -> {
@@ -803,7 +804,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                         lastScanSuccessful = false;
                         authority.unavailable("scan_schedule_exception:"
                                 + error.getClass().getSimpleName());
-                        logger.warn("camera_capability_owner stage=scan_schedule"
+                        logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=scan_schedule"
                                 + " outcome=failed", error);
                         finishCallbacksLocked();
                     }
@@ -854,7 +855,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
 
     private void awaitRuntimeReleaseForScanLocked() {
         scanAwaitingRuntimeRelease = true;
-        logger.info("camera_capability_owner stage=scan_wait action=release_runtime");
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_wait action=release_runtime");
         ProcessCameraRuntimeOwner.Attachment attachment = runtimeOwner.attach(snapshot -> {
             boolean released = snapshot.state() == com.dvid.dcam.feature.device.domain.camera.CameraRuntimeState.CLOSED
                     && snapshot.inFlight().isEmpty();
@@ -873,7 +874,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             return;
         }
         ProcessCameraRuntimeOwner.Submission submission = runtimeOwner.releaseCamera();
-        logger.info("camera_capability_owner stage=scan_wait action=release_submitted"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_wait action=release_submitted"
                 + " outcome=" + submission.name().toLowerCase());
         if (submission != ProcessCameraRuntimeOwner.Submission.ACCEPTED
                 && submission != ProcessCameraRuntimeOwner.Submission.NO_OP) {
@@ -894,7 +895,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 pendingScanPipelines = List.of();
                 lastScanSuccessful = false;
                 authority.unavailable("runtime_release_failed:" + reason);
-                logger.info("camera_capability_owner stage=scan_wait outcome=failed reason="
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_wait outcome=failed reason="
                         + reason);
                 finishCallbacksLocked();
             }
@@ -921,7 +922,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         lastScanSuccessful = false;
         lastRecheckSummary = Optional.empty();
         authority.loading();
-        logger.info("camera_capability_owner stage=invalidate action=rescan_requested"
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=invalidate action=rescan_requested"
                 + " durableSnapshot=preserved");
         return true;
     }
@@ -1212,7 +1213,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
         String rejection = cameraId + "|" + videoId + "|" + frameRate + "|"
                 + (imageId == null ? "" : imageId);
         selections.addRuntimeRejection(rejection);
-        logger.warn("camera_capability_owner stage=runtime_rejection"
+        logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=runtime_rejection"
                 + CAMERA_ID_FRAGMENT + cameraId + " video=" + videoId + " fps=" + frameRate
                 + " image=" + (imageId == null ? "" : imageId)
                 + " reason=" + reason, null);
@@ -1222,7 +1223,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
     private void runScan(long currentGeneration,
             List<VerificationPipelineId> requestedPipelines) {
         long startedNanos = System.nanoTime();
-        logger.info("camera_capability_owner stage=scan_start generation=" + currentGeneration
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_start generation=" + currentGeneration
                 + " pipelines=" + requestedPipelines);
         Optional<Snapshot> previous = authority.snapshot();
         boolean rebuildForced;
@@ -1256,7 +1257,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                     forceRescan = false;
                     lastScanSuccessful = true;
                 }
-                logger.info("camera_capability_owner stage=snapshot_reuse"
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=snapshot_reuse"
                         + " outcome=ready_reusable generation=" + currentGeneration
                         + " cameraCount=" + reusable.cameras().size());
                 return;
@@ -1283,7 +1284,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             Map<VerificationPipelineId, Result> fastResults = new HashMap<>();
             List<String> completions = new ArrayList<>();
             for (VerificationPipelineId pipeline : pipelines) {
-                logger.info("camera_capability_owner stage=scan_pipeline generation="
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_pipeline generation="
                         + currentGeneration + " pipeline=" + pipeline.value());
                 String profile = pipeline.equals(NativeSurfaceSharingFastProbe.PIPELINE_ID)
                         ? "A"
@@ -1336,7 +1337,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                     lastScanSuccessful = true;
                     lastRecheckSummary = Optional.of(summary);
                 }
-                logger.info("camera_capability_recheck stage=complete"
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck stage=complete"
                         + " pipelineATupleCount=" + summary.pipelineATupleCount()
                         + " pipelineBTupleCount=" + summary.pipelineBTupleCount()
                         + " pipelineAElapsedMs=" + summary.pipelineAElapsedMillis()
@@ -1353,13 +1354,13 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 }
             }
         } catch (Exception | LinkageError error) {
-            logger.warn("camera_capability_owner stage=scan_end generation="
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner stage=scan_end generation="
                     + currentGeneration + " outcome=unavailable", error);
             publishFailure(previous, "scan_exception:" + error.getClass().getSimpleName());
         } finally {
             long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000L;
             synchronized (this) {
-                logger.info("camera_capability_owner stage=scan_end generation="
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_owner stage=scan_end generation="
                         + currentGeneration + " state=" + authority.state().name().toLowerCase()
                         + " elapsedMs=" + elapsedMillis);
             }
@@ -1487,7 +1488,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
                 try {
                     callback.accept(update);
                 } catch (RuntimeException error) {
-                    logger.warn("camera_capability_owner progress callback failed", error);
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner progress callback failed", error);
                 }
             });
         }
@@ -1523,7 +1524,7 @@ public final class CameraCapabilityService implements CameraCapabilityStore {
             try {
                 callback.run();
             } catch (RuntimeException error) {
-                logger.warn("camera_capability_owner callback failed", error);
+                logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_owner callback failed", error);
             }
         });
     }

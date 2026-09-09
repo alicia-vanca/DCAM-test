@@ -28,6 +28,7 @@ import android.util.Range;
 import android.util.Size;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.platform.camera.shared.JpegDimensions;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
@@ -406,10 +407,10 @@ public final class NativeSurfaceSharingPipelineDeviceTest {
     private record Selection(String cameraId, Size videoSize, Size imageSize, int fps) {}
 
     private static final class NoOpLogger implements Logger {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     }
 }

@@ -14,7 +14,6 @@ import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
 import com.dvid.dcam.feature.storage.domain.StorageMode;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.time.LocalDate;
@@ -319,29 +318,75 @@ public final class DcamStorage implements
     }
 
     boolean hasPublishedFile(String fileName) {
-        if (fileName == null || fileName.isBlank() || !fileName.startsWith("DCAM_")
-                || !fileName.equals(new File(fileName).getName())) return false;
+        return findPublishedFile(fileName) != null;
+    }
+
+    File findPublishedFile(String fileName) {
+        if (!isTrackedFileName(fileName)) return null;
         for (File mediaRoot : mediaRootDirectories()) {
-            if (containsPublishedFileForRoot(mediaRoot, fileName)) return true;
+            File published = findPublishedFileForRoot(mediaRoot, fileName);
+            if (published != null) return published;
         }
-        return false;
+        return null;
     }
 
-    private static boolean containsPublishedFileForRoot(File mediaRoot, String fileName) {
+    File findPublishedFile(File storageRoot, String fileName) {
+        if (storageRoot == null || !isTrackedFileName(fileName)) return null;
+        return findPublishedFileForRoot(new File(storageRoot, MEDIA_DIRECTORY), fileName);
+    }
+
+    File findStagedFile(File storageRoot, String fileName) {
+        if (storageRoot == null || !isTrackedFileName(fileName)) return null;
+        return findDirectOrDatedFile(new File(storageRoot, "Temp"), fileName);
+    }
+
+    boolean isStorageRootAvailable(File storageRoot) {
+        if (storageRoot == null || !storageRoot.isDirectory() || !storageRoot.canRead()) {
+            return false;
+        }
+        if (internalRoot.getAbsolutePath().equals(storageRoot.getAbsolutePath())) return true;
+        try {
+            return Environment.MEDIA_MOUNTED.equals(externalStorageState.apply(storageRoot));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    static File storageRootFor(File mediaFile) {
+        for (File directory = mediaFile == null ? null : mediaFile.getAbsoluteFile().getParentFile();
+                directory != null; directory = directory.getParentFile()) {
+            if ("Temp".equals(directory.getName())
+                    || MEDIA_DIRECTORY.equals(directory.getName())) {
+                return directory.getParentFile();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isTrackedFileName(String fileName) {
+        return fileName != null && !fileName.isBlank() && fileName.startsWith("DCAM_")
+                && fileName.equals(new File(fileName).getName());
+    }
+
+    private static File findPublishedFileForRoot(File mediaRoot, String fileName) {
         for (DcamFileType type : DcamFileType.values()) {
-            if (containsPublishedFile(new File(mediaRoot, type.getFolder()), fileName)) return true;
+            File published = findDirectOrDatedFile(
+                    new File(mediaRoot, type.getFolder()), fileName);
+            if (published != null) return published;
         }
-        return false;
+        return null;
     }
 
-    private static boolean containsPublishedFile(File typeRoot, String fileName) {
-        if (new File(typeRoot, fileName).isFile()) return true;
-        File[] datedDirectories = typeRoot.listFiles(File::isDirectory);
-        if (datedDirectories == null) return false;
+    private static File findDirectOrDatedFile(File root, String fileName) {
+        File direct = new File(root, fileName);
+        if (direct.isFile()) return direct;
+        File[] datedDirectories = root.listFiles(File::isDirectory);
+        if (datedDirectories == null) return null;
         for (File dateDirectory : datedDirectories) {
-            if (new File(dateDirectory, fileName).isFile()) return true;
+            File dated = new File(dateDirectory, fileName);
+            if (dated.isFile()) return dated;
         }
-        return false;
+        return null;
     }
 
 
@@ -377,8 +422,6 @@ public final class DcamStorage implements
 
 
     public File finalFile(DcamMediaFile mediaFile) {
-        File marker = targetMarker(mediaFile.getFile());
-        if (marker.isFile()) return validatedMarkedTarget(mediaFile, marker);
         return finalFile(finalMediaRoot(mediaFile.getFile().getParentFile()), mediaFile);
     }
 
@@ -410,8 +453,6 @@ public final class DcamStorage implements
         refreshExternalRoots();
         List<File> directories = new ArrayList<>();
         addDistinct(directories, new File(internalRoot, "Temp"));
-        File privateRoot = context == null ? internalRoot : context.getFilesDir();
-        addDistinct(directories, new File(privateRoot, "DurableAudioTemp"));
         for (File externalRoot : externalRoots()) {
             addDistinct(directories, new File(externalRoot, "Temp"));
         }
@@ -449,40 +490,13 @@ public final class DcamStorage implements
     private static boolean isDateStagingDirectory(File directory) {
         if (directory == null || !directory.isDirectory()) return false;
         File parent = directory.getParentFile();
-        if (parent == null || !("Temp".equals(parent.getName())
-                || "DurableAudioTemp".equals(parent.getName()))) return false;
+        if (parent == null || !"Temp".equals(parent.getName())) return false;
         try {
             LocalDate.parse(directory.getName(), java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
             return true;
         } catch (RuntimeException ignored) {
             return false;
         }
-    }
-
-    void deleteTargetMarker(DcamMediaFile mediaFile) {
-        try {
-            Files.deleteIfExists(targetMarker(mediaFile.getFile()).toPath());
-        } catch (IOException ignored) {
-            // Target-marker cleanup must not replace the media finalization result.
-        }
-    }
-
-    private File validatedMarkedTarget(DcamMediaFile mediaFile, File marker) {
-        try {
-            File marked = new File(new String(Files.readAllBytes(marker.toPath()), StandardCharsets.UTF_8));
-            String markedPath = marked.getCanonicalPath();
-            for (File mediaRoot : mediaRootDirectories()) {
-                File allowed = finalFile(mediaRoot, mediaFile);
-                if (markedPath.equals(allowed.getCanonicalPath())) return marked;
-            }
-            throw new SecurityException("Unsupported durable audio target");
-        } catch (IOException error) {
-            throw new SecurityException("Invalid durable audio target", error);
-        }
-    }
-
-    private static File targetMarker(File staging) {
-        return new File(staging.getParentFile(), staging.getName() + ".target");
     }
 
     public synchronized CaptureStorageCheck checkCaptureReady() {

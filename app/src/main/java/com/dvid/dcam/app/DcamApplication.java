@@ -7,6 +7,7 @@ import android.os.Process;
 import androidx.annotation.NonNull;
 import androidx.work.Configuration;
 import com.dvid.dcam.core.device.domain.DeviceInfo;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.platform.device.AndroidDeviceRepositoryImpl;
 import com.dvid.dcam.platform.logging.app.AppLogger;
 import com.dvid.dcam.app.resourcemonitor.ResourceMonitorProcessReporter;
@@ -43,7 +44,7 @@ public final class DcamApplication extends Application implements Configuration.
         try {
             AppComposition.create(this);
         } catch (RuntimeException error) {
-            AppLogger.get().error("Could not prepare interrupted media finalization", error);
+            AppLogger.get().error(LogCategory.STORAGE, "staged_media_recovery_failed", null, "Could not prepare interrupted media finalization", error);
         }
     }
 

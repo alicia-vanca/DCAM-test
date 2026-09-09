@@ -1,5 +1,6 @@
 package com.dvid.dcam.feature.device.application.usecase;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.CameraFacts;
@@ -113,7 +114,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
             catalogLoadMillis = elapsedMillis(catalogStartedNanos);
         } catch (CameraCatalogSource.CatalogException | RuntimeException error) {
             catalogLoadMillis = elapsedMillis(catalogStartedNanos);
-            logger.warn(prefix(pipelineId)
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(pipelineId)
                     + " stage=catalog outcome=incomplete_global"
                     + " elapsedMs=" + catalogLoadMillis, error);
             return incomplete(pipelineId, RunCompletion.INCOMPLETE_GLOBAL, scanned.values(), rounds,
@@ -131,7 +132,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
         try {
             preparedCameras = prepareCameras(catalog, pipelineId);
         } catch (RuntimeException error) {
-            logger.warn(prefix(pipelineId)
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(pipelineId)
                     + " stage=candidate_preparation outcome=incomplete_global", error);
             return incomplete(pipelineId, RunCompletion.INCOMPLETE_GLOBAL, scanned.values(), rounds,
                     catalogLoadMillis, schedulingMillis, startedNanos,
@@ -181,7 +182,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
                             singleton.result(), List.of(prepared), pipelineId).get(cameraId);
                     scanned.put(cameraId, snapshot);
                 } catch (RuntimeException error) {
-                    logger.warn(prefix(pipelineId)
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(pipelineId)
                             + " stage=singleton_decode outcome=incomplete_global"
                             + " cameraId=" + cameraId, error);
                     return incomplete(pipelineId, RunCompletion.INCOMPLETE_GLOBAL, scanned.values(), rounds,
@@ -228,7 +229,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
                     }
                     continue;
                 } catch (RuntimeException error) {
-                    logger.warn(prefix(pipelineId)
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(pipelineId)
                             + " stage=batch_decode outcome=incomplete_global"
                             + " cameras=" + cameraIds(concurrentBatch.members()), error);
                     return incomplete(pipelineId, RunCompletion.INCOMPLETE_GLOBAL, scanned.values(), rounds,
@@ -255,7 +256,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
             disabledConcurrentCombinations.add(new DisabledCombination(
                     catalog.hardwareSignatureInput(), pipelineId,
                     concurrentBatch.combination()));
-            logger.info(prefix(pipelineId)
+            logger.info(LogCategory.CAPABILITY, "unspecified", prefix(pipelineId)
                     + " stage=batch_disable outcome=complete"
                     + " cameras=" + cameraIds(concurrentBatch.combination().cameraIds())
                     + " reason=" + batchResult.detail());
@@ -290,7 +291,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
                     publishProgress(progressListener, pipelineId, cameraId,
                             scanned.size(), preparedById.size());
                 } catch (RuntimeException error) {
-                    logger.warn(prefix(pipelineId)
+                    logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(pipelineId)
                             + " stage=singleton_retry_decode outcome=incomplete_global"
                             + " cameraId=" + prepared.cameraFacts().cameraId(), error);
                     return incomplete(pipelineId, RunCompletion.INCOMPLETE_GLOBAL, scanned.values(), rounds,
@@ -309,7 +310,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
 
         List<CameraFastSnapshot> cameraSnapshots = List.copyOf(scanned.values());
         long allFastReadyMillis = elapsedMillis(startedNanos);
-        logger.info(prefix(pipelineId)
+        logger.info(LogCategory.CAPABILITY, "unspecified", prefix(pipelineId)
                 + " stage=all_fast_ready outcome=complete"
                 + " cameraCount=" + cameraSnapshots.size()
                 + " elapsedMs=" + allFastReadyMillis);
@@ -561,7 +562,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
             return new ScanAttempt(requests.stream().map(Request::cameraId).collect(java.util.stream.Collectors.toList()),
                     result, null, elapsedMillis(startedNanos));
         } catch (RuntimeException error) {
-            logger.warn(prefix(probe.pipelineId())
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(probe.pipelineId())
                     + " stage=probe_call outcome=incomplete_global"
                     + " cameras=" + cameraIds(
                             requests.stream().map(Request::cameraId).collect(java.util.stream.Collectors.toList()))
@@ -769,7 +770,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
             long startedNanos,
             String detail) {
         long totalElapsedMillis = elapsedMillis(startedNanos);
-        logger.info(prefix(pipelineId) + " stage=complete outcome="
+        logger.info(LogCategory.CAPABILITY, "unspecified", prefix(pipelineId) + " stage=complete outcome="
                 + completion.name().toLowerCase(java.util.Locale.ROOT)
                 + " partialCameraCount=" + partialCameras.size()
                 + " elapsedMs=" + totalElapsedMillis
@@ -781,7 +782,7 @@ public final class BuildFastCameraCapabilitiesUseCase {
 
     private void logRound(VerificationPipelineId pipelineId, RoundTiming timing) {
         if (timing.completion() == FastCameraCapabilityProbe.Completion.COMPLETE) return;
-        logger.info(prefix(pipelineId)
+        logger.info(LogCategory.CAPABILITY, "unspecified", prefix(pipelineId)
                 + " stage=scan_round outcome="
                 + timing.completion().name().toLowerCase(java.util.Locale.ROOT)
                 + " round=" + timing.round()

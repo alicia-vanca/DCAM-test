@@ -21,6 +21,7 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,7 +45,6 @@ public final class ResourceMonitorController implements AutoCloseable {
     private static final long PROCESS_RESPONSE_TIMEOUT_MS = 750L;
     private static final long PSS_INTERVAL_MS = 4_000L;
     private static final long BATTERY_INTERVAL_MS = 5_000L;
-    private static final int DIAGNOSTIC_REQUEST_LIMIT = 5;
     private static final String ACTION_LABEL = ". Action: ";
 
     private final Activity activity;
@@ -66,16 +66,6 @@ public final class ResourceMonitorController implements AutoCloseable {
         }
 
         private void receiveProcessSample(Intent intent) {
-            if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
-                logger.info("Resource Monitor response receiver callback in PID " + Process.myPid()
-                        + ACTION_LABEL + intent.getAction() + ". Request: "
-                        + intent.getStringExtra(ResourceMonitorProcessReporter.EXTRA_REQUEST_ID)
-                        + ". Response PID: "
-                        + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_PID, -1)
-                        + ". Response UID: "
-                        + intent.getIntExtra(ResourceMonitorProcessReporter.EXTRA_PROCESS_UID, -1)
-                        + ".");
-            }
             if (!ResourceMonitorProcessReporter.responseAction(applicationContext)
                     .equals(intent.getAction())) return;
             String requestId = intent.getStringExtra(
@@ -101,11 +91,6 @@ public final class ResourceMonitorController implements AutoCloseable {
                     responseLock.notifyAll();
                 }
             }
-            if (diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT) {
-                logger.info("Resource Monitor " + (accepted ? "accepted" : "ignored")
-                        + " process sample response " + requestId + " from " + processName
-                        + " PID " + pid + ".");
-            }
         }
     };
 
@@ -116,7 +101,6 @@ public final class ResourceMonitorController implements AutoCloseable {
     private volatile boolean active;
     private final AtomicLong generation = new AtomicLong();
     private long requestSequence;
-    private int diagnosticRequestCount;
     private String activeRequestId;
     private long previousProcessSampleAtMs;
     private Map<Integer, ProcessSample> previousProcessSamples = Collections.emptyMap();
@@ -170,7 +154,6 @@ public final class ResourceMonitorController implements AutoCloseable {
         active = true;
         long session = generation.incrementAndGet();
         resetSessionState();
-        diagnosticRequestCount = 0;
         registerProcessReceiver();
         overlay.setText("");
         overlay.setVisibility(View.GONE);
@@ -181,7 +164,7 @@ public final class ResourceMonitorController implements AutoCloseable {
         });
         executor.scheduleWithFixedDelay(() -> sample(session), 0L,
                 SAMPLE_INTERVAL_MS, TimeUnit.MILLISECONDS);
-        logger.info("Resource Monitor started while the app is visible.");
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor started while the app is visible.");
     }
 
     private void stop() {
@@ -203,7 +186,7 @@ public final class ResourceMonitorController implements AutoCloseable {
         resetSessionState();
         overlay.setText("");
         overlay.setVisibility(View.GONE);
-        logger.info("Resource Monitor stopped; periodic resource sampling is inactive.");
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor stopped; periodic resource sampling is inactive.");
     }
 
     private void sample(long session) {
@@ -246,15 +229,7 @@ public final class ResourceMonitorController implements AutoCloseable {
             ProcessSample self = selfProcessSample(samplePss);
             processResponses.put(self.pid, self);
         }
-        boolean diagnostic = ++diagnosticRequestCount <= DIAGNOSTIC_REQUEST_LIMIT;
         String requestAction = ResourceMonitorProcessReporter.requestAction(applicationContext);
-        if (diagnostic) {
-            logger.info("Resource Monitor preparing process sample request " + requestId
-                    + " from PID " + Process.myPid() + ACTION_LABEL + requestAction
-                    + ". Package: " + applicationContext.getPackageName()
-                    + ". Response receiver registered: " + receiverRegistered
-                    + ". Discovered app PIDs: " + runningProcesses.keySet() + ".");
-        }
         try {
             Intent request = new Intent(requestAction)
                     .setPackage(applicationContext.getPackageName())
@@ -262,12 +237,8 @@ public final class ResourceMonitorController implements AutoCloseable {
                     .putExtra(ResourceMonitorProcessReporter.EXTRA_INCLUDE_PSS, samplePss);
             PendingIntent.getBroadcast(applicationContext, requestId.hashCode(), request,
                     PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE).send();
-            if (diagnostic) {
-                logger.info("Resource Monitor submitted process sample request " + requestId
-                        + " from PID " + Process.myPid() + ".");
-            }
         } catch (PendingIntent.CanceledException | RuntimeException error) {
-            logger.warn("Resource Monitor could not send process sample request "
+            logger.warn(LogCategory.PERF, "unspecified", null, "Resource Monitor could not send process sample request "
                     + requestId + ".", error);
         }
         long requestSentAtMs = SystemClock.elapsedRealtime();
@@ -295,14 +266,6 @@ public final class ResourceMonitorController implements AutoCloseable {
             activeRequestId = null;
             Map<Integer, ProcessSample> result = Collections.unmodifiableMap(
                     new HashMap<>(processResponses));
-            if (diagnostic) {
-                List<Integer> missingPids = new ArrayList<>(runningProcesses.keySet());
-                missingPids.removeAll(result.keySet());
-                logger.info("Resource Monitor completed process sample request " + requestId
-                        + " after " + (SystemClock.elapsedRealtime() - requestSentAtMs)
-                        + " ms. Received PIDs: " + result.keySet()
-                        + ". Missing PIDs: " + missingPids + ".");
-            }
             return result;
         }
     }
@@ -484,9 +447,9 @@ public final class ResourceMonitorController implements AutoCloseable {
     private void logModeIfChanged(String nextMode, DeviceCpuResult deviceCpu) {
         if (nextMode.equals(mode) && deviceCpuCapabilityLogged) return;
         if (nextMode.equals("FULL")) {
-            logger.info("Resource Monitor selected Full mode; Device CPU telemetry is available.");
+            logger.info(LogCategory.PERF, "unspecified", "Resource Monitor selected Full mode; Device CPU telemetry is available.");
         } else if (!deviceCpuCapabilityLogged) {
-            logger.info("Resource Monitor selected Lite mode; " + deviceCpu.unavailableReason + ".");
+            logger.info(LogCategory.PERF, "unspecified", "Resource Monitor selected Lite mode; " + deviceCpu.unavailableReason + ".");
         }
         deviceCpuCapabilityLogged = true;
     }
@@ -494,12 +457,12 @@ public final class ResourceMonitorController implements AutoCloseable {
     private void registerProcessReceiver() {
         if (receiverRegistered) return;
         String responseAction = ResourceMonitorProcessReporter.responseAction(applicationContext);
-        logger.info("Resource Monitor registering process response receiver in PID "
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor registering process response receiver in PID "
                 + Process.myPid() + ACTION_LABEL + responseAction + ".");
         ContextCompat.registerReceiver(applicationContext, processResponseReceiver,
                 new IntentFilter(responseAction), ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
-        logger.info("Resource Monitor registered process response receiver in PID "
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor registered process response receiver in PID "
                 + Process.myPid() + ".");
     }
 

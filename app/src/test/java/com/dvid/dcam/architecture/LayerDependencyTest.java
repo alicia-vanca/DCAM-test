@@ -68,6 +68,15 @@ final class LayerDependencyTest {
         assertNoViolations("UI must call use cases or app-owned Android collaborators", violations);
     }
 
+    @Test void uiDoesNotDependOnCompositionRoot() {
+        List<String> violations = new ArrayList<>();
+        collectForbiddenImports(appRoot().resolve("app/ui"), List.of(
+                "com.dvid.dcam.app.AppComposition",
+                "com.dvid.dcam.app.CameraPipelineModeController"), violations);
+        assertNoViolations("UI must depend on typed capabilities instead of app composition",
+                violations);
+    }
+
     @Test void onlyCompositionAndFrameworkEntriesImportPlatformFromApp() throws IOException {
         Set<String> allowed = Set.of("app/AppComposition.java", "app/DcamApplication.java");
         List<String> violations = new ArrayList<>();

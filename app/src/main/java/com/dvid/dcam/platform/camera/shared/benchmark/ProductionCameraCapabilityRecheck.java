@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.camera.shared.benchmark;
 import android.content.Context;
 import android.os.Build;
 import android.os.PowerManager;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.Snapshot;
 import com.dvid.dcam.feature.device.application.port.CameraHealthGenerationProvider;
@@ -104,7 +105,7 @@ public final class ProductionCameraCapabilityRecheck {
         try {
             plan = plan(baseline, resultA, resultB);
         } catch (RuntimeException error) {
-            logger.warn("camera_capability_recheck stage=plan outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_recheck stage=plan outcome=failed", error);
             return RunResult.failed("plan_failed:" + error.getClass().getSimpleName());
         }
         SharedCameraPipelineBenchmarkRunner runnerA = null;
@@ -130,7 +131,7 @@ public final class ProductionCameraCapabilityRecheck {
                                     baseline, coverageA, coverageB, forcedPipeline));
             return RunResult.complete(finalized.snapshot(), finalized.summary());
         } catch (RuntimeException error) {
-            logger.warn("camera_capability_recheck stage=deep_verify outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_capability_recheck stage=deep_verify outcome=failed", error);
             return RunResult.failed(
                     "deep_verify_exception:" + error.getClass().getSimpleName());
         } finally {
@@ -191,7 +192,7 @@ public final class ProductionCameraCapabilityRecheck {
                     int sensorOrientationDegrees = sensorOrientationDegrees(
                             frozen, operationContext.cameraId());
                     pipeline.setRotation(sensorOrientationDegrees);
-                    logger.info("camera_capability_recheck stage=orientation outcome=applied"
+                    logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck stage=orientation outcome=applied"
                             + " cameraId=" + operationContext.cameraId().value()
                             + " sensorDegrees=" + sensorOrientationDegrees
                             + " outputDegrees=" + pipeline.outputRotationDegrees());
@@ -225,7 +226,7 @@ public final class ProductionCameraCapabilityRecheck {
             CameraPipelineBenchmarkPlan plan, long fastScanMillis, String profile,
             Consumer<Progress> progressListener) {
         PipelineRun measured = runner.runCoverage(plan, () -> false, progress -> {
-            logger.info("camera_capability_recheck stage=" + progress.stage()
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_capability_recheck stage=" + progress.stage()
                     + " completed=" + progress.completed()
                     + " total=" + progress.total()
                     + " detail=" + progress.detail());

@@ -15,6 +15,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.muxer.BufferInfo;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import java.io.ByteArrayOutputStream;
@@ -431,10 +432,10 @@ public final class AudioM4aGpsCrashRecoveryDeviceTest {
             int sampleCount, long lastPresentationTimeUs, long seekPresentationTimeUs) {}
 
     private static final class NoOpLogger implements Logger {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     }
 }

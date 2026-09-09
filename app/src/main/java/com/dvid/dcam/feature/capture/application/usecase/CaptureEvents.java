@@ -22,5 +22,6 @@ public interface CaptureEvents {
     default void photoSaving() {}
     void photoSaved(String fileName);
     void photoFailed(String operation, String message);
+    default void captureStorageUnavailable() {}
     void captureFailed(String operation, String message);
 }

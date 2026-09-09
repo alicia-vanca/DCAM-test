@@ -12,6 +12,7 @@ import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.os.Looper;
 import android.os.SystemClock;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import java.util.List;
 import java.util.Objects;
@@ -56,11 +57,11 @@ public final class DcamKioskController {
 
     public boolean removeDeviceOwner() {
         if (!isDeviceOwner()) return false;
-        logger.info("KIOSK_TRACE remove-device-owner begin");
+        logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE remove-device-owner begin");
         devicePolicyManager.setLockTaskPackages(admin, new String[0]);
         devicePolicyManager.clearDeviceOwnerApp(packageName);
         boolean removed = !isDeviceOwner();
-        logger.info("KIOSK_TRACE remove-device-owner complete removed=" + removed);
+        logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE remove-device-owner complete removed=" + removed);
         return removed;
     }
 
@@ -77,13 +78,13 @@ public final class DcamKioskController {
                             "applyActiveKioskPolicy", "deviceOwner=" + deviceOwner);
                     if (deviceOwner) controller.applyManagedKioskPolicy();
                 } catch (RuntimeException error) {
-                    logger.error("KIOSK_TRACE async policy failed", error);
+                    logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE async policy failed", error);
                 } finally {
                     complete(completion, logger);
                 }
             });
         } catch (RuntimeException error) {
-            logger.error("KIOSK_TRACE policy scheduling failed", error);
+            logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE policy scheduling failed", error);
             complete(completion, logger);
         }
     }
@@ -101,7 +102,7 @@ public final class DcamKioskController {
                     boolean permitted = deviceOwner
                             && devicePolicyManager.isLockTaskPermitted(packageName);
                     boolean active = lockTaskActive(activity);
-                    logger.info("Lock task mode is " + (active ? "active" : "inactive")
+                    logger.info(LogCategory.POLICY, "unspecified", "Lock task mode is " + (active ? "active" : "inactive")
                             + " for " + activity.getClass().getSimpleName()
                             + ". This app is " + (deviceOwner ? "" : "not ")
                             + "the device owner, and Android "
@@ -112,28 +113,28 @@ public final class DcamKioskController {
                         if (activity.isFinishing() || activity.isDestroyed()) return;
                         if (permitted && !active) {
                             try {
-                                logger.info("KIOSK_TRACE begin operation=Activity.startLockTask"
+                                logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE begin operation=Activity.startLockTask"
                                         + " mainThread=" + isMainThread());
                                 activity.startLockTask();
-                                logger.info("KIOSK_TRACE end operation=Activity.startLockTask");
-                                logger.info("DCAM entered lock task mode");
+                                logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE end operation=Activity.startLockTask");
+                                logger.info(LogCategory.POLICY, "unspecified", "DCAM entered lock task mode");
                             } catch (RuntimeException error) {
-                                logger.warn("Could not enter lock task mode", error);
+                                logger.warn(LogCategory.POLICY, "unspecified", null, "Could not enter lock task mode", error);
                             }
                         }
                         complete(onPolicyStateReady, logger);
                     });
                 } catch (RuntimeException error) {
-                    logger.error("KIOSK_TRACE lock-task check failed", error);
+                    logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE lock-task check failed", error);
                     try {
                         activity.runOnUiThread(() -> complete(onPolicyStateReady, logger));
                     } catch (RuntimeException callbackError) {
-                        logger.error("KIOSK_TRACE lock-task callback failed", callbackError);
+                        logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE lock-task callback failed", callbackError);
                     }
                 }
             });
         } catch (RuntimeException error) {
-            logger.error("KIOSK_TRACE lock-task scheduling failed", error);
+            logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE lock-task scheduling failed", error);
             complete(onPolicyStateReady, logger);
         }
     }
@@ -141,7 +142,7 @@ public final class DcamKioskController {
     private void applyManagedKioskPolicy() {
         boolean deviceOwner = isDeviceOwner();
         long startedAt = SystemClock.elapsedRealtime();
-        logger.info("KIOSK_TRACE managed-policy begin deviceOwner=" + deviceOwner
+        logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE managed-policy begin deviceOwner=" + deviceOwner
                 + " package=" + packageName + " mainThread=" + isMainThread());
         if (!deviceOwner) return;
         try {
@@ -155,7 +156,7 @@ public final class DcamKioskController {
                         devicePolicyManager.addPersistentPreferredActivity(
                                 admin, homeIntentFilter(), homeActivity));
             } else {
-                logger.info("No DCAM Home activity found for persistent preferred policy");
+                logger.info(LogCategory.POLICY, "unspecified", "No DCAM Home activity found for persistent preferred policy");
             }
             runPolicyCall("setLockTaskPackages", () ->
                     devicePolicyManager.setLockTaskPackages(admin, new String[] { packageName }));
@@ -172,18 +173,18 @@ public final class DcamKioskController {
             });
             runPolicyCall("setUninstallBlocked blocked=true", () ->
                     devicePolicyManager.setUninstallBlocked(admin, packageName, true));
-            logger.info("KIOSK_TRACE managed-policy complete elapsedMs="
+            logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE managed-policy complete elapsedMs="
                     + elapsedSince(startedAt));
-            logger.info("Managed kiosk policy applied");
+            logger.info(LogCategory.POLICY, "unspecified", "Managed kiosk policy applied");
         } catch (SecurityException error) {
-            logger.warn("Managed kiosk policy rejected by device policy elapsedMs="
+            logger.warn(LogCategory.POLICY, "unspecified", null, "Managed kiosk policy rejected by device policy elapsedMs="
                     + elapsedSince(startedAt), error);
         }
     }
 
     private void runPolicyCall(String operation, Runnable action) {
         long startedAt = SystemClock.elapsedRealtime();
-        logger.info("KIOSK_TRACE begin operation=" + operation
+        logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE begin operation=" + operation
                 + " mainThread=" + isMainThread()
                 + " caller=" + callerFrame());
         try {
@@ -192,13 +193,13 @@ public final class DcamKioskController {
             String message = "KIOSK_TRACE end operation=" + operation
                     + " elapsedMs=" + elapsedMs;
             if (isSlowPolicyCall(elapsedMs)) {
-                logger.warn(message + " slow=true", stackTrace(
+                logger.warn(LogCategory.POLICY, "unspecified", null, message + " slow=true", stackTrace(
                         "KIOSK_TRACE slow policy call operation=" + operation));
             } else {
-                logger.info(message);
+                logger.info(LogCategory.POLICY, "unspecified", message);
             }
         } catch (RuntimeException error) {
-            logger.error("KIOSK_TRACE failed operation=" + operation
+            logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE failed operation=" + operation
                     + " elapsedMs=" + elapsedSince(startedAt), error);
             throw error;
         }
@@ -209,7 +210,7 @@ public final class DcamKioskController {
     }
 
     private void logPolicyEntry(String operation, String details) {
-        logger.info("KIOSK_TRACE entry operation=" + operation + " " + details
+        logger.info(LogCategory.POLICY, "unspecified", "KIOSK_TRACE entry operation=" + operation + " " + details
                 + " mainThread=" + isMainThread() + " caller=" + callerFrame());
     }
 
@@ -218,7 +219,7 @@ public final class DcamKioskController {
         try {
             completion.run();
         } catch (RuntimeException error) {
-            logger.error("KIOSK_TRACE completion failed", error);
+            logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE completion failed", error);
         }
     }
 

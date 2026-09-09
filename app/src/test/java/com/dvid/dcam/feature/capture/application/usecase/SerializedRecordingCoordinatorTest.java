@@ -180,6 +180,31 @@ final class SerializedRecordingCoordinatorTest {
         assertFalse(coordinator.isRecordingStartPending());
     }
 
+    @Test void pendingStartIsNotReportedAsActiveRecording() {
+        ManualExecutor executor = new ManualExecutor();
+        FakeCamera camera = new FakeCamera();
+        AtomicBoolean startAllowed = new AtomicBoolean(false);
+        SerializedRecordingCoordinator coordinator = new SerializedRecordingCoordinator(
+                executor, startAllowed::get);
+        coordinator.bindCamera(camera);
+
+        coordinator.startVideo();
+        executor.runAll();
+
+        assertEquals(RecordingMode.VIDEO, coordinator.currentMode());
+        assertTrue(coordinator.isRecordingStartPending());
+        assertFalse(coordinator.isRecording());
+
+        startAllowed.set(true);
+        coordinator.resumePendingStart();
+        executor.runAll();
+        assertTrue(coordinator.isRecording());
+
+        coordinator.recordingStarted(RecordingMode.VIDEO, "video.mp4");
+        executor.runAll();
+        assertTrue(coordinator.isRecording());
+    }
+
     @Test void repeatedStartPressesDuringCameraTransitionQueueOneStart() {
         ManualExecutor executor = new ManualExecutor();
         FakeCamera camera = new FakeCamera();

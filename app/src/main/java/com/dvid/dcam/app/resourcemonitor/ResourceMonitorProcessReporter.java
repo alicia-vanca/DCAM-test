@@ -11,11 +11,11 @@ import android.os.Build;
 import android.os.Debug;
 import android.os.Process;
 import androidx.core.content.ContextCompat;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 
 /** Reports self metrics only when Resource Monitor explicitly requests a sample. */
 public final class ResourceMonitorProcessReporter {
-    private static final int DIAGNOSTIC_REQUEST_LIMIT = 5;
     public static final String REQUEST_ACTION_SUFFIX = ".RESOURCE_MONITOR_REQUEST";
     public static final String RESPONSE_ACTION_SUFFIX = ".RESOURCE_MONITOR_RESPONSE";
     public static final String EXTRA_REQUEST_ID = "request_id";
@@ -29,8 +29,6 @@ public final class ResourceMonitorProcessReporter {
     public static final String EXTRA_HEAP_LIMIT_BYTES = "heap_limit_bytes";
 
     private static boolean installed;
-    private static int diagnosticRequestCount;
-
     private ResourceMonitorProcessReporter() {
     }
 
@@ -40,36 +38,22 @@ public final class ResourceMonitorProcessReporter {
         Context target = application == null ? context : application;
         BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override public void onReceive(Context receiverContext, Intent intent) {
-                int diagnosticNumber = ++diagnosticRequestCount;
-                boolean diagnostic = diagnosticNumber <= DIAGNOSTIC_REQUEST_LIMIT;
-                if (diagnostic) {
-                    logger.info("Resource Monitor process reporter callback in "
-                            + processName(receiverContext) + " PID " + Process.myPid()
-                            + ". Action: " + intent.getAction() + ". Package: "
-                            + intent.getPackage() + ". Request: "
-                            + intent.getStringExtra(EXTRA_REQUEST_ID) + ".");
-                }
                 if (!requestAction(receiverContext).equals(intent.getAction())) return;
                 String requestId = intent.getStringExtra(EXTRA_REQUEST_ID);
                 if (requestId == null || requestId.trim().isEmpty()) return;
-                if (diagnostic) {
-                    logger.info("Resource Monitor process reporter received request "
-                            + requestId + " in " + processName(receiverContext)
-                            + " PID " + Process.myPid() + ".");
-                }
                 sendResponse(receiverContext, requestId,
                         intent.getBooleanExtra(EXTRA_INCLUDE_PSS, false),
-                        logger, diagnostic);
+                        logger);
             }
         };
         String action = requestAction(target);
-        logger.info("Resource Monitor process reporter registering in "
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor process reporter registering in "
                 + processName(target) + " PID " + Process.myPid() + ". Action: "
                 + action + ". Package: " + target.getPackageName() + ".");
         ContextCompat.registerReceiver(target, receiver,
                 new IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED);
         installed = true;
-        logger.info("Resource Monitor process reporter registered in "
+        logger.info(LogCategory.PERF, "unspecified", "Resource Monitor process reporter registered in "
                 + processName(target) + " PID " + Process.myPid() + ".");
     }
 
@@ -99,7 +83,7 @@ public final class ResourceMonitorProcessReporter {
     }
 
     private static void sendResponse(Context context, String requestId, boolean includePss,
-            Logger logger, boolean diagnostic) {
+            Logger logger) {
         Runtime runtime = Runtime.getRuntime();
         long heapUsed = Math.max(0L, runtime.totalMemory() - runtime.freeMemory());
         long pssBytes = includePss ? currentPssBytes() : -1L;
@@ -119,12 +103,8 @@ public final class ResourceMonitorProcessReporter {
             int responseCode = 31 * requestId.hashCode() + pid;
             PendingIntent.getBroadcast(context, responseCode, response,
                     PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE).send();
-            if (diagnostic) {
-                logger.info("Resource Monitor process reporter sent response "
-                        + requestId + " from " + processName + " PID " + pid + ".");
-            }
         } catch (PendingIntent.CanceledException | RuntimeException error) {
-            logger.warn("Resource Monitor process reporter could not send response "
+            logger.warn(LogCategory.PERF, "unspecified", null, "Resource Monitor process reporter could not send response "
                     + requestId + " from " + processName + " PID " + pid + ".", error);
         }
     }

@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.camera.shared.benchmark;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.CameraSnapshot;
@@ -240,13 +241,13 @@ public final class SharedCameraPipelineBenchmarkRunner
                 pipelineId(), tuple);
         PipelineEvidence evidence = new PipelineEvidence(cameraId, VideoCodec.H264,
                 pipelineId(), PipelineAvailability.AVAILABLE, List.of(candidate), List.of());
-        logger.info("camera_pipeline_benchmark measurement_start pipeline=" + pipelineId()
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark measurement_start pipeline=" + pipelineId()
                 + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
                 + " warmup=" + invocation.warmup() + " block=" + invocation.block());
         ExactResult exact = verifyExact(plan, scope, evidence, candidate, true);
         if (exact.outcome != VerificationOutcome.VERIFIED_PASS
                 || exact.activeContext.isEmpty()) {
-            logger.info("camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
                     + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
                     + OUTCOME_FIELD_PREFIX + exact.outcome + " stage=" + exact.stage
                     + " reason=" + exact.reason);
@@ -263,7 +264,7 @@ public final class SharedCameraPipelineBenchmarkRunner
                 optional(runtime.stopFinalizeMillis),
                 OptionalLong.of(exact.elapsedMillis), runtime.measuredFps(),
                 runtime.droppedFrames(), resources);
-        logger.info("camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark measurement_end pipeline=" + pipelineId()
                 + CAMERA_FIELD_PREFIX + cameraId + TUPLE_FIELD_PREFIX + tuple
                 + OUTCOME_FIELD_PREFIX + "pass"
                 + " totalVerifyMillis=" + exact.elapsedMillis);
@@ -275,7 +276,7 @@ public final class SharedCameraPipelineBenchmarkRunner
         if (context == null) return true;
         CameraOperationResult result = runtime.release(context);
         if (result.outcome() == CameraOperationOutcome.PASS) activeContext = null;
-        logger.info("camera_pipeline_benchmark release pipeline=" + pipelineId()
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark release pipeline=" + pipelineId()
                 + OUTCOME_FIELD_PREFIX + result.outcome() + " detail=" + result.detail());
         return result.outcome() == CameraOperationOutcome.PASS;
     }
@@ -359,7 +360,7 @@ public final class SharedCameraPipelineBenchmarkRunner
                         "exhaustive_real_verify", completed, total,
                         "pipeline=" + pipelineId() + CAMERA_FIELD_PREFIX + scope.cameraId()
                                 + TUPLE_FIELD_PREFIX + tuple));
-                logger.info("camera_pipeline_benchmark candidate_start pipeline=" + pipelineId()
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark candidate_start pipeline=" + pipelineId()
                         + CAMERA_FIELD_PREFIX + scope.cameraId() + TUPLE_FIELD_PREFIX + tuple);
                 if (cancellation.getAsBoolean()) {
                     outcomes.add(new TupleOutcome(tuple, VerificationOutcome.CANCELLED_UNKNOWN,
@@ -379,7 +380,7 @@ public final class SharedCameraPipelineBenchmarkRunner
                         sets.rawCandidates(), facts);
                 VerificationOutcome outcome = updated.outcome(tuple);
                 outcomes.add(new TupleOutcome(tuple, outcome, exact.stage, exact.reason));
-                logger.info("camera_pipeline_benchmark candidate_end pipeline=" + pipelineId()
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark candidate_end pipeline=" + pipelineId()
                         + CAMERA_FIELD_PREFIX + scope.cameraId() + TUPLE_FIELD_PREFIX + tuple
                         + OUTCOME_FIELD_PREFIX + outcome + " stage=" + exact.stage
                         + " reason=" + exact.reason + " cleanup=" + exact.cleanupComplete);
@@ -463,7 +464,7 @@ public final class SharedCameraPipelineBenchmarkRunner
             if (retainActive && active.isPresent()) {
                 CameraOperationResult preview = runtime.previewProgress(
                         active.orElseThrow());
-                logger.info("camera_pipeline_benchmark preview_progress pipeline=" + pipelineId()
+                logger.info(LogCategory.CAPABILITY, "unspecified", "camera_pipeline_benchmark preview_progress pipeline=" + pipelineId()
                         + CAMERA_FIELD_PREFIX + scope.cameraId()
                         + OUTCOME_FIELD_PREFIX + preview.outcome()
                         + " detail=" + preview.detail());

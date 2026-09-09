@@ -218,6 +218,23 @@ public final class SettingsControlRenderer {
         }
     }
 
+    public void refreshStorageUsage(SettingsScreenModel model) {
+        refreshingRows = true;
+        try {
+            for (SettingsSection section : model.getSections()) {
+                for (SettingItem item : section.getItems()) {
+                    if (item.getType() != SettingItem.Type.STORAGE_RADIO) continue;
+                    View row = renderedRows.get(item.getStableId());
+                    if (row == null) continue;
+                    refreshStorageRadio(row, item);
+                    setStorageRadioOptionsEnabled(row, item);
+                }
+            }
+        } finally {
+            refreshingRows = false;
+        }
+    }
+
     private void applyEnabledState(View row, SettingItem item) {
         row.setEnabled(item.isEnabled());
         row.setAlpha(item.isEnabled() ? 1f : 0.45f);

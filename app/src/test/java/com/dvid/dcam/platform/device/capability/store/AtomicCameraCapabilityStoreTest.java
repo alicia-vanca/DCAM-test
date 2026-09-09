@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.CameraSnapshot;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.Freshness;
@@ -299,10 +300,10 @@ final class AtomicCameraCapabilityStoreTest {
         private final List<String> infos = new ArrayList<>();
         private final List<String> errors = new ArrayList<>();
 
-        @Override public void debug(String message) { debugs.add(message); }
-        @Override public void info(String message) { infos.add(message); }
-        @Override public void info(String message, Throwable error) { infos.add(message); }
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) { errors.add(message); }
+        @Override public void debug(LogCategory category, String eventName, String message) { debugs.add(message); }
+        @Override public void info(LogCategory category, String eventName, String message) { infos.add(message); }
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) { infos.add(message); }
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) { errors.add(message); }
     }
 }

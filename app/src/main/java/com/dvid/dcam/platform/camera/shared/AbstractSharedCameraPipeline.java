@@ -29,8 +29,10 @@ import android.os.HandlerThread;
 import android.os.SystemClock;
 import android.util.Range;
 import android.view.Surface;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
+import com.dvid.dcam.feature.device.domain.camera.CameraFailureClass;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationResult;
@@ -158,7 +160,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         try {
             return captureLocation.get();
         } catch (RuntimeException error) {
-            logger.warn("Capture " + mediaType
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Capture " + mediaType
                     + " without GPS metadata because current location lookup failed.", error);
             return null;
         }
@@ -184,7 +186,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             this.rotationDegrees = normalized;
             boolean encoderMetadataUpdated = encoder == null || encoder.setRotation(normalized);
             if (!encoderMetadataUpdated) {
-                logger.warn("shared_camera_capture stage=orientation_update"
+                logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_capture stage=orientation_update"
                         + " outcome=encoder_metadata_failed"
                         + " pipeline=" + pipelineId().value()
                         + " previousDegrees=" + previous + " outputDegrees=" + normalized
@@ -237,7 +239,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             CameraOperationContext value, boolean standaloneImage) {
         CameraOperationResult result = bindSession(value, standaloneImage);
         if (result.outcome() != CameraOperationOutcome.PASS) {
-            logger.warn(captureProfileValidationMessage(result), null);
+            logger.warn(LogCategory.CAMERA, "unspecified", null, captureProfileValidationMessage(result), null);
         }
         return result;
     }
@@ -319,7 +321,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                     "encoder_prime_failed:" + encoder.callbackError());
         }
         encoder.suspendInput();
-        logger.info("Prime video encoder success. Pipeline: " + pipelineId
+        logger.info(LogCategory.CAMERA, "unspecified", "Prime video encoder success. Pipeline: " + pipelineId
                 + ". Elapsed: " + elapsed(started) + " ms. Pre-record GOP duration: "
                 + preRecordGopDurationMillis + " ms.");
     }
@@ -731,7 +733,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         GpsCoordinate location = currentCaptureLocation("photo");
         if (location != null) applyJpegLocation(builder, location);
         if (encoderWasActive) {
-            logger.info("Capture recording photo with stable camera orientation. "
+            logger.info(LogCategory.CAMERA, "unspecified", "Capture recording photo with stable camera orientation. "
                     + "Requested output rotation: " + requestedJpegRotation
                     + " degrees. Camera request rotation: 0 degrees.");
         }
@@ -753,7 +755,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         if (request.error == null) return null;
         request.discardOutput();
         return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                request.outcome, started, request.error);
+                request.outcome, request.failureClass, started, request.error);
     }
 
     private void beginEncoderOutput(
@@ -843,7 +845,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         try {
             builder.set(CaptureRequest.JPEG_GPS_LOCATION, jpegLocation(location));
         } catch (RuntimeException error) {
-            logger.warn("Capture photo without GPS metadata because camera request "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Capture photo without GPS metadata because camera request "
                     + "rejected current location.", error);
         }
     }
@@ -856,11 +858,12 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             return null;
         } catch (IOException error) {
             request.discardOutput();
-            logger.warn("Write recording photo orientation metadata failed. "
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "Write recording photo orientation metadata failed. "
                     + "Requested rotation: " + requestedJpegRotation
                     + " degrees. Staged JPEG removed.", error);
             return result(value, CameraPipelineOperation.CAPTURE_JPEG,
-                    CameraOperationOutcome.BLOCKED_EXTERNAL, started,
+                    CameraOperationOutcome.BLOCKED_EXTERNAL,
+                    CameraFailureClass.JPEG_OUTPUT, started,
                     "jpeg_orientation_metadata:" + error.getClass().getSimpleName());
         }
     }
@@ -1025,7 +1028,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private void logCameraCharacteristics(CameraOperationContext value) {
         CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         if (manager == null) {
-            logger.warn("shared_camera_capture stage=camera_characteristics"
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_capture stage=camera_characteristics"
                     + " outcome=unavailable cameraId=" + value.cameraId().value(), null);
             return;
         }
@@ -1039,12 +1042,12 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             sensorTimestampRealtime = timestampSource != null
                     && timestampSource
                     == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME;
-            logger.info("Use camera " + value.cameraId().value() + " frame timestamps from "
+            logger.info(LogCategory.CAMERA, "unspecified", "Use camera " + value.cameraId().value() + " frame timestamps from "
                     + (sensorTimestampRealtime
                     ? "elapsed realtime clock."
                     : "camera-specific clock calibrated against elapsed realtime."));
         } catch (CameraAccessException | RuntimeException error) {
-            logger.warn("shared_camera_capture stage=camera_characteristics"
+            logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_capture stage=camera_characteristics"
                     + " outcome=unavailable cameraId=" + value.cameraId().value(), error);
         }
     }
@@ -1232,7 +1235,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                             && jpeg.requestId == tag.requestId) {
                         JpegPayload early = jpeg.markStarted(timestamp);
                         if (early != null) {
-                            logger.info("Recover JPEG capture callback order for request "
+                            logger.info(LogCategory.CAMERA, "unspecified", "Recover JPEG capture callback order for request "
                                     + tag.requestId + ". Buffered image timestamp matched "
                                     + "shutter timestamp: " + timestamp + " ns.");
                             writeJpeg(jpeg, early);
@@ -1294,7 +1297,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                                 + cameraId + ". Available physical cameras: "
                                 + availablePhysicalCameraIds + ".";
                     }
-                    logger.info(message + " Pipeline: " + pipeline + ".");
+                    logger.info(LogCategory.CAMERA, "unspecified", message + " Pipeline: " + pipeline + ".");
                 }
             };
 
@@ -1323,7 +1326,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         } catch (RuntimeException error) {
             if (request != null) request.fail(CameraOperationOutcome.GLOBAL_FAILURE,
                     "jpeg_reader:" + error.getClass().getSimpleName());
-            logger.warn(activeContext == null
+            logger.warn(LogCategory.CAMERA, "unspecified", null, activeContext == null
                     ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_reader"
                     : prefix(activeContext, "jpeg_reader"), error);
         }
@@ -1335,14 +1338,16 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             if (!request.isCancelled()) request.complete(payload.resolution());
         } catch (IOException error) {
             request.fail(CameraOperationOutcome.BLOCKED_EXTERNAL,
+                    CameraFailureClass.JPEG_OUTPUT,
                     "jpeg_write:" + error.getClass().getSimpleName());
-            logger.warn(activeContext == null
+            logger.warn(LogCategory.CAMERA, "unspecified", null, activeContext == null
                     ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_write"
                     : prefix(activeContext, "jpeg_write"), error);
         } catch (RuntimeException error) {
             request.fail(CameraOperationOutcome.GLOBAL_FAILURE,
+                    CameraFailureClass.JPEG_OUTPUT,
                     "jpeg_write:" + error.getClass().getSimpleName());
-            logger.warn(activeContext == null
+            logger.warn(LogCategory.CAMERA, "unspecified", null, activeContext == null
                     ? "pipeline=b-camera2-egl-fanout-v1 stage=jpeg_write"
                     : prefix(activeContext, "jpeg_write"), error);
         } finally {
@@ -1411,7 +1416,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
                         + LOG_OUTCOME + outcome + LOG_DETAIL + detail
                 : prefix(activeContext, "asynchronous")
                         + LOG_OUTCOME + outcome + LOG_DETAIL + detail;
-        if (error == null) logger.info(message); else logger.warn(message, error);
+        if (error == null) logger.info(LogCategory.CAMERA, "unspecified", message); else logger.warn(LogCategory.CAMERA, "unspecified", null, message, error);
     }
     private CameraOperationResult releaseAfterBindFailure(
             CameraOperationContext value, long started, CameraOperationResult failure) {
@@ -1428,7 +1433,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             CameraPipelineOperation operation, long started,
             String stage, CameraAccessException error) {
         PipelineFailure failure = cameraAccessPipelineFailure(stage, error);
-        logger.warn(prefix(value, stage) + LOG_OUTCOME + failure.outcome
+        logger.warn(LogCategory.CAMERA, "unspecified", null, prefix(value, stage) + LOG_OUTCOME + failure.outcome
                 + " elapsedMs=" + elapsed(started), error);
         return result(value, operation, failure.outcome, started, failure.getMessage());
     }
@@ -1446,7 +1451,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             long started, String stage, Throwable error) {
         CameraOperationOutcome outcome = CameraPipelineFailureClassifier.classify(signal);
         String detail = stage + ":" + error.getClass().getSimpleName();
-        logger.warn(prefix(value, stage) + LOG_OUTCOME + outcome
+        logger.warn(LogCategory.CAMERA, "unspecified", null, prefix(value, stage) + LOG_OUTCOME + outcome
                 + " elapsedMs=" + elapsed(started) + LOG_DETAIL + detail, error);
         return result(value, operation, outcome, started, detail);
     }
@@ -1462,6 +1467,13 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             long started, String detail) {
         return new CameraOperationResult(
                 value, operation, outcome, elapsed(started), detail);
+    }
+
+    private CameraOperationResult result(CameraOperationContext value,
+            CameraPipelineOperation operation, CameraOperationOutcome outcome,
+            CameraFailureClass failureClass, long started, String detail) {
+        return new CameraOperationResult(
+                value, operation, outcome, failureClass, elapsed(started), detail);
     }
 
     static String captureProfileValidationMessage(CameraOperationResult result) {
@@ -1480,7 +1492,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
 
     protected final void log(CameraOperationContext value,
             String stage, String outcome, String detail) {
-        logger.info(prefix(value, stage) + LOG_OUTCOME + outcome + LOG_DETAIL + detail);
+        logger.info(LogCategory.CAMERA, "unspecified", prefix(value, stage) + LOG_OUTCOME + outcome + LOG_DETAIL + detail);
     }
 
     protected final String prefix(CameraOperationContext value, String stage) {
@@ -1506,7 +1518,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         asynchronousOutcome = null;
         asynchronousDetail = null;
         if (!released) {
-            logger.info(LOG_PIPELINE_PREFIX + pipelineId()
+            logger.info(LogCategory.CAMERA, "unspecified", LOG_PIPELINE_PREFIX + pipelineId()
                     + " stage=cleanup outcome=release_timeout elapsedMs=" + elapsed(started));
         }
         return released;
@@ -1593,7 +1605,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         boolean videoDeleted = videoRetained || deleteArtifact(videoArtifact);
         boolean jpegDeleted = deleteArtifact(jpegArtifact);
         if (videoRetained) {
-            logger.info("Preserve failed recording staging artifact for recovery: "
+            logger.info(LogCategory.CAMERA, "unspecified", "Preserve failed recording staging artifact for recovery: "
                     + videoArtifact.getAbsolutePath() + ".");
             videoArtifact = null;
             retainVideoArtifactOnRelease = false;
@@ -1602,7 +1614,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         }
         if (jpegDeleted) jpegArtifact = null;
         if (!videoDeleted || !jpegDeleted) {
-            logger.info(LOG_PIPELINE_PREFIX + pipelineId()
+            logger.info(LogCategory.CAMERA, "unspecified", LOG_PIPELINE_PREFIX + pipelineId()
                     + " stage=cleanup outcome=artifact_retry"
                     + " videoDeleted=" + videoDeleted + " jpegDeleted=" + jpegDeleted);
         }
@@ -1660,7 +1672,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
     private void logFpsMeasurement(CameraOperationContext value, long measuredFps) {
         int selectedFps = value.tuple().videoMode().framesPerSecond();
         if (measuredFps > 0 && measuredFps != selectedFps) {
-            logger.info(prefix(value, "fps_measurement") + " outcome=warning"
+            logger.info(LogCategory.CAMERA, "unspecified", prefix(value, "fps_measurement") + " outcome=warning"
                     + " configuredFps=" + selectedFps + " measuredFps=" + measuredFps);
         }
     }
@@ -1788,6 +1800,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         private volatile long expectedTimestamp = Long.MIN_VALUE;
         private volatile CameraResolution resolution;
         private volatile CameraOperationOutcome outcome = CameraOperationOutcome.PASS;
+        private volatile CameraFailureClass failureClass = CameraFailureClass.NONE;
         private volatile String error;
 
         PendingJpeg(
@@ -1855,6 +1868,7 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
             cancelled = true;
             earlyPayloads.clear();
             outcome = CameraOperationOutcome.CANCELLED_UNKNOWN;
+            failureClass = CameraFailureClass.NONE;
             error = "jpeg_cancelled";
             completed.countDown();
         }
@@ -1867,9 +1881,16 @@ public abstract class AbstractSharedCameraPipeline implements SharedCameraCaptur
         }
 
         private synchronized void fail(CameraOperationOutcome value, String detail) {
+            fail(value, value.isCandidateFailure()
+                    ? CameraFailureClass.UNKNOWN : CameraFailureClass.NONE, detail);
+        }
+
+        private synchronized void fail(
+                CameraOperationOutcome value, CameraFailureClass classification, String detail) {
             if (cancelled || completed.getCount() == 0) return;
             earlyPayloads.clear();
             outcome = value;
+            failureClass = classification;
             error = detail;
             completed.countDown();
         }

@@ -1,8 +1,5 @@
 package com.dvid.dcam.app;
 
-import com.dvid.dcam.feature.settings.domain.AppLanguage;
-import com.dvid.dcam.feature.settings.application.usecase.LanguageSettingsUseCase;
-import com.dvid.dcam.feature.settings.application.usecase.MediaEncryptionSettingsUseCase;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.app.role.RoleManager;
@@ -16,7 +13,6 @@ import android.database.ContentObserver;
 import android.graphics.Color;
 import android.hardware.display.DisplayManager;
 import android.location.LocationManager;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.content.pm.ActivityInfo;
@@ -30,7 +26,6 @@ import android.os.Vibrator;
 import android.provider.Settings;
 import android.view.Display;
 import android.view.KeyEvent;
-import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -40,91 +35,62 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.widget.GridLayout;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
-import com.dvid.dcam.BuildConfig;
+import androidx.fragment.app.FragmentActivity;
 import com.dvid.dcam.R;
 import com.dvid.dcam.app.devmode.DeveloperFeatureToggles;
 import com.dvid.dcam.app.resourcemonitor.ResourceMonitorController;
 import com.dvid.dcam.app.ui.ActivityChromeController;
 import com.dvid.dcam.app.ui.CameraIdentityPresentation;
+import com.dvid.dcam.app.ui.CameraScreenView;
 import com.dvid.dcam.app.ui.CaptureFailureNoticePolicy;
 import com.dvid.dcam.app.ui.camera.CameraFlowCoordinator;
 import com.dvid.dcam.app.ui.FloatingNotice;
-import com.dvid.dcam.app.ui.MediaBrowserRenderer;
 import com.dvid.dcam.app.ui.RecordingStatusRenderer;
 import com.dvid.dcam.app.ui.MainScreen;
 import com.dvid.dcam.app.ui.MainMenuModel;
-import com.dvid.dcam.app.ui.MainMenuTile;
 import com.dvid.dcam.app.ui.GpsPermissionRetryScheduler;
 import com.dvid.dcam.app.ui.MainUiState;
+import com.dvid.dcam.app.ui.MainUiScope;
 import com.dvid.dcam.app.ui.MainViewModel;
 import com.dvid.dcam.app.ui.MainViewModelFactory;
 import com.dvid.dcam.app.ui.LocationTrackingCoordinator;
 import com.dvid.dcam.app.ui.StorageWarningNoticePolicy;
+import com.dvid.dcam.app.ui.StorageSizeFormatter;
 import com.dvid.dcam.core.featuregate.domain.FeatureGate;
 import com.dvid.dcam.databinding.ActivityMainBinding;
-import com.dvid.dcam.databinding.ScreenCameraBinding;
-import com.dvid.dcam.databinding.ScreenDeveloperUsersBinding;
-import com.dvid.dcam.databinding.ScreenFileExplorerBinding;
-import com.dvid.dcam.databinding.ScreenLoginBinding;
-import com.dvid.dcam.databinding.ScreenMenuBinding;
-import com.dvid.dcam.databinding.ScreenSettingsDetailBinding;
-import com.dvid.dcam.feature.auth.domain.UserProvisioningRequest;
-import com.dvid.dcam.feature.auth.domain.UserSource;
-import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
-import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
 import com.dvid.dcam.feature.location.application.usecase.LocationControlUseCase;
 import com.dvid.dcam.feature.location.application.usecase.LocationSettingsUseCase;
 import com.dvid.dcam.feature.location.application.usecase.LocationTrackingUseCase;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
-import com.dvid.dcam.feature.location.domain.GpsMode;
-import com.dvid.dcam.feature.location.domain.GpsSettings;
-import com.dvid.dcam.feature.location.domain.LocationSystemState;
 import com.dvid.dcam.feature.location.domain.LocationTrackingState;
-import com.dvid.dcam.feature.media.application.usecase.OpenMediaUseCase;
-import com.dvid.dcam.feature.storage.application.usecase.StorageSettingsUseCase;
-import com.dvid.dcam.feature.storage.domain.MediaPartitionLocation;
-import com.dvid.dcam.feature.storage.domain.StorageVolumeStatus;
 import com.dvid.dcam.feature.device.application.usecase.DeviceSerialNumberUseCase;
-import com.dvid.dcam.feature.device.application.port.DeveloperSettingsStore;
-import com.dvid.dcam.app.ui.settings.SettingsUiState;
-import com.dvid.dcam.app.ui.settings.StorageOptionUiState;
-import com.dvid.dcam.app.ui.settings.DeveloperButtonBindingsScreen;
-import com.dvid.dcam.app.ui.settings.DescribedRadioOptionUiState;
-import com.dvid.dcam.app.ui.settings.SettingId;
-import com.dvid.dcam.app.ui.settings.SettingItem;
-import com.dvid.dcam.app.ui.settings.SettingsControlRenderer;
-
-import com.dvid.dcam.app.ui.settings.camera.CameraDeveloperSettingsPresentation;
-import com.dvid.dcam.app.ui.settings.camera.CameraSettingControlId;
-import com.dvid.dcam.app.ui.settings.SettingsScreenModel;
-import com.dvid.dcam.app.ui.settings.SettingsSection;
+import com.dvid.dcam.app.ui.settings.SettingsScreenCatalog;
+import com.dvid.dcam.app.ui.settings.SettingsScreenCoordinator;
+import com.dvid.dcam.app.ui.settings.DeveloperButtonBindingsController;
+import com.dvid.dcam.app.ui.navigation.MainNavigationCoordinator;
+import com.dvid.dcam.app.ui.navigation.MainNavigationGraph;
+import com.dvid.dcam.app.ui.navigation.FragmentRouteRenderer;
+import com.dvid.dcam.app.ui.navigation.MainScreenRouter;
+import com.dvid.dcam.app.ui.navigation.NavigationGraph;
+import com.dvid.dcam.app.ui.navigation.PersistentCameraLayer;
 import com.dvid.dcam.core.input.domain.HardwareButtonLayout;
 import com.dvid.dcam.app.ui.input.HardwareButtonRouter;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.function.Consumer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Android entry point and ViewBinding presentation shell. */
-public final class MainActivity extends ComponentActivity {
-    private static final int DEV_MODE_UNLOCK_TAPS = 7;
-    private static final long DEV_MODE_UNLOCK_WINDOW_MS = 5_000L;
+public final class MainActivity extends FragmentActivity implements MainUiScope.Provider {
     private static final long GPS_PERMISSION_RETRY_DELAY_MS = 5 * 60_000L;
     private static final long CAPTURE_VIBRATION_MS = 150L;
     private static final long SAVED_NOTICE_MAX_AGE_MS = FloatingNotice.TRANSIENT_DURATION_MS;
@@ -132,9 +98,6 @@ public final class MainActivity extends ComponentActivity {
     private static final long STORAGE_WARNING_REFRESH_INTERVAL_MS = 5_000L;
     private static int activityInstanceCount;
     private static final int CAPTURE_VIBRATION_AMPLITUDE = 255;
-    private static final List<DeveloperSettingsStore.Mode> CAMERA_PIPELINE_MODES = List.of(
-            DeveloperSettingsStore.Mode.AUTO, DeveloperSettingsStore.Mode.A,
-            DeveloperSettingsStore.Mode.B);
     private static final String STATE_DEFAULT_HOME_REQUESTED = "default_home_requested";
     private static final String STATE_CAPTURE_PERMISSION_FLOW_STARTED = "capture_permission_flow_started";
     private static final String STATE_CAPTURE_PERMISSION_POLICY_APPLIED = "capture_permission_policy_applied";
@@ -180,7 +143,6 @@ public final class MainActivity extends ComponentActivity {
     };
     private final Runnable cameraSwitchActionRefresh = this::updateCameraSwitchAction;
     private final Runnable idleScreenOffCameraRelease = this::releaseIdleCameraIfScreenOffNow;
-    private FrameLayout root;
     private AppComposition composition;
     private AppComposition.CameraCapabilityRecheckSubscription cameraCapabilityRecheckSubscription;
     private CameraFlowCoordinator.StateSubscription idleCameraReleaseStateSubscription;
@@ -194,22 +156,20 @@ public final class MainActivity extends ComponentActivity {
     private boolean redirectingToHomeTask;
     private boolean firmwareHardwareButtonReceiverRegistered;
     private volatile boolean screenOff;
-    private LanguageSettingsUseCase languageSettings;
     private DeviceSerialNumberUseCase deviceSerialNumbers;
     private DeveloperFeatureToggles developerFeatureToggles;
-    private DeveloperButtonBindingsScreen developerButtonBindingsScreen;
-    private MediaEncryptionSettingsUseCase mediaEncryptionSettings;
-    private StorageSettingsUseCase storageSettings;
     private LocationSettingsUseCase locationSettings;
     private LocationControlUseCase locationControl;
     private LocationTrackingUseCase locationTracking;
     private LocationTrackingCoordinator locationTrackingCoordinator;
     private GpsCoordinate currentGpsCoordinate;
     private LocationTrackingState locationTrackingState = LocationTrackingState.STOPPED;
-    private SettingsControlRenderer settingsRenderer;
-    private SettingsUiState settingsUiState;
+    private SettingsScreenCoordinator settingsCoordinator;
     private AppComposition.AndroidRuntime androidRuntime;
     private MainMenuModel menuModel;
+    private final SettingsScreenCatalog settingsScreenCatalog = new SettingsScreenCatalog();
+    private MainNavigationCoordinator navigation;
+    private MainUiScope mainUiScope;
     private ActivityResultLauncher<String[]> permissionLauncher;
     private ActivityResultLauncher<Intent> capturePermissionSettingsLauncher;
     private ActivityResultLauncher<String[]> locationPermissionLauncher;
@@ -240,36 +200,18 @@ public final class MainActivity extends ComponentActivity {
     private boolean legacyStoragePermissionRequestInFlight;
     private boolean legacyStorageSettingsRequestInFlight;
     private boolean defaultHomeRequestStarted;
-    private Boolean pendingLocationEnabled;
     private ActivityChromeController activityChrome;
     private ResourceMonitorController resourceMonitorController;
     private RecordingStatusRenderer recordingStatusRenderer;
-    private MediaBrowserRenderer mediaBrowserRenderer;
     private ContentObserver autoRotateObserver;
     private DisplayManager displayManager;
     private boolean writeSettingsRequestInFlight;
-    private Boolean pendingAutoRotateValue;
     private AlertDialog writeSettingsDialog;
     private AlertDialog cameraCapabilityResultDialog;
     private MainUiState latestState;
-    private MainScreen renderedScreen;
-    private MainScreen operationLoggedScreen;
-    private ScreenCameraBinding cameraScreen;
-    private ScreenLoginBinding loginScreen;
-    private ScreenDeveloperUsersBinding developerUsersScreen;
-    private ScreenFileExplorerBinding fileExplorerScreen;
-    private ScreenMenuBinding menuScreen;
-    private LinearLayout renderedSettingsList;
-    private ScrollView renderedSettingsScroll;
-    private AppLanguage[] renderedLanguages = new AppLanguage[0];
-    private int devModeTapCount;
-    private long devModeTapWindowStartedAtMs;
+    private CameraScreenView cameraScreen;
     private Boolean storageWarningVisible;
     private final AtomicBoolean storageWarningRefreshInFlight = new AtomicBoolean();
-    private List<StorageVolumeStatus> storageVolumes = List.of();
-    private boolean storageVolumesStale = true;
-    private long storageVolumesGeneration;
-    private final AtomicBoolean storageVolumesRefreshInFlight = new AtomicBoolean();
 
     private Runnable sosHoldAction;
     private final DisplayManager.DisplayListener displayRotationListener = new DisplayManager.DisplayListener() {
@@ -308,20 +250,19 @@ public final class MainActivity extends ComponentActivity {
             if (LocationManager.MODE_CHANGED_ACTION.equals(action)
                     || LocationManager.PROVIDERS_CHANGED_ACTION.equals(action)) {
                 refreshLocationTracking();
-                refreshDeveloperSettingsRows();
+                if (settingsCoordinator != null) {
+                    settingsCoordinator.onLocationSystemStateChanged();
+                }
             }
         }
     };
     private final BroadcastReceiver storageMountedReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            storageVolumesGeneration++;
-            storageVolumesStale = true;
+            if (settingsCoordinator != null) settingsCoordinator.onStorageMounted();
             composition.refreshCaptureStorageNotice();
             if (latestState == null) return;
-            if (latestState.getScreen() == MainScreen.STORAGE_SETTINGS) {
-                refreshCurrentSettingsControls();
-            } else if (latestState.getScreen() == MainScreen.FILES) {
+            if (latestState.getScreen() == MainScreen.FILES) {
                 viewModel.openMediaFolder(latestState.getMediaBrowser().getRelativePath());
             }
         }
@@ -345,13 +286,30 @@ public final class MainActivity extends ComponentActivity {
         public void onReceive(Context context, Intent intent) {
             if (intent == null || hardwareButtons == null)
                 return;
-            if (renderedScreen == MainScreen.DEVELOPER_BUTTON_BINDINGS) {
+            if (committedScreen() == MainScreen.DEVELOPER_BUTTON_BINDINGS) {
                 hardwareButtons.clearTransientState();
                 return;
             }
             String action = intent.getAction();
             if (action == null)
                 return;
+            boolean activityResumed = getLifecycle().getCurrentState().isAtLeast(
+                    androidx.lifecycle.Lifecycle.State.RESUMED);
+            boolean screenInteractive = androidRuntime == null
+                    || androidRuntime.isScreenInteractive();
+            boolean cameraRecording = captureRuntime != null && captureRuntime.isRecording();
+            if (!shouldAcceptFirmwareHardwareInput(
+                    activityResumed, screenInteractive, cameraRecording)) {
+                hardwareButtons.clearTransientState();
+                if (logger != null) {
+                    logger.info(LogCategory.APP,
+                            "firmware_hardware_input_ignored",
+                            "Ignored firmware hardware button press for action " + action
+                            + " because DCAM is not foreground, the screen is interactive, and no"
+                            + " video or IMP recording is active.");
+                }
+                return;
+            }
             long eventTimeMs = SystemClock.uptimeMillis();
             if (!handleFirmwareBroadcastDown(action, eventTimeMs)) {
                 handleFirmwareBroadcastUp(action, false);
@@ -444,16 +402,8 @@ public final class MainActivity extends ComponentActivity {
             requestIdleCameraReleaseIfScreenOff();
             cameraClock.post(this::syncRecordingRotationLock);
         });
-        languageSettings = composition.languageSettingsUseCase();
         deviceSerialNumbers = composition.deviceSerialNumberUseCase();
         developerFeatureToggles = composition.developerFeatureToggles();
-        developerButtonBindingsScreen = new DeveloperButtonBindingsScreen(
-                this,
-                composition.configureHardwareButtonsUseCase(),
-                this::updateHardwareButtonLayout,
-                message -> FloatingNotice.show(this, message));
-        mediaEncryptionSettings = composition.mediaEncryptionSettings();
-        storageSettings = composition.storageSettingsUseCase();
         locationSettings = composition.locationSettingsUseCase();
         locationControl = composition.locationControlUseCase();
         locationTracking = composition.locationTrackingUseCase();
@@ -464,13 +414,6 @@ public final class MainActivity extends ComponentActivity {
                 () -> developerFeatureToggles.isEffectivelyEnabled(FeatureGate.GPS),
                 () -> androidRuntime.fineLocationPermissionGranted(),
                 this::onLocationTrackingStateChanged);
-        settingsRenderer = new SettingsControlRenderer(this);
-        settingsUiState = new SettingsUiState(mediaEncryptionSettings.isMediaEncryptionEnabled(),
-                storageSettings.supportedModes().indexOf(storageSettings.currentMode()),
-                androidRuntime.isAutoRotateEnabled(),
-                androidRuntime.isWifiEnabled());
-        settingsUiState.setLowStorageWarningGb(storageSettings.warningGb());
-
         recordingRotationLocked = composition.cameraRecordingActiveForUi();
         applyAutoRotate(androidRuntime.isAutoRotateEnabled());
         menuModel = new MainMenuModel();
@@ -479,23 +422,19 @@ public final class MainActivity extends ComponentActivity {
         ActivityMainBinding activityBinding = ActivityMainBinding.inflate(getLayoutInflater());
         activityChrome = new ActivityChromeController(this, activityBinding, androidRuntime::isDeviceOwner);
         recordingStatusRenderer = new RecordingStatusRenderer(
-                activityBinding, () -> cameraScreen, () -> latestState, () -> renderedScreen);
-        root = activityBinding.contentRoot;
-        setContentView(activityBinding.getRoot());
+                activityBinding, () -> cameraScreen, () -> latestState, this::committedScreen);
         resourceMonitorController = new ResourceMonitorController(this,
                 activityBinding.getRoot(), androidRuntime::isDeviceOwner, logger,
                 composition.resourceMonitorEnabled());
         activityChrome.updateManagedTopBar();
         activityChrome.bindSystemNavigationInset();
-        activityChrome.setFullScreenDisplayEnabled(
-                settingsUiState.isFullScreenDisplayEnabled());
 
         permissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
                 result -> {
                     capturePermissionRequestInFlight = false;
                     boolean captureGranted = androidRuntime.capturePermissionsGranted();
-                    logger.info("PERMISSION_TRACE runtime-result captureGranted=" + captureGranted
+                    logger.info(LogCategory.SECURITY, "unspecified", "PERMISSION_TRACE runtime-result captureGranted=" + captureGranted
                             + " missingCapturePermissions="
                             + androidRuntime.missingCapturePermissions().length);
                     prepareCameraProfilesIfCameraGranted();
@@ -513,7 +452,7 @@ public final class MainActivity extends ComponentActivity {
                     if (androidRuntime.capturePermissionsGranted()) {
                         completeCapturePermissionGate("settings-result");
                     } else {
-                        logger.warn("PERMISSION_TRACE settings-result captureGranted=false", null);
+                        logger.warn(LogCategory.SECURITY, "unspecified", null, "PERMISSION_TRACE settings-result captureGranted=false", null);
                         showCapturePermissionRequired();
                     }
                 });
@@ -527,9 +466,7 @@ public final class MainActivity extends ComponentActivity {
                             && !canShowRequiredLocationPermissionRationale();
                     locationPermissionSettingsFallbackPending = false;
                     refreshLocationTracking();
-                    renderedScreen = null;
-                    if (latestState != null)
-                        render(latestState);
+                    settingsCoordinator.onLocationSystemStateChanged();
                     refreshGpsPermissionRetry();
                     ensureConfigFileAccess();
                     if (openSettings)
@@ -584,11 +521,11 @@ public final class MainActivity extends ComponentActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                navigateBack();
+                if (navigation != null) navigation.back();
             }
         });
 
-        logger.info("Authentication is "
+        logger.info(LogCategory.AUTH, "unspecified", "Authentication is "
                 + (developerFeatureToggles.isEffectivelyEnabled(FeatureGate.AUTHENTICATION)
                         ? "enabled"
                         : "disabled")
@@ -604,6 +541,202 @@ public final class MainActivity extends ComponentActivity {
                         () -> developerFeatureToggles.isEffectivelyEnabled(FeatureGate.MEDIA_BROWSER)))
                 .get(MainViewModel.class);
 
+        NavigationGraph<MainScreen> mainNavigationGraph =
+                MainNavigationGraph.create(settingsScreenCatalog);
+        FragmentRouteRenderer<MainScreen> foregroundRenderer = new FragmentRouteRenderer<>(
+                getSupportFragmentManager(), R.id.foreground_layer);
+        MainScreenRouter screenRouter = new MainScreenRouter(
+                mainNavigationGraph, foregroundRenderer,
+                new PersistentCameraLayer(getSupportFragmentManager(), R.id.camera_layer,
+                        mainNavigationGraph.require(MainScreen.CAMERA).tag(),
+                        activityBinding.foregroundLayer, () -> cameraScreen,
+                        this::attachCameraView),
+                this::onDestinationReady);
+        navigation = new MainNavigationCoordinator(
+                mainNavigationGraph,
+                () -> latestState == null ? MainScreen.CAMERA : latestState.getScreen(),
+                viewModel::show,
+                menuModel, this::isMenuTileVisible,
+                screenRouter,
+                this::onRouteAccepted, logger);
+        settingsCoordinator = new SettingsScreenCoordinator(this, settingsScreenCatalog,
+                composition, composition.languageSettingsUseCase(),
+                composition.mediaEncryptionSettings(), composition.storageSettingsUseCase(),
+                locationSettings, locationControl, developerFeatureToggles,
+                new DeveloperButtonBindingsController(
+                        composition.configureHardwareButtonsUseCase()),
+                logger, new SettingsScreenCoordinator.PlatformActions() {
+                    @Override public boolean isVideoRecording() {
+                        return latestState != null
+                                && latestState.getCapture().isVideoRecording();
+                    }
+
+                    @Override public boolean canOpenCameraSetting(String stableId) {
+                        return captureRuntime != null
+                                && captureRuntime.canOpenCameraSetting(stableId);
+                    }
+
+                    @Override public boolean selectCameraSetting(
+                            String stableId, int selectedIndex) {
+                        return captureRuntime != null
+                                && captureRuntime.selectCameraSetting(stableId, selectedIndex);
+                    }
+
+                    @Override public boolean isCameraRecording() {
+                        return captureRuntime != null && captureRuntime.isRecording();
+                    }
+
+                    @Override public boolean hasRequiredLocationPermission() {
+                        return MainActivity.this.hasRequiredLocationPermission();
+                    }
+
+                    @Override public void requestLocationPermission() {
+                        MainActivity.this.requestLocationPermission();
+                    }
+
+                    @Override public void openLocationSettings() {
+                        try {
+                            startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                        } catch (RuntimeException ignored) {
+                            FloatingNotice.show(MainActivity.this,
+                                    R.string.gps_settings_unavailable);
+                        }
+                    }
+
+                    @Override public void refreshLocationTracking() {
+                        MainActivity.this.refreshLocationTracking();
+                    }
+
+                    @Override public void stopLocationTracking() {
+                        MainActivity.this.stopLocationTracking();
+                    }
+
+                    @Override public void onAuthenticationSettingChanged() {
+                        viewModel.onAuthenticationSettingChanged();
+                    }
+
+                    @Override public void setResourceMonitorEnabled(boolean enabled) {
+                        resourceMonitorController.setEnabled(enabled);
+                    }
+
+                    @Override public void onReleaseCameraWhenScreenOffChanged(boolean enabled) {
+                        if (enabled) {
+                            requestIdleCameraReleaseIfScreenOff();
+                        } else {
+                            cancelIdleCameraRelease();
+                            composition.bindCameraIfPermitted();
+                        }
+                    }
+
+                    @Override public void setFullScreenDisplayEnabled(boolean enabled) {
+                        activityChrome.setFullScreenDisplayEnabled(enabled);
+                    }
+
+                    @Override public boolean setAutoRotateEnabled(boolean enabled) {
+                        return androidRuntime.setAutoRotateEnabled(enabled);
+                    }
+
+                    @Override public boolean isAutoRotateEnabled() {
+                        return androidRuntime.isAutoRotateEnabled();
+                    }
+
+                    @Override public boolean canWriteSystemSettings() {
+                        return androidRuntime.canWriteSystemSettings();
+                    }
+
+                    @Override public void applyAutoRotate(boolean enabled) {
+                        MainActivity.this.applyAutoRotate(enabled);
+                    }
+
+                    @Override public void requestWriteSystemSettingsAccess() {
+                        MainActivity.this.requestWriteSystemSettingsAccess();
+                    }
+
+                    @Override public boolean setWifiEnabled(boolean enabled) {
+                        return androidRuntime.setWifiEnabled(enabled);
+                    }
+
+                    @Override public boolean isWifiEnabled() {
+                        return androidRuntime.isWifiEnabled();
+                    }
+
+                    @Override public void openWifiSettings() {
+                        Intent intent = new Intent(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                                ? Settings.Panel.ACTION_WIFI
+                                : Settings.ACTION_WIFI_SETTINGS);
+                        startActivity(intent);
+                    }
+
+                    @Override public void logout() { viewModel.logout(); }
+                    @Override public void recreateActivity() { recreate(); }
+                    @Override public void navigate(MainScreen screen) {
+                        navigation.navigate(screen);
+                    }
+                    @Override public void applyHardwareButtonLayout(
+                            HardwareButtonLayout layout) {
+                        updateHardwareButtonLayout(layout);
+                    }
+                    @Override public void showNotice(int messageResource) {
+                        FloatingNotice.show(MainActivity.this, messageResource);
+                    }
+                    @Override public void showNotice(String message) {
+                        FloatingNotice.show(MainActivity.this, message);
+                    }
+                    @Override public boolean isDeviceOwner() {
+                        return androidRuntime != null && androidRuntime.isDeviceOwner();
+                    }
+                    @Override public SettingsScreenCoordinator.RemoveDeviceOwnerResult
+                            removeDeviceOwner() {
+                        if (androidRuntime == null || !androidRuntime.isDeviceOwner()) {
+                            return SettingsScreenCoordinator.RemoveDeviceOwnerResult.UNAVAILABLE;
+                        }
+                        try {
+                            if (!androidRuntime.removeDeviceOwner()) {
+                                return SettingsScreenCoordinator.RemoveDeviceOwnerResult.UNAVAILABLE;
+                            }
+                            logger.info(LogCategory.PROVISIONING, "unspecified", "Removed device-owner management from developer settings.");
+                            return SettingsScreenCoordinator.RemoveDeviceOwnerResult.REMOVED;
+                        } catch (RuntimeException error) {
+                            logger.error(LogCategory.POLICY, "unspecified", null, "KIOSK_TRACE remove-device-owner failed", error);
+                            return SettingsScreenCoordinator.RemoveDeviceOwnerResult.FAILED;
+                        }
+                    }
+                    @Override public void runOnUiThread(Runnable action) {
+                        MainActivity.this.runOnUiThread(action);
+                    }
+                    @Override public boolean isFinishingOrDestroyed() {
+                        return isFinishing() || isDestroyed();
+                    }
+                });
+        activityChrome.setFullScreenDisplayEnabled(
+                settingsCoordinator.isFullScreenDisplayEnabled());
+        mainUiScope = new MainUiScope(navigation,
+                () -> {
+                    androidRuntime.resetDatabase();
+                    android.os.Process.killProcess(android.os.Process.myPid());
+                },
+                entry -> composition.createOpenMediaUseCase(MainActivity.this).execute(entry),
+                () -> menuModel.visibleTiles(MainActivity.this::isMenuTileVisible),
+                settingsCoordinator, new MainUiScope.CameraActions() {
+                    @Override public void onCameraViewAttached(CameraScreenView view) {
+                        attachCameraView(view);
+                    }
+
+                    @Override public void onCameraViewDetached(CameraScreenView view) {
+                        if (cameraScreen == view) cameraScreen = null;
+                    }
+
+                    @Override public void onCameraSwitchRequested() {
+                        boolean accepted = captureRuntime != null && captureRuntime.switchCamera();
+                        if (captureRuntime != null) {
+                            logger.info(LogCategory.CAMERA, "unspecified", "CAMERA_TRACE preview-switch-click accepted=" + accepted
+                                    + " " + captureRuntime.cameraSwitchState());
+                        }
+                        requestCameraSwitchActionUpdate();
+                    }
+                });
+
+        setContentView(activityBinding.getRoot());
         viewModel.state().observe(this, this::render);
         if (androidRuntime.capturePermissionsGranted())
             requestStartupLocationPermissionAfterCameraReady();
@@ -644,13 +777,13 @@ public final class MainActivity extends ComponentActivity {
             if (!legacyStoragePermissionRequestInFlight
                     && !legacyStorageSettingsRequestInFlight
                     && !legacyStorageAccessDialogShowing) {
-                logger.warn("STORAGE_TRACE legacy-storage-access-required", null);
+                logger.warn(LogCategory.STORAGE, "unspecified", null, "STORAGE_TRACE legacy-storage-access-required", null);
                 requestLegacyStoragePermissions();
             }
             return false;
         }
         if (!allFilesAccessRequestInFlight && !allFilesAccessDialogShowing) {
-            logger.warn("STORAGE_TRACE all-files-access-required", null);
+            logger.warn(LogCategory.STORAGE, "unspecified", null, "STORAGE_TRACE all-files-access-required", null);
             requestAllFilesAccessSettings();
         }
         return false;
@@ -666,7 +799,7 @@ public final class MainActivity extends ComponentActivity {
                     Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             allFilesAccessRequestInFlight = false;
-            logger.error("STORAGE_TRACE all-files-settings-failed", error);
+            logger.error(LogCategory.STORAGE, "unspecified", null, "STORAGE_TRACE all-files-settings-failed", error);
             showAllFilesAccessRequired();
         }
     }
@@ -710,14 +843,14 @@ public final class MainActivity extends ComponentActivity {
                 return;
             }
             capturePermissionRequestInFlight = true;
-            logger.info("PERMISSION_TRACE runtime-request missingCorePermissions="
+            logger.info(LogCategory.SECURITY, "unspecified", "PERMISSION_TRACE runtime-request missingCorePermissions="
                     + missingCorePermissions.length + " missingCapturePermissions="
                     + androidRuntime.missingCapturePermissions().length);
             try {
                 permissionLauncher.launch(missingCorePermissions);
             } catch (RuntimeException error) {
                 capturePermissionRequestInFlight = false;
-                logger.error("PERMISSION_TRACE runtime-request-failed", error);
+                logger.error(LogCategory.SECURITY, "unspecified", null, "PERMISSION_TRACE runtime-request-failed", error);
                 if (androidRuntime.capturePermissionsGranted()) {
                     completeCapturePermissionGate("runtime-request-failed");
                 } else {
@@ -738,7 +871,7 @@ public final class MainActivity extends ComponentActivity {
             showCapturePermissionRequired();
             return;
         }
-        logger.info("PERMISSION_TRACE capture-ready source=" + source);
+        logger.info(LogCategory.SECURITY, "unspecified", "PERMISSION_TRACE capture-ready source=" + source);
         if (captureRuntime != null)
             captureRuntime.bindCameraIfPermitted();
         refreshLocationTracking();
@@ -751,14 +884,14 @@ public final class MainActivity extends ComponentActivity {
                 || capturePermissionSettingsRequestInFlight)
             return;
         capturePermissionSettingsRequestInFlight = true;
-        logger.info("PERMISSION_TRACE open-app-settings");
+        logger.info(LogCategory.SECURITY, "unspecified", "PERMISSION_TRACE open-app-settings");
         try {
             capturePermissionSettingsLauncher.launch(new Intent(
                     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             capturePermissionSettingsRequestInFlight = false;
-            logger.error("PERMISSION_TRACE app-settings-failed", error);
+            logger.error(LogCategory.SECURITY, "unspecified", null, "PERMISSION_TRACE app-settings-failed", error);
             showCapturePermissionRequired();
         }
     }
@@ -766,7 +899,7 @@ public final class MainActivity extends ComponentActivity {
     private void showCapturePermissionRequired() {
         if (capturePermissionDialogShowing || isFinishing() || isDestroyed())
             return;
-        logger.warn("PERMISSION_TRACE blocker-shown missingCapturePermissions="
+        logger.warn(LogCategory.SECURITY, "unspecified", null, "PERMISSION_TRACE blocker-shown missingCapturePermissions="
                 + androidRuntime.missingCapturePermissions().length, null);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.camera_permission_required)
@@ -805,7 +938,7 @@ public final class MainActivity extends ComponentActivity {
                     Uri.parse(PACKAGE_URI_PREFIX + getPackageName())));
         } catch (RuntimeException error) {
             legacyStorageSettingsRequestInFlight = false;
-            logger.error("STORAGE_TRACE legacy-storage-settings-failed", error);
+            logger.error(LogCategory.STORAGE, "unspecified", null, "STORAGE_TRACE legacy-storage-settings-failed", error);
             showLegacyStorageAccessRequired();
         }
     }
@@ -858,7 +991,7 @@ public final class MainActivity extends ComponentActivity {
                     identityCheckComplete = true;
                     identityRestored = restored;
                     identityRestoreError = null;
-                    logger.info("SERIAL_TRACE precheck-complete restored=" + restored);
+                    logger.info(LogCategory.IDENTITY, "unspecified", "SERIAL_TRACE precheck-complete restored=" + restored);
                     completeDeviceIdentityCheck();
                 });
             } catch (Exception error) {
@@ -869,11 +1002,10 @@ public final class MainActivity extends ComponentActivity {
                     identityRestored = false;
                     identityRestoreError = serialConfigured ? null : error;
                     if (serialConfigured) {
-                        logger.warn(
-                                "Device identity mirror synchronization failed, but configured serial remains available",
+                        logger.error(LogCategory.IDENTITY, "unspecified", null, "Device identity mirror synchronization failed; continuing with the configured serial",
                                 error);
                     } else {
-                        logger.error("SERIAL_TRACE restore-failed", error);
+                        logger.error(LogCategory.IDENTITY, "unspecified", null, "SERIAL_TRACE restore-failed", error);
                     }
                     completeDeviceIdentityCheck();
                 });
@@ -890,7 +1022,7 @@ public final class MainActivity extends ComponentActivity {
         }
         if (identityRestored) {
             identityRestored = false;
-            logger.info("SERIAL_TRACE restore-success");
+            logger.info(LogCategory.IDENTITY, "unspecified", "SERIAL_TRACE restore-success");
             applyDeviceIdentityUpdate();
         } else {
             showSerialNumberDialogIfNeeded();
@@ -930,11 +1062,13 @@ public final class MainActivity extends ComponentActivity {
             return;
         String saved = deviceSerialNumbers.load();
         boolean savedValid = deviceSerialNumbers.isConfigured(saved);
-        logger.info("SERIAL_TRACE dialog-check composition=" + identity(composition)
+        logger.info(LogCategory.IDENTITY, "unspecified", "SERIAL_TRACE dialog-check composition=" + identity(composition)
                 + " savedPresent=" + savedValid
                 + " savedHash=" + shortId(saved));
         if (savedValid)
             return;
+        logger.warn(LogCategory.IDENTITY, "QA-CSON-002: identity_input_required", null,
+                "SD identity backup was unavailable; requesting user serial identity input.", null);
         EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
@@ -970,7 +1104,7 @@ public final class MainActivity extends ComponentActivity {
                 @Override
                 public void onTextChanged(CharSequence text, int start, int before, int count) {
                     boolean valid = deviceSerialNumbers.isValid(text.toString());
-                    logger.info("SERIAL_TRACE input-changed length=" + text.length()
+                    logger.info(LogCategory.IDENTITY, "unspecified", "SERIAL_TRACE input-changed length=" + text.length()
                             + " valid=" + valid);
                     save.setEnabled(valid);
                     input.setError(null);
@@ -999,7 +1133,7 @@ public final class MainActivity extends ComponentActivity {
         }
         input.setEnabled(false);
         saveButton.setEnabled(false);
-        logger.info("SERIAL_TRACE save-request length=" + serial.length()
+        logger.info(LogCategory.IDENTITY, "unspecified", "SERIAL_TRACE save-request length=" + serial.length()
                 + " valueHash=" + shortId(serial));
         identityIoExecutor.execute(() -> {
             try {
@@ -1007,7 +1141,8 @@ public final class MainActivity extends ComponentActivity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed())
                         return;
-                    logger.info("SERIAL_TRACE save-success valueHash=" + shortId(serial));
+                    logger.info(LogCategory.IDENTITY, "QA-CSON-002: identity_input_saved",
+                            "User serial identity input was saved successfully.");
                     dialog.dismiss();
                     applyDeviceIdentityUpdate();
                 });
@@ -1015,7 +1150,8 @@ public final class MainActivity extends ComponentActivity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed())
                         return;
-                    logger.error("SERIAL_TRACE save-failed", error);
+                    logger.error(LogCategory.IDENTITY, "QA-CSON-002: identity_input_save_failed", null,
+                            "User serial identity input could not be saved.", error);
                     int message = error instanceof IllegalArgumentException
                             ? R.string.device_serial_invalid
                             : R.string.device_serial_save_failed;
@@ -1037,12 +1173,11 @@ public final class MainActivity extends ComponentActivity {
     protected void onResume() {
         super.onResume();
         String currentScreen = latestState == null ? UNKNOWN_VALUE
-                : String.valueOf(latestState.getScreen())
-                        .toLowerCase(Locale.ROOT).replace('_', ' ');
+                : MainNavigationGraph.logName(latestState.getScreen());
         String captureMode = latestState == null ? UNKNOWN_VALUE
                 : String.valueOf(latestState.getCapture().getMode())
-                        .toLowerCase(Locale.ROOT).replace('_', ' ');
-        logger.info("MainActivity resumed. Screen: " + currentScreen
+                        .toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+        logger.info(LogCategory.APP, "unspecified", "MainActivity resumed. Screen: " + currentScreen
                 + ". Capture is " + captureMode
                 + ". Camera runtime is "
                 + (captureRuntime == null ? "unavailable" : "available")
@@ -1050,18 +1185,9 @@ public final class MainActivity extends ComponentActivity {
                 + ". Configuration change is "
                 + (isChangingConfigurations() ? "in progress" : "not in progress") + ".");
         writeSettingsRequestInFlight = false;
-        if (pendingAutoRotateValue != null && androidRuntime.canWriteSystemSettings()) {
-            boolean requested = pendingAutoRotateValue;
-            if (androidRuntime.setAutoRotateEnabled(requested)) {
-                pendingAutoRotateValue = null;
-                logSettingChanged(currentSetting(SettingId.AUTO_ROTATE),
-                        SettingId.AUTO_ROTATE, enabledValue(requested));
-            }
-        }
+        settingsCoordinator.onResume();
         syncRecordingRotationLock();
-        syncAutoRotateFromDevice();
         activityChrome.applyFullScreenDisplay();
-        refreshWifiSetting();
         if (androidRuntime != null) {
             androidRuntime.enterLockTaskIfAllowed(this, () -> {
                 activityChrome.applyFullScreenDisplay();
@@ -1077,21 +1203,8 @@ public final class MainActivity extends ComponentActivity {
         if (capturePermissionPolicyApplied && !capturePermissionRequestInFlight
                 && !capturePermissionSettingsRequestInFlight
                 && !androidRuntime.capturePermissionsGranted()) {
-            logger.warn("PERMISSION_TRACE onResume captureGranted=false", null);
+            logger.warn(LogCategory.SECURITY, "unspecified", null, "PERMISSION_TRACE onResume captureGranted=false", null);
             showCapturePermissionRequired();
-        }
-        if (pendingLocationEnabled != null) {
-            boolean requested = pendingLocationEnabled;
-            pendingLocationEnabled = null;
-            if (locationControl != null) {
-                LocationSystemState state = locationControl.currentState();
-                if (state == (requested
-                        ? LocationSystemState.ENABLED : LocationSystemState.DISABLED)) {
-                    logSettingChanged(currentSetting(SettingId.GPS_LOCATION_ENABLED),
-                            SettingId.GPS_LOCATION_ENABLED, enabledValue(requested));
-                }
-            }
-            renderedScreen = null;
         }
         refreshLocationTracking();
         refreshGpsPermissionRetry();
@@ -1121,7 +1234,7 @@ public final class MainActivity extends ComponentActivity {
         resourceMonitorController.onStop();
         unsubscribeCameraCapabilityRecheck();
         unregisterReceiver(locationModeChangedReceiver);
-        logger.info("LIFECYCLE_TRACE onStop activity=" + identity(this)
+        logger.info(LogCategory.APP, "unspecified", "LIFECYCLE_TRACE onStop activity=" + identity(this)
                 + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
                 + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
                         ? UNKNOWN_VALUE
@@ -1164,7 +1277,7 @@ public final class MainActivity extends ComponentActivity {
             return;
         displayManager = getSystemService(DisplayManager.class);
         if (displayManager == null) {
-            logger.warn("LIFECYCLE_TRACE displayListener registration_failed", null);
+            logger.warn(LogCategory.APP, "unspecified", null, "LIFECYCLE_TRACE displayListener registration_failed", null);
             return;
         }
         displayManager.registerDisplayListener(displayRotationListener, cameraClock);
@@ -1216,7 +1329,7 @@ public final class MainActivity extends ComponentActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (logger != null) {
-            logger.info("LIFECYCLE_TRACE windowFocus=" + hasFocus
+            logger.info(LogCategory.APP, "unspecified", "LIFECYCLE_TRACE windowFocus=" + hasFocus
                     + " activity=" + identity(this)
                     + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
                     + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
@@ -1234,17 +1347,13 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void refreshWifiSetting() {
-        if (androidRuntime == null || settingsUiState == null)
-            return;
-        settingsUiState.updateBoolean(SettingId.WIFI_ENABLED, androidRuntime.isWifiEnabled());
-        if (latestState != null && latestState.getScreen() == MainScreen.DEVICE_SETTINGS) {
-            refreshCurrentSettingsControls();
-        }
+        if (androidRuntime == null || settingsCoordinator == null) return;
+        settingsCoordinator.onWifiStateChanged(androidRuntime.isWifiEnabled());
     }
 
     @Override
     protected void onPause() {
-        logger.info("LIFECYCLE_TRACE onPause activity=" + identity(this)
+        logger.info(LogCategory.APP, "unspecified", "LIFECYCLE_TRACE onPause activity=" + identity(this)
                 + LOG_SCREEN_SUFFIX + (latestState == null ? UNKNOWN_VALUE : latestState.getScreen())
                 + LOG_CAPTURE_MODE_SUFFIX + (latestState == null
                         ? UNKNOWN_VALUE
@@ -1259,6 +1368,12 @@ public final class MainActivity extends ComponentActivity {
             gpsPermissionRetryScheduler.stop();
         stopLocationTracking();
         super.onPause();
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        if (navigation != null) navigation.reconcileAfterStateSave();
     }
 
     private void startRecordingDurationTicker() {
@@ -1278,6 +1393,11 @@ public final class MainActivity extends ComponentActivity {
                                 && !state.getCapture().isSaving());
     }
 
+    static boolean shouldAcceptFirmwareHardwareInput(
+            boolean activityResumed, boolean screenInteractive, boolean cameraRecording) {
+        return activityResumed || !screenInteractive || cameraRecording;
+    }
+
     private void render(MainUiState state) {
         MainUiState previousState = latestState;
         latestState = state;
@@ -1289,52 +1409,36 @@ public final class MainActivity extends ComponentActivity {
         } else if (wasRecording && !recording) {
             stopRecordingDurationTicker();
         }
-        if (renderedScreen == null
+        if (committedScreen() == null
                 && state.getScreen() == MainScreen.LOGIN
                 && state.isAuthenticationBusy())
             return;
-        MainScreen screen = safeScreen(state.getScreen());
-        if (screen != state.getScreen()) {
-            viewModel.show(screen);
-            return;
-        }
-        if (renderedScreen != screen) {
-            if (renderedScreen == MainScreen.CAMERA && screen != MainScreen.CAMERA) {
-                FloatingNotice.hideLowPriorityPersistent();
-                storageWarningVisible = null;
-            }
-            if (screen == MainScreen.STORAGE_SETTINGS) {
-                storageVolumesGeneration++;
-                storageVolumesStale = true;
-            }
-            renderedScreen = screen;
-            recordingStatusRenderer.updateFloatingRecordingStatus(state);
-            if (screen == MainScreen.LOGIN)
-                renderLogin();
-            else if (screen == MainScreen.CAMERA)
-                renderCamera();
-            else if (screen == MainScreen.MENU)
-                renderMenu();
-            else if (screen == MainScreen.FILES)
-                renderFileExplorer();
-            else if (screen == MainScreen.DEVELOPER_USERS)
-                renderDeveloperUsers();
-            else
-                renderSettingsDetail(screen);
-            if (operationLoggedScreen != screen) {
-                logScreenNavigation(operationLoggedScreen, screen);
-                operationLoggedScreen = screen;
-            }
-        }
-        if (screen == MainScreen.DEVELOPER_SETTINGS && renderedSettingsList != null) {
-            refreshDeveloperSettingsRows();
-        }
+        MainScreen screen = state.getScreen();
+        if (!navigation.onRouteChanged(screen)) return;
+        settingsCoordinator.onCaptureStateChanged(
+                state.getCapture().isVideoRecording());
+        requestCameraSwitchActionUpdate();
         updateStatus(state);
         refreshGpsPermissionRetry();
         updateSavingNotice(previousState, state);
         showSavedNotice(previousState, state);
-        showCaptureFailureNotice(previousState, state);
+        showCaptureFailureNotice();
         requestIdleCameraReleaseIfScreenOff();
+    }
+
+    private void onRouteAccepted(MainScreen previous, MainScreen current) {
+        if (previous == MainScreen.CAMERA && current != MainScreen.CAMERA) {
+            FloatingNotice.hideLowPriorityPersistent();
+            storageWarningVisible = null;
+        }
+        settingsCoordinator.onScreenEntered(current);
+        ensureCaptureRuntime();
+        if (current == MainScreen.CAMERA) prepareCameraRoute();
+    }
+
+    private void onDestinationReady(MainScreen previous, MainScreen screen) {
+        if (navigation != null) navigation.onDestinationReady(previous, screen);
+        if (latestState != null) recordingStatusRenderer.updateFloatingRecordingStatus(latestState);
     }
 
     private void vibrateCaptureCommandStart() {
@@ -1381,16 +1485,16 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private void showCaptureFailureNotice(
-            MainUiState previousState, MainUiState state) {
+    private void showCaptureFailureNotice() {
         CaptureFailureNoticePolicy.Notice notice = CaptureFailureNoticePolicy.notice(
-                previousState == null ? null : previousState.getMessage(),
-                state.getMessage(),
+                viewModel.takeCaptureFailureNotice(),
                 getString(R.string.sd_card_unavailable),
                 getString(R.string.low_storage_recording_blocked, "%1$s")).orElse(null);
         if (notice == null)
             return;
         switch (notice.kind()) {
+            case CAPTURE_FAILED -> FloatingNotice.show(
+                    this, notice.detail(), FloatingNotice.ERROR_TEXT_COLOR);
             case FINALIZATION_FAILED -> FloatingNotice.show(this, R.string.media_save_failed);
             case LOW_STORAGE_RECORDING_BLOCKED -> FloatingNotice.show(this, notice.detail(),
                     FloatingNotice.ERROR_TEXT_COLOR);
@@ -1400,17 +1504,10 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private void renderCamera() {
-        ensureCaptureRuntime();
+    private void prepareCameraRoute() {
         captureRuntime.bindCameraIfPermitted();
         if (locationTrackingCoordinator != null)
             locationTrackingCoordinator.requestCurrentLocation();
-        clearScreenBindings();
-        removeNonCameraScreens();
-        ensureCameraScreen();
-        cameraScreen.getRoot().setAlpha(1f);
-        recordingStatusRenderer.updateCameraClock();
-        requestStartupLocationPermissionAfterCameraReady();
     }
 
     private void requestCameraSwitchActionUpdate() {
@@ -1424,18 +1521,14 @@ public final class MainActivity extends ComponentActivity {
         boolean multipleCameras = captureRuntime.hasMultipleCameras();
         boolean canSwitch = captureRuntime.canSwitchCamera();
         boolean enabled = multipleCameras && canSwitch;
-        int visibility = multipleCameras ? View.VISIBLE : View.GONE;
-
-        cameraScreen.cameraSwitchAction.setVisibility(visibility);
-        cameraScreen.cameraSwitchAction.setEnabled(enabled);
-        cameraScreen.cameraSwitchAction.setAlpha(enabled ? 1f : 0.45f);
+        cameraScreen.setCameraSwitch(multipleCameras, enabled);
     }
 
     private void requestStartupLocationPermissionAfterCameraReady() {
         if (startupGpsPermissionHandled || locationPermissionRequestInFlight
                 || !androidRuntime.capturePermissionsGranted() || cameraScreen == null)
             return;
-        cameraScreen.getRoot().post(() -> {
+        cameraScreen.post(() -> {
             if (startupGpsPermissionHandled || locationPermissionRequestInFlight
                     || isFinishing() || isDestroyed()
                     || !androidRuntime.capturePermissionsGranted())
@@ -1456,299 +1549,41 @@ public final class MainActivity extends ComponentActivity {
         if (cameraScreen == null)
             return;
         String savedSerial = deviceSerialNumbers.load();
-        cameraScreen.accountId.setText(CameraIdentityPresentation.cameraLabel(
+        cameraScreen.setIdentity(CameraIdentityPresentation.cameraLabel(
                 savedSerial, deviceSerialNumbers.isConfigured(savedSerial)));
     }
 
-    private void ensureCameraScreen() {
-        if (cameraScreen == null) {
-            cameraScreen = ScreenCameraBinding.inflate(getLayoutInflater(), root, false);
-            root.addView(cameraScreen.getRoot(), 0);
-        }
+    private void attachCameraView(CameraScreenView view) {
+        cameraScreen = view;
         updateCameraIdentity();
-        cameraScreen.operatorId.setText("USER —");
         updateGpsStatusLine();
-        cameraScreen.cameraSwitchAction.setOnClickListener(view -> {
-            boolean accepted = captureRuntime.switchCamera();
-            logger.info("CAMERA_TRACE preview-switch-click accepted=" + accepted + " "
-                    + captureRuntime.cameraSwitchState());
-            requestCameraSwitchActionUpdate();
-        });
         updateCameraSwitchAction();
+        attachCameraPreview();
+        if (captureRuntime != null) captureRuntime.bindCameraIfPermitted();
+        recordingStatusRenderer.updateCameraClock();
+        requestStartupLocationPermissionAfterCameraReady();
+    }
+
+    private void attachCameraPreview() {
+        if (cameraScreen == null || captureRuntime == null) return;
         if (captureRuntime.cameraPreview().getParent() == null) {
-            cameraScreen.previewContainer.addView(captureRuntime.cameraPreview(), new FrameLayout.LayoutParams(
+            cameraScreen.previewContainer().addView(captureRuntime.cameraPreview(), new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        }
-        if (cameraScreen.getRoot().getParent() == null) {
-            root.addView(cameraScreen.getRoot(), 0);
         }
         /*
          * Keep shared preview attached while other screens cover it. Reparenting
          * destroys its surface and causes black-screen startup delay on return.
          */
         if (captureRuntime.cameraPreview().getParent() instanceof ViewGroup
-                && captureRuntime.cameraPreview().getParent() != cameraScreen.previewContainer) {
+                && captureRuntime.cameraPreview().getParent() != cameraScreen.previewContainer()) {
             ((ViewGroup) captureRuntime.cameraPreview().getParent()).removeView(captureRuntime.cameraPreview());
-            cameraScreen.previewContainer.addView(captureRuntime.cameraPreview(), new FrameLayout.LayoutParams(
+            cameraScreen.previewContainer().addView(captureRuntime.cameraPreview(), new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
     }
 
-    private void renderLogin() {
-        ensureCaptureRuntime();
-        ensureCameraScreen();
-        clearScreenBindings();
-        removeNonCameraScreens();
-        loginScreen = ScreenLoginBinding.inflate(getLayoutInflater(), root, false);
-        View.OnClickListener login = view -> viewModel.loginPassword(loginScreen.password.getText().toString());
-        loginScreen.loginAction.setOnClickListener(login);
-        loginScreen.resetDatabaseAction.setOnClickListener(view -> new AlertDialog.Builder(this)
-                .setTitle(R.string.reset_login_database_title)
-                .setMessage(R.string.reset_login_database_message)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.reset, (dialog, which) -> {
-                    androidRuntime.resetDatabase();
-                    android.os.Process.killProcess(android.os.Process.myPid());
-                })
-                .show());
-        loginScreen.password.setOnEditorActionListener((view, actionId, event) -> {
-            login.onClick(view);
-            return true;
-        });
-        root.addView(loginScreen.getRoot());
-    }
-
-    private void renderMenu() {
-        clearScreenBindings();
-        removeNonCameraScreens();
-        menuScreen = ScreenMenuBinding.inflate(getLayoutInflater(), root, false);
-        List<View> visibleTiles = new ArrayList<>();
-        for (MainMenuTile tile : menuModel.visibleTiles(this::isMenuTileVisible)) {
-            View tileView = menuScreen.getRoot().findViewById(tile.getViewId());
-            tileView.setVisibility(View.VISIBLE);
-            tileView.setOnClickListener(view -> viewModel.show(tile.getScreen()));
-            visibleTiles.add(tileView);
-        }
-        layoutVisibleMenuTiles(visibleTiles);
-        root.addView(menuScreen.getRoot());
-    }
-
-    private void layoutVisibleMenuTiles(List<View> visibleTiles) {
-        GridLayout grid = menuScreen.settingsGrid;
-        grid.removeAllViews();
-        int columnCount = visibleTiles.size();
-        if (columnCount < 1) {
-            columnCount = 1;
-        } else if (columnCount > 3) {
-            columnCount = 3;
-        }
-        grid.setColumnCount(columnCount);
-        for (View tile : visibleTiles) {
-            grid.addView(tile, menuTileLayoutParams());
-        }
-    }
-
-    private GridLayout.LayoutParams menuTileLayoutParams() {
-        GridLayout.LayoutParams params = new GridLayout.LayoutParams();
-        params.width = 0;
-        params.height = dp(124);
-        params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f);
-        params.setMargins(dp(6), dp(6), dp(6), dp(6));
-        return params;
-    }
-
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
-    }
-
-    private void renderFileExplorer() {
-        clearScreenBindings();
-        removeNonCameraScreens();
-        fileExplorerScreen = ScreenFileExplorerBinding.inflate(getLayoutInflater(), root, false);
-        OpenMediaUseCase openMediaUseCase = composition.createOpenMediaUseCase(this);
-        mediaBrowserRenderer = new MediaBrowserRenderer(this, getLayoutInflater(), fileExplorerScreen,
-                relativePath -> viewModel.openMediaFolder(relativePath),
-                entry -> openMediaUseCase.execute(entry));
-        root.addView(fileExplorerScreen.getRoot());
-    }
-
-    private void renderDeveloperUsers() {
-        clearScreenBindings();
-        removeNonCameraScreens();
-        developerUsersScreen = ScreenDeveloperUsersBinding.inflate(getLayoutInflater(), root, false);
-        developerUsersScreen.saveAction.setOnClickListener(view -> viewModel.provisionUser(
-                new UserProvisioningRequest(
-                        developerUsersScreen.userId.getText().toString(),
-                        developerUsersScreen.displayName.getText().toString(),
-                        developerUsersScreen.password.getText().toString(),
-                        UserSource.DEVELOPER)));
-        root.addView(developerUsersScreen.getRoot());
-    }
-
-    private void renderSettingsDetail(MainScreen screen) {
-        clearScreenBindings();
-        removeNonCameraScreens();
-        ScreenSettingsDetailBinding detail = ScreenSettingsDetailBinding.inflate(
-                getLayoutInflater(), root, false);
-        renderedSettingsList = detail.settingsList;
-        renderedSettingsScroll = detail.getRoot();
-        detail.title.setText(settingsTitle(screen));
-        if (screen == MainScreen.ABOUT) {
-            detail.title.setClickable(true);
-            detail.title.setFocusable(true);
-            detail.title.setOnClickListener(view -> handleAboutSecretTap());
-        }
-        if (screen == MainScreen.DEVELOPER_BUTTON_BINDINGS) {
-            developerButtonBindingsScreen.render(detail.settingsList);
-        } else {
-            renderSettingsControls(screen, detail.settingsList);
-        }
-        if (screen == MainScreen.DEVELOPER_SETTINGS) {
-            Button bindings = new Button(this);
-            bindings.setText(R.string.edit_key_bindings);
-            bindings.setOnClickListener(view -> viewModel.show(MainScreen.DEVELOPER_BUTTON_BINDINGS));
-            detail.settingsList.addView(bindings);
-            Button users = new Button(this);
-            users.setText(R.string.manage_developer_users);
-            users.setOnClickListener(view -> viewModel.show(MainScreen.DEVELOPER_USERS));
-            detail.settingsList.addView(users);
-            Button removeDeviceOwner = new Button(this);
-            removeDeviceOwner.setText(R.string.remove_device_owner);
-            removeDeviceOwner.setEnabled(androidRuntime != null && androidRuntime.isDeviceOwner());
-            removeDeviceOwner.setOnClickListener(view -> showRemoveDeviceOwnerConfirmation(removeDeviceOwner));
-            detail.settingsList.addView(removeDeviceOwner);
-        }
-        root.addView(detail.getRoot());
-    }
-
-    private void showRemoveDeviceOwnerConfirmation(Button button) {
-        if (androidRuntime == null || !androidRuntime.isDeviceOwner()) {
-            button.setEnabled(false);
-            FloatingNotice.show(this, R.string.remove_device_owner_unavailable);
-            return;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.remove_device_owner_title)
-                .setMessage(R.string.remove_device_owner_message)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.remove_device_owner, (dialog, which) -> {
-                    try {
-                        if (androidRuntime.removeDeviceOwner()) {
-                            button.setEnabled(false);
-                            logger.info("Removed device-owner management from developer settings.");
-                            FloatingNotice.show(this, R.string.remove_device_owner_success);
-                        } else {
-                            FloatingNotice.show(this, R.string.remove_device_owner_unavailable);
-                        }
-                    } catch (RuntimeException error) {
-                        logger.error("KIOSK_TRACE remove-device-owner failed", error);
-                        FloatingNotice.show(this, R.string.remove_device_owner_failed);
-                    }
-                })
-                .show();
-    }
-
-    private void renderSettingsControls(MainScreen screen, LinearLayout settingsList) {
-        SettingsScreenModel model = settingsModel(screen);
-        if (screen == MainScreen.RECORD_SETTINGS || screen == MainScreen.CAMERA_SETTINGS) {
-            settingsRenderer.renderByStableId(settingsList, model,
-                    this::selectCameraSetting, (id, value) -> {
-                    },
-                    (id, checked) -> {
-                    }, null, this::canOpenCameraSetting);
-            return;
-        }
-        if (screen == MainScreen.DEVELOPER_SETTINGS) {
-            settingsRenderer.renderByStableId(settingsList, model,
-                    this::selectDeveloperSetting, this::updateDeveloperNumberSetting,
-                    this::updateDeveloperBooleanSetting, this::performDeveloperSettingAction,
-                    this::canSelectDeveloperSetting);
-            return;
-        }
-        settingsRenderer.render(settingsList, model,
-                this::selectSetting, this::updateNumberSetting, this::updateBooleanSetting,
-                this::performSettingAction, this::canSelectSetting);
-    }
-
-    private void refreshDeveloperSettingsRows() {
-        if (renderedSettingsList == null || latestState == null
-                || latestState.getScreen() != MainScreen.DEVELOPER_SETTINGS)
-            return;
-        settingsRenderer.refreshRows(developerSettingsModel());
-    }
-
-    private void refreshCurrentSettingsControls() {
-        if (renderedSettingsList == null || renderedSettingsScroll == null
-                || latestState == null)
-            return;
-        MainScreen screen = latestState.getScreen();
-        if (screen == MainScreen.DEVELOPER_BUTTON_BINDINGS)
-            return;
-        settingsRenderer.refreshRows(settingsModel(screen));
-    }
-
-    private SettingsScreenModel settingsModel(MainScreen screen) {
-        if (screen == MainScreen.DEVELOPER_SETTINGS)
-            return developerSettingsModel();
-        SettingsScreenModel model;
-        if (screen == MainScreen.RECORD_SETTINGS || screen == MainScreen.CAMERA_SETTINGS) {
-            boolean recording = latestState != null
-                    && latestState.getCapture().isVideoRecording();
-            var cameraPresentation = composition.cameraSettings(recording);
-            model = screen == MainScreen.RECORD_SETTINGS
-                    ? settingsUiState.recording(cameraPresentation,
-                            getString(R.string.record_resolution),
-                            getString(R.string.frame_rate))
-                    : settingsUiState.camera(cameraPresentation,
-                            getString(R.string.photo_resolution),
-                            getString(R.string.photo_recording_quality_notice),
-                            getString(R.string.camera_status));
-        } else if (screen == MainScreen.STORAGE_SETTINGS) {
-            model = settingsUiState.storageWithVolumes(storageOptions(), getString(R.string.storage_settings),
-                    getString(R.string.default_storage), getString(R.string.low_storage_warning));
-        } else if (screen == MainScreen.USER_SETTINGS) {
-            settingsUiState.setVideoEncryptionEnabled(mediaEncryptionSettings.isMediaEncryptionEnabled());
-            model = settingsUiState.security(
-                    getString(R.string.operator_account), getString(R.string.security_settings));
-        } else if (screen == MainScreen.AUDIO_SETTINGS) {
-            model = settingsUiState.audio(getString(R.string.available_settings),
-                    visibleReadOnlySettings(screen), composition.audioFileFormat(),
-                    AudioCaptureSettings.SAMPLE_RATE_HZ / 1_000 + " kHz",
-                    AudioCaptureSettings.BIT_RATE_BPS / 1_000 + " kbps",
-                    AudioCaptureSettings.CHANNEL_COUNT == 1 ? "Mono"
-                            : Integer.toString(AudioCaptureSettings.CHANNEL_COUNT),
-                    alertVolumeLabel());
-        } else if (screen == MainScreen.DEVICE_SETTINGS) {
-            model = withLanguage(settingsUiState.device(
-                    getString(R.string.device_settings_short), getString(R.string.auto_rotate),
-                    getString(R.string.wifi), getString(R.string.connect_wifi)));
-        } else if (screen == MainScreen.GPS_SETTINGS)
-            model = locationSettingsModel();
-        else if (screen == MainScreen.ABOUT)
-            model = aboutSettingsModel();
-        else
-            model = settingsUiState.readOnly(getString(R.string.available_settings),
-                    getString(R.string.settings_value_unavailable),
-                    visibleReadOnlySettings(screen));
-        return filterUnavailableSettings(screen, model);
-    }
-
-    private List<StorageOptionUiState> storageOptions() {
-        refreshStorageVolumes();
-        List<StorageVolumeStatus> volumes = storageVolumes;
-        List<StorageOptionUiState> options = new ArrayList<>();
-        for (MediaPartitionLocation mode : storageSettings.supportedModes()) {
-            if (mode == MediaPartitionLocation.AUTO) {
-                options.add(new StorageOptionUiState(getString(R.string.storage_auto),
-                        getString(R.string.storage_auto_description), 0, true));
-            } else {
-                int label = mode == MediaPartitionLocation.INTERNAL
-                        ? R.string.storage_internal
-                        : R.string.storage_external;
-                options.add(storageOption(getString(label), storageVolume(volumes, mode)));
-            }
-        }
-        return List.copyOf(options);
     }
 
     private void requestDefaultHomeIfNeeded() {
@@ -1796,605 +1631,6 @@ public final class MainActivity extends ComponentActivity {
         super.onSaveInstanceState(outState);
     }
 
-    private SettingsScreenModel developerSettingsModel() {
-        GpsSettings current = locationSettings.currentSettings();
-        List<GpsMode> modes = locationSettings.supportedModes();
-        List<DescribedRadioOptionUiState> options = new ArrayList<>();
-        for (GpsMode mode : modes) {
-            options.add(gpsModeOption(mode, locationControl.isModeAvailable(mode)));
-        }
-        SettingItem provider = SettingItem.describedRadio(SettingId.GPS_POSITIONING_MODE,
-                getString(R.string.gps_positioning_mode), options,
-                Math.max(0, modes.indexOf(current.getMode())))
-                .withEnabled(developerFeatureToggles.isEffectivelyEnabled(FeatureGate.GPS))
-                .withIndentLevel(1);
-        SettingsScreenModel base = developerFeatureToggles.developerSettings(
-                SettingId.FEATURE_GPS, provider);
-        List<SettingsSection> sections = new ArrayList<>(base.getSections());
-        sections.add(new SettingsSection(getString(R.string.resource_monitor_section), List.of(
-                SettingItem.checkbox(SettingId.RESOURCE_MONITOR,
-                        getString(R.string.resource_monitor),
-                        composition.resourceMonitorEnabled())
-                        .withDescription(getString(R.string.resource_monitor_description)))));
-        sections.add(new SettingsSection(getString(R.string.camera_lifecycle_section), List.of(
-                SettingItem.checkbox(SettingId.DEV_RELEASE_CAMERA_WHEN_SCREEN_OFF,
-                        getString(R.string.release_camera_when_screen_off),
-                        composition.releaseCameraWhenScreenOff())
-                        .withDescription(getString(
-                                R.string.release_camera_when_screen_off_description)))));
-        List<CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState> selections = composition
-                .cameraPipelineCameraIds().stream()
-                .map(this::cameraPipelineSelection)
-                .collect(java.util.stream.Collectors.toList());
-        boolean recheckBlocked = !composition.cameraCapabilityRecheckControlEnabled()
-                && !composition.cameraCapabilityRecheckInFlight();
-        sections.addAll(CameraDeveloperSettingsPresentation.screen(
-                getString(R.string.camera_pipeline_section), selections,
-                getString(R.string.recheck_camera_capabilities), recheckBlocked).getSections());
-        return new SettingsScreenModel(sections);
-    }
-
-    private String cameraPipelineLabel(String pipelineId) {
-        if (pipelineId != null && pipelineId.startsWith("a-")) {
-            return getString(R.string.camera_pipeline_a);
-        }
-        if (pipelineId != null && pipelineId.startsWith("b-")) {
-            return getString(R.string.camera_pipeline_b);
-        }
-        return pipelineId == null || pipelineId.isBlank()
-                ? getString(R.string.camera_pipeline_unknown)
-                : pipelineId;
-    }
-
-    private CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState cameraPipelineSelection(
-            String cameraId) {
-        DeveloperSettingsStore.Mode selectedMode = composition.cameraPipelineMode(cameraId);
-        boolean fullyVerified = composition.cameraCapabilitiesFullyVerified();
-        List<DescribedRadioOptionUiState> options = List.of(
-                cameraPipelineAutoOption(cameraId),
-                cameraPipelineOption(cameraId, DeveloperSettingsStore.Mode.A,
-                        R.string.camera_pipeline_a),
-                cameraPipelineOption(cameraId, DeveloperSettingsStore.Mode.B,
-                        R.string.camera_pipeline_b));
-        Optional<MainActivityCameraPipelineSelection> selected = composition.cameraPipelineSelections()
-                .stream()
-                .filter(value -> value.cameraId().equals(cameraId))
-                .findFirst()
-                .map(value -> new MainActivityCameraPipelineSelection(
-                        cameraPipelineLabel(value.pipelineId()), value.tupleCount()));
-        String detail = selected.map(value -> cameraPipelineTupleDescription(
-                value.tupleCount(), fullyVerified))
-                .orElseGet(() -> getString(R.string.camera_pipeline_unknown));
-        return new CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState(
-                cameraId, selected.map(MainActivityCameraPipelineSelection::label)
-                        .orElseGet(() -> getString(R.string.camera_pipeline_unknown)),
-                detail,
-                options, Math.max(0, CAMERA_PIPELINE_MODES.indexOf(selectedMode)),
-                !fullyVerified || composition.cameraCapabilityRecheckInFlight()
-                        || composition.cameraPipelineModeControlEnabled(cameraId));
-    }
-
-    private DescribedRadioOptionUiState cameraPipelineAutoOption(String cameraId) {
-        Optional<MainActivityCameraPipelineSelection> selected = composition.cameraPipelineAutoSelections()
-                .stream()
-                .filter(value -> value.cameraId().equals(cameraId))
-                .findFirst()
-                .map(value -> new MainActivityCameraPipelineSelection(
-                        cameraPipelineLabel(value.pipelineId()), value.tupleCount()));
-        String description = selected.map(MainActivityCameraPipelineSelection::label)
-                .orElseGet(() -> getString(R.string.camera_pipeline_auto_description));
-        return new DescribedRadioOptionUiState(getString(R.string.camera_pipeline_auto), description);
-    }
-
-    private DescribedRadioOptionUiState cameraPipelineOption(String cameraId,
-            DeveloperSettingsStore.Mode mode, int labelResource) {
-        boolean fullyVerified = composition.cameraCapabilitiesFullyVerified();
-        OptionalInt verifiedTupleCount = composition.cameraPipelineVerifiedTupleCount(cameraId, mode);
-        OptionalInt fastTupleCount = composition.cameraPipelineCaptureTupleCount(cameraId, mode);
-        OptionalInt displayedTupleCount = fullyVerified ? verifiedTupleCount : fastTupleCount;
-        String description = displayedTupleCount.isPresent()
-                ? cameraPipelineTupleDescription(displayedTupleCount.getAsInt(), fullyVerified)
-                : getString(R.string.camera_pipeline_unknown);
-        boolean optionEnabled = !fullyVerified || verifiedTupleCount.isPresent()
-                && verifiedTupleCount.getAsInt() > 0;
-        return new DescribedRadioOptionUiState(
-                getString(labelResource), description, optionEnabled);
-    }
-
-    private String cameraPipelineTupleDescription(int tupleCount, boolean fullyVerified) {
-        return getString(fullyVerified ? R.string.camera_pipeline_selection_detail
-                : R.string.camera_pipeline_fast_build_detail, tupleCount);
-    }
-
-    private record MainActivityCameraPipelineSelection(String label, int tupleCount) {
-    }
-
-    private SettingsScreenModel locationSettingsModel() {
-        GpsSettings current = locationSettings.currentSettings();
-        LocationSystemState systemState = locationControl.currentState();
-        boolean systemStateKnown = systemState == LocationSystemState.ENABLED
-                || systemState == LocationSystemState.DISABLED;
-        List<SettingItem> items = List.of(
-                SettingItem.checkbox(SettingId.GPS_LOCATION_ENABLED,
-                        getString(R.string.gps_use_location),
-                        systemState == LocationSystemState.ENABLED
-                                && hasRequiredLocationPermission())
-                        .withEnabled(systemStateKnown),
-                SettingItem.slider(SettingId.GPS_UPDATE_DISTANCE_METERS,
-                        getString(R.string.gps_update_distance), 1, 30,
-                        current.getUpdateDistanceMeters(), "m"),
-                SettingItem.slider(SettingId.GPS_REPORT_INTERVAL_SECONDS,
-                        getString(R.string.gps_report_interval), 1, 30,
-                        current.getReportIntervalSeconds(), "s"));
-        return new SettingsScreenModel(List.of(
-                new SettingsSection(getString(R.string.gps_sampling_section), items)));
-    }
-
-    private DescribedRadioOptionUiState gpsModeOption(GpsMode mode, boolean enabled) {
-        switch (mode) {
-            case FUSED:
-                return new DescribedRadioOptionUiState(getString(R.string.location_mode_fused),
-                        getString(R.string.location_mode_fused_description), enabled);
-            case SATELLITE:
-                return new DescribedRadioOptionUiState(getString(R.string.location_mode_gnss),
-                        getString(R.string.location_mode_gnss_description), enabled);
-            default:
-                throw new IllegalArgumentException("Unsupported location mode " + mode);
-        }
-    }
-
-    private StorageOptionUiState storageOption(String label, StorageVolumeStatus volume) {
-        if (volume == null || !volume.isAvailable()) {
-            return new StorageOptionUiState(label, getString(R.string.storage_unavailable), 0, false);
-        }
-        long total = volume.getTotalBytes();
-        int usedPercent = total <= 0L ? 0
-                : (int) Math.round(volume.getUsedBytes() * 100.0 / total);
-        String detail = getString(R.string.storage_usage,
-                storageSize(volume.getUsedBytes()), storageSize(total));
-        return new StorageOptionUiState(label, detail, usedPercent, true);
-    }
-
-    private static StorageVolumeStatus storageVolume(
-            List<StorageVolumeStatus> volumes, MediaPartitionLocation mode) {
-        for (StorageVolumeStatus volume : volumes) {
-            if (volume.getMode() == mode)
-                return volume;
-        }
-        return null;
-    }
-
-    private static String storageSize(long bytes) {
-        double gib = bytes / (1024.0 * 1024.0 * 1024.0);
-        return String.format(Locale.US, "%.1f GB", gib);
-    }
-
-    private SettingsScreenModel aboutSettingsModel() {
-        String[] labels = visibleReadOnlySettings(MainScreen.ABOUT);
-        String[] values = {BuildConfig.VERSION_NAME, Build.DISPLAY};
-        return settingsUiState.readOnly(getString(R.string.available_settings),
-                getString(R.string.settings_value_unavailable), labels, values);
-    }
-    private String alertVolumeLabel() {
-        AudioManager audioManager = getSystemService(AudioManager.class);
-        if (audioManager == null) return getString(R.string.settings_value_unavailable);
-        return audioManager.getStreamVolume(AudioManager.STREAM_ALARM) + "/"
-                + audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM);
-    }
-
-    private String[] visibleReadOnlySettings(MainScreen screen) {
-        String[] labels = getResources().getStringArray(settingsItems(screen));
-        List<String> visible = new ArrayList<>();
-        for (int i = 0; i < labels.length; i++) {
-            if (isReadOnlySettingVisible(screen, i))
-                visible.add(labels[i]);
-        }
-        return visible.toArray(new String[0]);
-    }
-
-    private SettingsScreenModel filterUnavailableSettings(MainScreen screen, SettingsScreenModel model) {
-        List<SettingsSection> sections = new ArrayList<>();
-        for (SettingsSection section : model.getSections()) {
-            List<SettingItem> visible = new ArrayList<>();
-            for (SettingItem item : section.getItems()) {
-                if (isSettingVisible(screen, item))
-                    visible.add(item);
-            }
-            if (!visible.isEmpty())
-                sections.add(new SettingsSection(section.getTitle(), visible));
-        }
-        return new SettingsScreenModel(sections);
-    }
-
-    private boolean isSettingVisible(MainScreen screen, SettingItem item) {
-        if (item.getId() == SettingId.FULL_SCREEN_DISPLAY
-                && !androidRuntime.isDeviceOwner())
-            return false;
-        if ((item.getId() == SettingId.WIFI_ENABLED || item.getId() == SettingId.WIFI_CONNECT)
-                && !androidRuntime.isDeviceOwner())
-            return false;
-        return developerFeatureToggles.isSettingEnabled(screen, item);
-    }
-
-    private boolean isReadOnlySettingVisible(MainScreen screen, int index) {
-        return developerFeatureToggles.isReadOnlySettingEnabled(screen, index);
-    }
-
-    private boolean isMenuTileVisible(MainScreen screen, FeatureGate gate) {
-        return gate == null || developerFeatureToggles.isEffectivelyEnabled(gate);
-    }
-
-    private SettingsScreenModel withLanguage(SettingsScreenModel base) {
-        List<SettingsSection> sections = new ArrayList<>(base.getSections());
-        sections.add(languageSection());
-        return new SettingsScreenModel(sections);
-    }
-
-    private SettingsSection languageSection() {
-        if (languageSettings == null) {
-            renderedLanguages = new AppLanguage[0];
-            return new SettingsSection(getString(R.string.language_section_title),
-                    List.of(SettingItem.text(getString(R.string.language_section_title), "Unavailable")));
-        }
-        AppLanguage current = languageSettings.currentLanguage();
-        renderedLanguages = languageSettings.supportedLanguages();
-        List<String> labels = new ArrayList<>();
-        int selectedIndex = 0;
-        for (int i = 0; i < renderedLanguages.length; i++) {
-            labels.add(languageName(renderedLanguages[i]));
-            if (renderedLanguages[i] == current)
-                selectedIndex = i;
-        }
-        return new SettingsSection(getString(R.string.language_section_title),
-                List.of(SettingItem.choice(SettingId.LANGUAGE,
-                        getString(R.string.language_section_title), labels, selectedIndex)));
-    }
-
-    private boolean canOpenCameraSetting(String stableId) {
-        if (captureRuntime != null && captureRuntime.canOpenCameraSetting(stableId))
-            return true;
-        FloatingNotice.show(this, cameraSettingBlockedNotice());
-        return false;
-    }
-
-    private int cameraSettingBlockedNotice() {
-        if (captureRuntime != null && captureRuntime.isRecording()) {
-            return R.string.recording_camera_setting_change_blocked;
-        }
-        return R.string.camera_capabilities_recheck_busy;
-    }
-
-    private void selectCameraSetting(String stableId, int selectedIndex) {
-        SettingItem item = currentSetting(stableId);
-        if (captureRuntime == null || !captureRuntime.selectCameraSetting(stableId, selectedIndex)) {
-            refreshCurrentSettingsControls();
-            FloatingNotice.show(this, cameraSettingBlockedNotice());
-            return;
-        }
-        refreshCurrentSettingsControls();
-        logSelectedSettingChanged(item, stableId, selectedIndex);
-    }
-
-    private boolean canSelectDeveloperSetting(String stableId) {
-        Optional<String> cameraId = CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState
-                .cameraId(stableId);
-        if (cameraId.isEmpty()
-                || composition.canSelectCameraPipelineMode(cameraId.orElseThrow()))
-            return true;
-        FloatingNotice.show(this, R.string.camera_pipeline_busy);
-        return false;
-    }
-
-    private void selectDeveloperSetting(String stableId, int selectedIndex) {
-        Optional<String> cameraId = CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState
-                .cameraId(stableId);
-        if (cameraId.isPresent()) {
-            selectCameraPipelineMode(cameraId.orElseThrow(), selectedIndex);
-            return;
-        }
-        SettingId id = settingId(stableId);
-        if (id != null)
-            selectSetting(id, selectedIndex);
-    }
-
-    private void updateDeveloperNumberSetting(String stableId, int value) {
-        SettingId id = settingId(stableId);
-        if (id != null)
-            updateNumberSetting(id, value);
-    }
-
-    private void updateDeveloperBooleanSetting(String stableId, boolean checked) {
-        SettingId id = settingId(stableId);
-        if (id != null)
-            updateBooleanSetting(id, checked);
-    }
-
-    private void performDeveloperSettingAction(String stableId) {
-        SettingId id = settingId(stableId);
-        if (id != null)
-            performSettingAction(id);
-    }
-
-    private SettingId settingId(String stableId) {
-        if ("developer:recheck-camera-capabilities".equals(stableId)) {
-            return SettingId.RECHECK_CAMERA_CAPABILITIES;
-        }
-        if (stableId == null || stableId.isBlank())
-            return null;
-        try {
-            return SettingId.valueOf(stableId);
-        } catch (IllegalArgumentException error) {
-            return null;
-        }
-    }
-
-    private SettingItem currentSetting(SettingId id) {
-        return currentSetting(id, null);
-    }
-
-    private SettingItem currentSetting(String stableId) {
-        return currentSetting(null, stableId);
-    }
-
-    private SettingItem currentSetting(SettingId id, String stableId) {
-        if (latestState == null)
-            return null;
-        MainScreen screen = latestState.getScreen();
-        if (screen == MainScreen.LOGIN || screen == MainScreen.CAMERA
-                || screen == MainScreen.MENU || screen == MainScreen.FILES
-                || screen == MainScreen.DEVELOPER_BUTTON_BINDINGS
-                || screen == MainScreen.DEVELOPER_USERS) {
-            return null;
-        }
-        for (SettingsSection section : settingsModel(screen).getSections()) {
-            for (SettingItem item : section.getItems()) {
-                if (id != null && item.getId() == id
-                        || stableId != null && stableId.equals(item.getStableId())) {
-                    return item;
-                }
-            }
-        }
-        return null;
-    }
-
-    private void logScreenNavigation(MainScreen previous, MainScreen current) {
-        logger.info("Displayed " + screenName(current) + " screen. Previous screen: "
-                + (previous == null ? "none" : screenName(previous)) + ".");
-    }
-
-    private static String screenName(MainScreen screen) {
-        return switch (screen) {
-            case LOGIN -> "login";
-            case CAMERA -> "camera";
-            case MENU -> "main menu";
-            case FILES -> "files";
-            case RECORD_SETTINGS -> "recording settings";
-            case VIDEO_STREAM_SETTINGS -> "video streaming settings";
-            case GPS_SETTINGS -> "GPS settings";
-            case TRANSFER_SETTINGS -> "transfer settings";
-            case USER_SETTINGS -> "user settings";
-            case SERVER_SETTINGS -> "server settings";
-            case STORAGE_SETTINGS -> "storage settings";
-            case DEVICE_SETTINGS -> "device settings";
-            case AUDIO_SETTINGS -> "audio settings";
-            case CAMERA_SETTINGS -> "camera settings";
-            case ABOUT -> "about";
-            case DEVELOPER_SETTINGS -> "developer settings";
-            case DEVELOPER_BUTTON_BINDINGS -> "developer button bindings";
-            case DEVELOPER_USERS -> "developer users";
-        };
-    }
-
-    private void logSelectedSettingChanged(
-            SettingItem item, SettingId id, int selectedIndex) {
-        if (item != null && item.getSelectedIndex() == selectedIndex)
-            return;
-        logSettingChanged(item, id, selectedSettingValue(item, selectedIndex));
-    }
-
-    private void logSelectedSettingChanged(
-            SettingItem item, String stableId, int selectedIndex) {
-        if (item != null && item.getSelectedIndex() == selectedIndex)
-            return;
-        logSettingChanged(item, stableId, selectedSettingValue(item, selectedIndex));
-    }
-
-    private void logNumberSettingChanged(SettingItem item, SettingId id, int value) {
-        if (item != null && item.getNumberValue() == value)
-            return;
-        logSettingChanged(item, id, numberSettingValue(item, value));
-    }
-
-    private void logBooleanSettingChanged(SettingItem item, SettingId id, boolean checked) {
-        if (item != null && item.isChecked() == checked)
-            return;
-        logSettingChanged(item, id, enabledValue(checked));
-    }
-
-    private void logSettingChanged(SettingItem item, SettingId id, String value) {
-        logSettingChanged(item, item == null ? null : item.getStableId(), settingName(id), value);
-    }
-
-    private void logSettingChanged(SettingItem item, String stableId, String value) {
-        logSettingChanged(item, stableId, settingName(stableId), value);
-    }
-
-    private void logSettingChanged(
-            SettingItem item, String stableId, String fallbackName, String value) {
-        String name = item == null ? fallbackName : item.getLabel();
-        String previousValue = currentSettingValue(item);
-        logger.info("Changed setting " + name + cameraSettingContext(stableId)
-                + (previousValue == null || previousValue.equals(value)
-                        ? "" : " from " + previousValue)
-                + " to " + value + ".");
-    }
-
-    private static String currentSettingValue(SettingItem item) {
-        if (item == null)
-            return null;
-        return switch (item.getType()) {
-            case CHECKBOX -> enabledValue(item.isChecked());
-            case CHOICE, RADIO, DESCRIBED_RADIO, STORAGE_RADIO ->
-                    selectedSettingValue(item, item.getSelectedIndex());
-            case SLIDER -> numberSettingValue(item, item.getNumberValue());
-            default -> null;
-        };
-    }
-
-    private static String selectedSettingValue(SettingItem item, int selectedIndex) {
-        if (item == null)
-            return "option " + selectedIndex;
-        if (item.getType() == SettingItem.Type.DESCRIBED_RADIO
-                && selectedIndex >= 0
-                && selectedIndex < item.getDescribedRadioOptions().size()) {
-            return item.getDescribedRadioOptions().get(selectedIndex).getLabel();
-        }
-        if (item.getType() == SettingItem.Type.STORAGE_RADIO
-                && selectedIndex >= 0
-                && selectedIndex < item.getStorageOptions().size()) {
-            return item.getStorageOptions().get(selectedIndex).getLabel();
-        }
-        if (selectedIndex >= 0 && selectedIndex < item.getOptions().size()) {
-            return item.getOptions().get(selectedIndex);
-        }
-        return "option " + selectedIndex;
-    }
-
-    private static String numberSettingValue(SettingItem item, int value) {
-        if (item == null || item.getUnit() == null || item.getUnit().isBlank())
-            return Integer.toString(value);
-        return value + " " + item.getUnit();
-    }
-
-    private static String enabledValue(boolean enabled) {
-        return enabled ? "enabled" : "disabled";
-    }
-
-    private static String settingName(SettingId id) {
-        return settingName(id == null ? null : id.name());
-    }
-
-    private static String settingName(String stableId) {
-        if (stableId == null || stableId.isBlank())
-            return UNKNOWN_VALUE;
-        return stableId.toLowerCase(Locale.ROOT)
-                .replace('_', ' ').replace('-', ' ').replace(':', ' ');
-    }
-
-    private static String cameraSettingContext(String stableId) {
-        if (stableId == null)
-            return "";
-        try {
-            return " for camera " + CameraSettingControlId.parse(stableId).cameraId();
-        } catch (IllegalArgumentException ignored) {
-            // Fall back to the pipeline-selection parser for non-camera setting IDs.
-        }
-        return CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState
-                .cameraId(stableId)
-                .map(cameraId -> " for camera " + cameraId)
-                .orElse("");
-    }
-    private boolean canSelectSetting(SettingId id) {
-        if (id != SettingId.DEV_PIPELINE_MODE || composition.canSelectCameraPipelineMode()) {
-            return true;
-        }
-        FloatingNotice.show(this, R.string.camera_pipeline_busy);
-        return false;
-    }
-
-    private void selectCameraPipelineMode(String cameraId, int selectedIndex) {
-        if (selectedIndex < 0 || selectedIndex >= CAMERA_PIPELINE_MODES.size())
-            return;
-        if (cameraId == null && !composition.canSelectCameraPipelineMode()) {
-            refreshCurrentSettingsControls();
-            FloatingNotice.show(this, R.string.camera_pipeline_busy);
-            return;
-        }
-        String stableId = cameraId == null
-                ? "developer:pipeline-mode"
-                : CameraDeveloperSettingsPresentation.CameraPipelineSelectionUiState
-                        .stableId(cameraId);
-        SettingItem item = currentSetting(stableId);
-        DeveloperSettingsStore.Mode mode = CAMERA_PIPELINE_MODES.get(selectedIndex);
-        Consumer<CameraPipelineModeController.Result> completion = result -> runOnUiThread(() -> {
-            refreshCurrentSettingsControls();
-            if (result == CameraPipelineModeController.Result.APPLIED) {
-                logSelectedSettingChanged(item, stableId, selectedIndex);
-            }
-            FloatingNotice.show(this, cameraPipelineNotice(result));
-        });
-        if (cameraId == null)
-            composition.selectCameraPipelineMode(mode, completion);
-        else
-            composition.selectCameraPipelineMode(cameraId, mode, completion);
-    }
-
-    static int cameraPipelineNotice(CameraPipelineModeController.Result result) {
-        return switch (result) {
-            case APPLIED -> R.string.camera_pipeline_applied;
-            case REJECTED_BUSY -> R.string.camera_pipeline_busy;
-            case REJECTED_UNAVAILABLE -> R.string.camera_pipeline_unknown;
-            case FAILED -> R.string.camera_pipeline_failed;
-        };
-    }
-
-    private void selectSetting(SettingId id, int selectedIndex) {
-        SettingItem item = currentSetting(id);
-        if (id == SettingId.DEV_PIPELINE_MODE) {
-            selectCameraPipelineMode(null, selectedIndex);
-            return;
-        }
-        if (id == SettingId.LANGUAGE) {
-            if (selectedIndex >= 0 && selectedIndex < renderedLanguages.length) {
-                changeLanguage(renderedLanguages[selectedIndex]);
-            }
-            return;
-        }
-        if (id == SettingId.AUDIO_FILE_FORMAT) {
-            AudioFileFormat[] formats = AudioFileFormat.values();
-            if (selectedIndex < 0 || selectedIndex >= formats.length) return;
-            composition.setAudioFileFormat(formats[selectedIndex]);
-            logSelectedSettingChanged(item, id, selectedIndex);
-            return;
-        }
-        if (id == SettingId.AUDIO_SAMPLE_RATE || id == SettingId.AUDIO_BIT_RATE
-                || id == SettingId.AUDIO_CHANNEL_COUNT || id == SettingId.AUDIO_ALERT_VOLUME) {
-            return;
-        }
-        if (id == SettingId.DEFAULT_STORAGE) {
-            List<MediaPartitionLocation> modes = storageSettings.supportedModes();
-            if (selectedIndex >= 0 && selectedIndex < modes.size()) {
-                MediaPartitionLocation mode = modes.get(selectedIndex);
-                if (mode != MediaPartitionLocation.INTERNAL) {
-                    refreshCurrentSettingsControls();
-                    FloatingNotice.show(this, R.string.external_storage_not_supported);
-                    return;
-                }
-                storageSettings.changeMode(mode);
-                logSelectedSettingChanged(item, id, selectedIndex);
-                recreate();
-            }
-            return;
-        }
-        if (id == SettingId.GPS_POSITIONING_MODE) {
-            List<GpsMode> modes = locationSettings.supportedModes();
-            if (selectedIndex >= 0 && selectedIndex < modes.size()) {
-                GpsMode mode = modes.get(selectedIndex);
-                if (!locationControl.isModeAvailable(mode))
-                    return;
-                locationSettings.changeMode(mode);
-                logSelectedSettingChanged(item, id, selectedIndex);
-                if (!hasRequiredLocationPermission())
-                    launchLocationPermissionRequest();
-                else
-                    restartLocationTracking();
-            }
-            return;
-        }
-        settingsUiState.select(id, selectedIndex);
-        logSelectedSettingChanged(item, id, selectedIndex);
-    }
-
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -2402,9 +1638,10 @@ public final class MainActivity extends ComponentActivity {
         setIntent(intent);
         if (viewModel != null) {
             MainUiState current = viewModel.state().getValue();
-            logger.info("Home button requested camera preview from "
-                    + (current == null ? "unknown screen" : screenName(current.getScreen())) + ".");
-            viewModel.show(MainScreen.CAMERA);
+            logger.info(LogCategory.APP, "unspecified", "Home button requested camera preview from "
+                    + (current == null ? "unknown screen"
+                            : MainNavigationGraph.logName(current.getScreen())) + ".");
+            navigation.navigate(MainScreen.CAMERA);
         }
     }
 
@@ -2414,105 +1651,8 @@ public final class MainActivity extends ComponentActivity {
             hardwareButtons.updateLayout(layout);
             refreshFirmwareHardwareButtonReceiver();
         }
-        logger.info("Changed hardware button bindings. Active bindings: "
+        logger.info(LogCategory.CONFIG, "unspecified", "Changed hardware button bindings. Active bindings: "
                 + layout.bindings().size() + ".");
-    }
-
-    private void updateNumberSetting(SettingId id, int value) {
-        SettingItem item = currentSetting(id);
-        if (id == SettingId.GPS_UPDATE_DISTANCE_METERS) {
-            locationSettings.changeUpdateDistanceMeters(value);
-            restartLocationTracking();
-            logNumberSettingChanged(item, id, value);
-            return;
-        }
-        if (id == SettingId.GPS_REPORT_INTERVAL_SECONDS) {
-            locationSettings.changeReportIntervalSeconds(value);
-            restartLocationTracking();
-            logNumberSettingChanged(item, id, value);
-            return;
-        }
-        settingsUiState.updateNumber(id, value);
-        if (id == SettingId.LOW_STORAGE_WARNING_GB) {
-            storageSettings.changeWarningGb(value);
-        }
-        logNumberSettingChanged(item, id, value);
-    }
-
-    private void updateBooleanSetting(SettingId id, boolean checked) {
-        SettingItem item = currentSetting(id);
-        if (developerFeatureToggles.setEnabled(id, checked)) {
-            if (id == SettingId.FEATURE_AUTHENTICATION) {
-                viewModel.onAuthenticationSettingChanged();
-                logBooleanSettingChanged(item, id, checked);
-                return;
-            }
-            if (id == SettingId.FEATURE_GPS) {
-                if (checked) {
-                    refreshLocationTracking();
-                } else {
-                    stopLocationTracking();
-                }
-            }
-            refreshDeveloperSettingsRows();
-            logBooleanSettingChanged(item, id, checked);
-            return;
-        }
-        if (id == SettingId.RESOURCE_MONITOR) {
-            composition.setResourceMonitorEnabled(checked);
-            resourceMonitorController.setEnabled(checked);
-            logBooleanSettingChanged(item, id, checked);
-            return;
-        }
-        if (id == SettingId.DEV_RELEASE_CAMERA_WHEN_SCREEN_OFF) {
-            composition.setReleaseCameraWhenScreenOff(checked);
-            if (checked) {
-                requestIdleCameraReleaseIfScreenOff();
-            } else {
-                cancelIdleCameraRelease();
-                composition.bindCameraIfPermitted();
-            }
-            logBooleanSettingChanged(item, id, checked);
-            return;
-        }
-        if (id == SettingId.GPS_LOCATION_ENABLED) {
-            if (handleLocationSwitchChanged(checked)) {
-                logBooleanSettingChanged(item, id, checked);
-            }
-            return;
-        }
-        if (id == SettingId.FULL_SCREEN_DISPLAY) {
-            settingsUiState.updateBoolean(id, checked);
-            activityChrome.setFullScreenDisplayEnabled(checked);
-            logBooleanSettingChanged(item, id, checked);
-            return;
-        }
-        settingsUiState.updateBoolean(id, checked);
-        if (id == SettingId.ENCRYPT_VIDEO_FILES && mediaEncryptionSettings != null) {
-            mediaEncryptionSettings.setMediaEncryptionEnabled(checked);
-        }
-        if (id == SettingId.AUTO_ROTATE) {
-            if (androidRuntime.setAutoRotateEnabled(checked)) {
-                applyAutoRotate(checked);
-                logBooleanSettingChanged(item, id, checked);
-            } else {
-                pendingAutoRotateValue = checked;
-                syncAutoRotateFromDevice();
-                requestWriteSystemSettingsAccess();
-            }
-            return;
-        }
-        if (id == SettingId.WIFI_ENABLED) {
-            if (!androidRuntime.setWifiEnabled(checked)) {
-                settingsUiState.updateBoolean(id, androidRuntime.isWifiEnabled());
-                refreshCurrentSettingsControls();
-                FloatingNotice.show(this, getString(R.string.wifi_requires_device_owner));
-                return;
-            }
-            logBooleanSettingChanged(item, id, checked);
-            return;
-        }
-        logBooleanSettingChanged(item, id, checked);
     }
 
     private void syncRecordingRotationLock() {
@@ -2537,14 +1677,8 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void syncAutoRotateFromDevice() {
-        if (androidRuntime == null || settingsUiState == null)
-            return;
-        boolean enabled = androidRuntime.isAutoRotateEnabled();
-        settingsUiState.updateBoolean(SettingId.AUTO_ROTATE, enabled);
-        applyAutoRotate(enabled);
-        if (latestState != null) {
-            refreshCurrentSettingsControls();
-        }
+        if (androidRuntime == null || settingsCoordinator == null) return;
+        settingsCoordinator.onAutoRotateStateChanged(androidRuntime.isAutoRotateEnabled());
     }
 
     private void requestWriteSystemSettingsAccess() {
@@ -2578,7 +1712,7 @@ public final class MainActivity extends ComponentActivity {
             startActivity(intent);
         } catch (RuntimeException failure) {
             writeSettingsRequestInFlight = false;
-            logger.error("Unable to open modify system settings", failure);
+            logger.error(LogCategory.CONFIG, "unspecified", null, "Unable to open modify system settings", failure);
             FloatingNotice.show(this, R.string.write_settings_unavailable);
         }
     }
@@ -2593,18 +1727,17 @@ public final class MainActivity extends ComponentActivity {
         }
         refreshCapabilitySensitiveSettings();
         if (update.status() == AppComposition.CameraCapabilityRecheckStatus.SUCCEEDED) {
-            logger.info("Completed camera capability check successfully.");
+            logger.info(LogCategory.CAPABILITY, "unspecified", "Completed camera capability check successfully.");
             showCameraCapabilityResult(update);
             return false;
         }
-        logger.warn("Camera capability check failed. Reason: " + update.detail() + ".", null);
+        logger.warn(LogCategory.CAPABILITY, "unspecified", null, "Camera capability check failed. Reason: " + update.detail() + ".", null);
         showCameraCapabilityResult(update);
         return false;
     }
 
     private void refreshCapabilitySensitiveSettings() {
-        refreshDeveloperSettingsRows();
-        refreshCurrentSettingsControls();
+        settingsCoordinator.onCameraCapabilityChanged();
     }
 
     private void showCameraCapabilityResult(AppComposition.CameraCapabilityRecheckUpdate update) {
@@ -2661,207 +1794,22 @@ public final class MainActivity extends ComponentActivity {
                 elapsedMillis.getAsLong() / 1000.0);
     }
 
-    private void performSettingAction(SettingId id) {
-        if (id == SettingId.RECHECK_CAMERA_CAPABILITIES) {
-            if (!composition.resetCameraCapabilities()) {
-                FloatingNotice.show(this, R.string.camera_capabilities_recheck_busy);
-                return;
-            }
-            logger.info("Started camera capability check from developer settings.");
-            return;
-        }
-        if (id == SettingId.WIFI_CONNECT) {
-            Intent intent = new Intent(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                    ? Settings.Panel.ACTION_WIFI
-                    : Settings.ACTION_WIFI_SETTINGS);
-            startActivity(intent);
-            logger.info("Opened Android Wi-Fi settings from device settings.");
-            return;
-        }
-        if (id == SettingId.LOGOUT) {
-            viewModel.logout();
-            logger.info("Logged out current operator from security settings.");
-            return;
-        }
-        if (id == SettingId.CHANGE_OPERATOR_ID || id == SettingId.CHANGE_OPERATOR_PASSWORD) {
-            FloatingNotice.show(this, R.string.account_change_pending);
-            return;
-        }
-        throw new IllegalArgumentException("Setting " + id + " is not an action");
-    }
-
-    private void changeLanguage(AppLanguage language) {
-        if (languageSettings == null || language == languageSettings.currentLanguage())
-            return;
-        languageSettings.changeLanguage(language);
-        logSettingChanged(currentSetting(SettingId.LANGUAGE), SettingId.LANGUAGE,
-                languageName(language));
-        FloatingNotice.show(this, R.string.language_changed);
-        recreate();
-    }
-
-    private String languageName(AppLanguage language) {
-        switch (language) {
-            case SYSTEM:
-                return getString(R.string.language_system);
-            case ENGLISH:
-                return getString(R.string.language_english);
-            case VIETNAMESE:
-                return getString(R.string.language_vietnamese);
-            default:
-                throw new IllegalArgumentException("Unsupported language " + language);
-        }
-    }
-
-    private void handleAboutSecretTap() {
-        long now = System.currentTimeMillis();
-        if (now - devModeTapWindowStartedAtMs > DEV_MODE_UNLOCK_WINDOW_MS) {
-            devModeTapWindowStartedAtMs = now;
-            devModeTapCount = 0;
-        }
-        devModeTapCount++;
-        if (devModeTapCount < DEV_MODE_UNLOCK_TAPS)
-            return;
-
-        devModeTapCount = 0;
-        devModeTapWindowStartedAtMs = 0L;
-        FloatingNotice.show(this, R.string.developer_mode_unlocked);
-        viewModel.show(MainScreen.DEVELOPER_SETTINGS);
-    }
-
-    private MainScreen safeScreen(MainScreen screen) {
-        if (screen == MainScreen.LOGIN
-                || screen == MainScreen.DEVELOPER_USERS
-                || screen == MainScreen.DEVELOPER_BUTTON_BINDINGS)
-            return screen;
-        return menuModel.safeScreen(screen, this::isMenuTileVisible);
-    }
-
-    private static int settingsTitle(MainScreen screen) {
-        switch (screen) {
-            case RECORD_SETTINGS:
-                return R.string.record_settings;
-            case CAMERA_SETTINGS:
-                return R.string.camera_settings_short;
-            case VIDEO_STREAM_SETTINGS:
-                return R.string.video_stream_settings;
-            case AUDIO_SETTINGS:
-                return R.string.audio_settings;
-            case STORAGE_SETTINGS:
-                return R.string.storage_settings;
-            case GPS_SETTINGS:
-                return R.string.gps_settings;
-            case DEVICE_SETTINGS:
-                return R.string.device_settings_short;
-            case USER_SETTINGS:
-                return R.string.security_settings;
-            case SERVER_SETTINGS:
-                return R.string.network_settings;
-            case TRANSFER_SETTINGS:
-                return R.string.transfer_settings;
-            case ABOUT:
-                return R.string.about;
-            case DEVELOPER_SETTINGS:
-                return R.string.developer_mode;
-            case DEVELOPER_BUTTON_BINDINGS:
-                return R.string.button_role_bindings;
-            case DEVELOPER_USERS:
-                return R.string.developer_users;
-            default:
-                throw new IllegalArgumentException("No settings title for " + screen);
-        }
-    }
-
-    private static int settingsItems(MainScreen screen) {
-        switch (screen) {
-            case RECORD_SETTINGS:
-                return R.array.record_settings_items;
-            case CAMERA_SETTINGS:
-                return R.array.camera_settings_items;
-            case VIDEO_STREAM_SETTINGS:
-                return R.array.video_stream_settings_items;
-            case AUDIO_SETTINGS:
-                return R.array.audio_settings_items;
-            case STORAGE_SETTINGS:
-                return R.array.storage_settings_items;
-            case GPS_SETTINGS:
-                return R.array.gps_settings_items;
-            case DEVICE_SETTINGS:
-                return R.array.device_settings_items;
-            case USER_SETTINGS:
-                return R.array.security_settings_items;
-            case SERVER_SETTINGS:
-                return R.array.network_settings_items;
-            case TRANSFER_SETTINGS:
-                return R.array.transfer_settings_items;
-            case ABOUT:
-                return R.array.about_settings_items;
-            default:
-                throw new IllegalArgumentException("No settings list for " + screen);
-        }
+    private boolean isMenuTileVisible(MainScreen screen, FeatureGate gate) {
+        return gate == null || developerFeatureToggles.isEffectivelyEnabled(gate);
     }
 
     private void updateStatus(MainUiState state) {
         recordingStatusRenderer.updateFloatingRecordingStatus(state);
         if (cameraScreen != null) {
-            cameraScreen.recordingBadge.setAlpha(RECORDING_BADGE_ACTIVE_ALPHA);
+            cameraScreen.setRecordingBadgeAlpha(RECORDING_BADGE_ACTIVE_ALPHA);
             updateGpsStatusLine();
-            if (state.getOperatorSession() != null) {
-                cameraScreen.operatorId.setText("USER " + state.getOperatorSession().getFileUserId());
-            } else {
-                cameraScreen.operatorId.setText("USER —");
-            }
             recordingStatusRenderer.updateCameraClock();
         }
-        if (loginScreen != null) {
-            loginScreen.loginAction.setEnabled(!state.isAuthenticationBusy());
-            loginScreen.password.setEnabled(!state.isAuthenticationBusy());
-            loginScreen.status.setText(state.isAuthenticationBusy()
-                    ? "Loading..."
-                    : localizedMessage(state.getMessage()));
-        }
-        if (developerUsersScreen != null) {
-            developerUsersScreen.saveAction.setEnabled(!state.isAuthenticationBusy());
-            developerUsersScreen.status.setText(state.isAuthenticationBusy()
-                    ? "Saving..."
-                    : localizedMessage(state.getMessage()));
-        }
-        if (fileExplorerScreen != null)
-            mediaBrowserRenderer.render(state.getMediaBrowser());
-    }
-
-    private String localizedMessage(String message) {
-        if (message == null)
-            return "";
-        if (isStorageCaptureStoppedMessage(message))
-            return getString(R.string.storage_capture_stopped);
-        return message.startsWith("Saved ")
-                ? getString(R.string.media_saved, message.substring(6))
-                : message;
     }
 
     private static boolean isStorageCaptureStoppedMessage(String message) {
         return message != null
                 && message.startsWith(MainViewModel.STORAGE_STOPPED_MESSAGE_PREFIX);
-    }
-
-    private void refreshStorageVolumes() {
-        if (!storageVolumesStale
-                || !storageVolumesRefreshInFlight.compareAndSet(false, true)) return;
-        long expectedGeneration = storageVolumesGeneration;
-        composition.readStorageVolumes(volumes -> {
-            storageVolumesRefreshInFlight.set(false);
-            if (expectedGeneration != storageVolumesGeneration) {
-                refreshStorageVolumes();
-                return;
-            }
-            storageVolumes = volumes;
-            storageVolumesStale = false;
-            if (!isFinishing() && !isDestroyed() && latestState != null
-                    && latestState.getScreen() == MainScreen.STORAGE_SETTINGS) {
-                refreshCurrentSettingsControls();
-            }
-        });
     }
 
     private void updateStorageWarning() {
@@ -2886,7 +1834,8 @@ public final class MainActivity extends ComponentActivity {
             }
             long free = warning.getFreeBytes();
             var notice = StorageWarningNoticePolicy.notice(warning,
-                    getString(R.string.low_storage_preview_warning, storageSize(free)));
+                    getString(R.string.low_storage_preview_warning,
+                            StorageSizeFormatter.gibibytes(free)));
             if (notice.isPresent()) {
                 StorageWarningNoticePolicy.Notice value = notice.orElseThrow();
                 FloatingNotice.showLowPriorityPersistent(this,
@@ -2925,31 +1874,7 @@ public final class MainActivity extends ComponentActivity {
         boolean visible = developerFeatureToggles.isEffectivelyEnabled(FeatureGate.GPS)
                 && locationTrackingCoordinator != null
                 && locationTrackingCoordinator.shouldShowOnCamera();
-        cameraScreen.gpsStatus.setVisibility(visible ? View.VISIBLE : View.GONE);
-        cameraScreen.gpsStatus.setText(visible ? gpsCoordinatesText() : "");
-    }
-
-    private boolean handleLocationSwitchChanged(boolean enabled) {
-        if (locationControl == null)
-            return false;
-        if (enabled && !hasRequiredLocationPermission()) {
-            requestLocationPermission();
-            refreshCurrentSettingsControls();
-            return false;
-        }
-        boolean changed = locationControl.setEnabledIfPermitted(enabled);
-        refreshCurrentSettingsControls();
-        if (!changed) {
-            pendingLocationEnabled = enabled;
-            try {
-                startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
-            } catch (RuntimeException ignored) {
-                FloatingNotice.show(this, R.string.gps_settings_unavailable);
-            }
-            return false;
-        }
-        refreshLocationTracking();
-        return true;
+        cameraScreen.setGps(visible, visible ? gpsCoordinatesText() : "");
     }
 
     private void refreshLocationTracking() {
@@ -3047,24 +1972,6 @@ public final class MainActivity extends ComponentActivity {
         return androidRuntime.fineLocationPermissionGranted();
     }
 
-    private void navigateBack() {
-        MainScreen screen = latestState == null ? MainScreen.CAMERA : latestState.getScreen();
-        if (screen == MainScreen.LOGIN)
-            return;
-        if (screen == MainScreen.CAMERA)
-            viewModel.show(MainScreen.MENU);
-        else if (screen == MainScreen.MENU)
-            viewModel.show(MainScreen.CAMERA);
-        else if (screen == MainScreen.FILES && viewModel.navigateMediaUp()) {
-            // The media navigation handled the back action.
-        }
-        else if (screen == MainScreen.DEVELOPER_USERS
-                || screen == MainScreen.DEVELOPER_BUTTON_BINDINGS) {
-            viewModel.show(MainScreen.DEVELOPER_SETTINGS);
-        } else
-            viewModel.show(MainScreen.MENU);
-    }
-
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         return handleHardwareKeyDown(
@@ -3079,15 +1986,15 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private boolean handleHardwareKeyDown(int keyCode, int repeatCount, long eventTimeMs) {
-        if (renderedScreen == MainScreen.DEVELOPER_BUTTON_BINDINGS
-                && developerButtonBindingsScreen.onKeyDown(keyCode))
+        if (committedScreen() == MainScreen.DEVELOPER_BUTTON_BINDINGS
+                && settingsCoordinator.onKeyDown(keyCode))
             return true;
         long deliveredAtMs = SystemClock.uptimeMillis();
         boolean handled = hardwareButtons != null
                 && hardwareButtons.onKeyDown(keyCode, repeatCount, eventTimeMs);
         if (handled) restartIdleCameraReleaseDelayAfterHardwareCommandIfScreenOff();
         if (handled && repeatCount == 0 && logger != null) {
-            logger.info("Accepted hardware button press. Key code: " + keyCode
+            logger.info(LogCategory.APP, "unspecified", "Accepted hardware button press. Key code: " + keyCode
                     + ". Main-thread delivery lag: "
                     + Math.max(0L, deliveredAtMs - eventTimeMs) + " ms.");
         }
@@ -3102,8 +2009,8 @@ public final class MainActivity extends ComponentActivity {
         if (!hasWindowFocus() && hardwareButtons != null) {
             hardwareButtons.clearFocusTransientState();
         }
-        if (renderedScreen == MainScreen.DEVELOPER_BUTTON_BINDINGS
-                && developerButtonBindingsScreen.onKeyUp(keyCode)) {
+        if (committedScreen() == MainScreen.DEVELOPER_BUTTON_BINDINGS
+                && settingsCoordinator.onKeyUp(keyCode)) {
             if (hardwareButtons != null)
                 hardwareButtons.clearTransientState();
             return true;
@@ -3123,7 +2030,7 @@ public final class MainActivity extends ComponentActivity {
                 && hardwareButtons.onFirmwareBroadcastDown(action, 0, eventTimeMs);
         if (handled) restartIdleCameraReleaseDelayAfterHardwareCommandIfScreenOff();
         if (handled && logger != null) {
-            logger.info("Accepted firmware hardware button press. Broadcast action: "
+            logger.info(LogCategory.APP, "unspecified", "Accepted firmware hardware button press. Broadcast action: "
                     + action + ".");
         }
         if (handled && hardwareButtons.isSosFirmwareBroadcastDownAction(action)) {
@@ -3183,7 +2090,7 @@ public final class MainActivity extends ComponentActivity {
         unregisterReceiver(wifiStateReceiver);
         unregisterReceiver(storageMountedReceiver);
         unregisterReceiver(screenStateReceiver);
-        logger.info("MainActivity destroyed");
+        logger.info(LogCategory.APP, "unspecified", "MainActivity destroyed");
         FloatingNotice.clear(this);
         cameraClock.removeCallbacks(cameraClockTick);
         cameraClock.removeCallbacks(recordingDurationTick);
@@ -3197,6 +2104,8 @@ public final class MainActivity extends ComponentActivity {
             composition.releaseCameraForActivityFinish();
         }
         identityIoExecutor.shutdown();
+        if (navigation != null) navigation.close();
+        if (settingsCoordinator != null) settingsCoordinator.close();
         resourceMonitorController.close();
         super.onDestroy();
     }
@@ -3205,6 +2114,18 @@ public final class MainActivity extends ComponentActivity {
         return value == null ? "null"
                 : value.getClass().getSimpleName() + "@"
                         + Integer.toHexString(System.identityHashCode(value));
+    }
+
+    @Override
+    public MainUiScope mainUiScope() {
+        if (mainUiScope == null) {
+            throw new IllegalStateException("Main UI scope is not ready");
+        }
+        return mainUiScope;
+    }
+
+    private MainScreen committedScreen() {
+        return navigation == null ? null : navigation.committedRoute();
     }
 
     private static String shortId(String value) {
@@ -3227,6 +2148,7 @@ public final class MainActivity extends ComponentActivity {
                         locationTrackingCoordinator.requestCurrentLocation();
                 },
                 this::vibrateCaptureCommandStart);
+        attachCameraPreview();
         refreshFirmwareHardwareButtonReceiver();
     }
 
@@ -3250,22 +2172,4 @@ public final class MainActivity extends ComponentActivity {
         sosHoldAction = null;
     }
 
-    private void clearScreenBindings() {
-        loginScreen = null;
-        developerUsersScreen = null;
-        fileExplorerScreen = null;
-        menuScreen = null;
-        renderedSettingsList = null;
-        renderedSettingsScroll = null;
-    }
-
-    private void removeNonCameraScreens() {
-        if (cameraScreen != null)
-            cameraScreen.getRoot().setAlpha(0f);
-        for (int index = root.getChildCount() - 1; index >= 0; index--) {
-            View child = root.getChildAt(index);
-            if (cameraScreen == null || child != cameraScreen.getRoot())
-                root.removeViewAt(index);
-        }
-    }
 }

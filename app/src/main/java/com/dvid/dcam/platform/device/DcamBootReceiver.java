@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.device;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.platform.logging.app.AppLogger;
 
@@ -32,7 +33,7 @@ public final class DcamBootReceiver extends BroadcastReceiver {
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
             if (launch == null) {
-                logger.info("No launch intent available after " + action);
+                logger.info(LogCategory.APP, "unspecified", "No launch intent available after " + action);
                 return;
             }
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
@@ -40,7 +41,7 @@ public final class DcamBootReceiver extends BroadcastReceiver {
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             context.startActivity(launch);
         } catch (RuntimeException error) {
-            logger.warn("Could not open DCAM after " + action, error);
+            logger.warn(LogCategory.APP, "unspecified", null, "Could not open DCAM after " + action, error);
         }
     }
 }

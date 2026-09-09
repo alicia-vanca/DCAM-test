@@ -1,5 +1,6 @@
 package com.dvid.dcam.feature.device.application.usecase;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.SelectedRecordingProfile;
@@ -444,7 +445,7 @@ public final class VerifyCameraSelectionUseCase {
         } catch (RuntimeException error) {
             addAttempt(attempt, operation, CameraOperationOutcome.GLOBAL_FAILURE,
                     "runtime_exception=" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
                     "runtime_exception"), error);
             return StageResult.globalFailure(attempt.stage(), attempt.candidate(),
                     attempt.attemptNumber(), attempt.context(), cleanupNeeded,
@@ -498,7 +499,7 @@ public final class VerifyCameraSelectionUseCase {
             addAttempt(attempt, CameraPipelineOperation.DIAGNOSTICS,
                     CameraOperationOutcome.GLOBAL_FAILURE,
                     "diagnostics_exception=" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(attempt.context(), attempt.stage(), GLOBAL_FAILURE,
                     "diagnostics_exception"), error);
             return StageResult.globalFailure(attempt.stage(), attempt.candidate(),
                     attempt.attemptNumber(), attempt.context(), cleanupNeeded,
@@ -551,7 +552,7 @@ public final class VerifyCameraSelectionUseCase {
             addAttempt(attempt, CameraPipelineOperation.RELEASE,
                     CameraOperationOutcome.GLOBAL_FAILURE,
                     "release_exception=" + error.getClass().getSimpleName());
-            logger.warn(logPrefix(result.context, result.stage,
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, logPrefix(result.context, result.stage,
                     GLOBAL_FAILURE, "release_exception"), error);
             return StageResult.transientFailure(result.stage, result.candidate,
                     result.attemptNumber, result.context, false,
@@ -618,7 +619,7 @@ public final class VerifyCameraSelectionUseCase {
                     "persist_request", "reason=" + reason);
         } catch (RuntimeException error) {
             run.persistenceWriteFailed = true;
-            logger.warn("camera_verification persist_failed reason=" + reason, error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_verification persist_failed reason=" + reason, error);
         }
     }
 
@@ -648,7 +649,7 @@ public final class VerifyCameraSelectionUseCase {
             persist(run, "rollback_previous_selection");
         } catch (RuntimeException error) {
             run.persistenceWriteFailed = true;
-            logger.warn("camera_verification rollback_snapshot_failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_verification rollback_snapshot_failed", error);
         }
 
         CandidateKey previousCandidate = CandidateKey.forTuple(value.cameraId(),
@@ -686,7 +687,7 @@ public final class VerifyCameraSelectionUseCase {
         try {
             current = healthGenerationProvider.currentGeneration(candidate.cameraId());
         } catch (RuntimeException error) {
-            logger.warn("camera_verification health_generation_read_failed camera="
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_verification health_generation_read_failed camera="
                     + candidate.cameraId(), error);
             return false;
         }
@@ -773,7 +774,7 @@ public final class VerifyCameraSelectionUseCase {
     private void log(CameraOperationContext context, VerificationStage stage,
             CameraOperationOutcome outcome, String detail) {
         if (outcome == CameraOperationOutcome.PASS) return;
-        logger.info(logPrefix(context, stage, outcome.name(), detail));
+        logger.info(LogCategory.CAPABILITY, "unspecified", logPrefix(context, stage, outcome.name(), detail));
     }
 
     private String logPrefix(CameraOperationContext context,
@@ -795,7 +796,7 @@ public final class VerifyCameraSelectionUseCase {
     private void logRequest(Request request, CandidateKey candidate,
             String stage, String detail) {
         if ("candidate_start".equals(stage) || "persist_request".equals(stage)) return;
-        logger.info("camera_verification camera=" + candidate.cameraId()
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_verification camera=" + candidate.cameraId()
                 + " codec=" + candidate.codec()
                 + " pipeline=" + candidate.verificationPipelineId()
                 + " requestedTuple=" + request.requestedCandidate().tuple().orElse(null)

@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.device.capability.fast;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.FastCameraCapabilityProbe;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
@@ -144,7 +145,7 @@ public final class AndroidFastCameraCapabilityProbe
                     "cancelled_during_concurrent_probe");
         }
         if (executionFailure != null) {
-            logger.warn(prefix() + " stage=concurrent_probe outcome=incomplete_global"
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix() + " stage=concurrent_probe outcome=incomplete_global"
                     + " elapsedMs=" + elapsedMillis, executionFailure);
             return new BatchResult(Completion.INCOMPLETE_GLOBAL, List.of(),
                     cleanupComplete, elapsedMillis,
@@ -173,7 +174,7 @@ public final class AndroidFastCameraCapabilityProbe
             }
             return outcome;
         } catch (RuntimeException error) {
-            logger.warn(prefix() + " stage=single_camera_probe outcome=incomplete_global"
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix() + " stage=single_camera_probe outcome=incomplete_global"
                     + " cameraId=" + request.cameraId(), error);
             PipelineEvidence evidence = new PipelineEvidence(
                     request.cameraId(), VideoCodec.H264, pipelineId,

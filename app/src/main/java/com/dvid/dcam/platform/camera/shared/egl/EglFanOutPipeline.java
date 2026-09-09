@@ -10,6 +10,7 @@ import android.media.ImageReader;
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.Surface;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationOutcome;
@@ -119,7 +120,7 @@ public final class EglFanOutPipeline extends AbstractSharedCameraPipeline {
                         @Override public void onPreviewDrop(long totalDrops, String detail) {
                             if (!isCurrent(value)) return;
                             setPreviewDropCount(totalDrops);
-                            logger().info(prefix(value, "preview_backpressure")
+                            logger().info(LogCategory.CAMERA, "unspecified", prefix(value, "preview_backpressure")
                                     + " outcome=drop droppedFrames=" + totalDrops
                                     + " detail=" + detail);
                         }

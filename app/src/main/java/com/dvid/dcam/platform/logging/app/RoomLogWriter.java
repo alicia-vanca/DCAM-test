@@ -2,6 +2,7 @@ package com.dvid.dcam.platform.logging.app;
 
 import android.content.Context;
 import com.dvid.dcam.BuildSecrets;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.platform.database.AppDatabase;
 import com.dvid.dcam.platform.database.dao.PendingLogDao;
 import com.dvid.dcam.platform.database.entities.PendingLogEntity;
@@ -92,7 +93,7 @@ final class RoomLogWriter {
             output.flush();
             stream.getFD().sync();
         } catch (Exception error) {
-            AppLogger.writeInternal(ERROR_LEVEL, "Dead-event archive write failed", error);
+            AppLogger.writeInternal(LogCategory.STORAGE, "unspecified", null, ERROR_LEVEL, "Dead-event archive write failed", error);
             return;
         }
 
@@ -165,7 +166,7 @@ final class RoomLogWriter {
             } catch (DateTimeParseException ignored) {
                 // Leave unrecognized files untouched; they are not managed dead-event archives.
             } catch (IOException error) {
-                AppLogger.writeInternal("WARN", "Could not delete expired " + file.getName(), error);
+                AppLogger.writeInternal(LogCategory.STORAGE, "unspecified", null, "WARN", "Could not delete expired " + file.getName(), error);
             }
         }
     }
@@ -178,7 +179,7 @@ final class RoomLogWriter {
             return true;
         } catch (Exception error) {
             if (saved != null) saved.cancel(true);
-            AppLogger.writeInternal(ERROR_LEVEL, failureMessage, cause(error));
+            AppLogger.writeInternal(LogCategory.DB, "unspecified", null, ERROR_LEVEL, failureMessage, cause(error));
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
             return false;
         }
@@ -189,7 +190,7 @@ final class RoomLogWriter {
             try {
                 action.run();
             } catch (RuntimeException error) {
-                AppLogger.writeInternal(ERROR_LEVEL, failureMessage, error);
+                AppLogger.writeInternal(LogCategory.DB, "unspecified", null, ERROR_LEVEL, failureMessage, error);
             }
         });
     }
@@ -208,8 +209,7 @@ final class RoomLogWriter {
         boolean hardPruned = false;
         while (pendingLogs.payloadBytes() > HARD_LIMIT_BYTES && pendingLogs.deleteOldest(PRUNE_CHUNK) > 0) hardPruned = true;
         if (hardPruned) {
-            AppLogger.writeInternal(ERROR_LEVEL,
-                    "Room log queue exceeded hard limit; oldest events removed", null);
+            AppLogger.writeInternal(LogCategory.DB, "unspecified", null, ERROR_LEVEL, "Room log queue exceeded hard limit; oldest events removed", null);
         }
     }
 

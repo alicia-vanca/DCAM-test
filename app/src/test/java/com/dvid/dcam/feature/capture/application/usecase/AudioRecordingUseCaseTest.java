@@ -135,9 +135,9 @@ final class AudioRecordingUseCaseTest {
         assertFalse(recorder.recording);
     }
 
-    @Test void terminalAudioStorageStateFailsWithoutRetry() {
+    @Test void terminalAudioPreparationStateFailsWithoutRetry() {
         FakeAudioRecorder recorder = new FakeAudioRecorder();
-        recorder.storageUnavailable = true;
+        recorder.terminalPreparationFailure = true;
         FakePreparationListener listener = new FakePreparationListener();
         AudioRecordingUseCase useCase = new AudioRecordingUseCase(recorder, Runnable::run,
                 () -> true, events(new ArrayList<>()), listener);
@@ -148,15 +148,31 @@ final class AudioRecordingUseCaseTest {
         assertEquals(List.of("unavailable:SD card unavailable."), listener.events);
         assertFalse(recorder.recording);
     }
-    @Test void audioRequiresFreshPressAfterUnavailableAndPreparingStates() {
+
+    @Test void terminalAudioPreparationStateDoesNotPublishStorageEvent() {
         FakeAudioRecorder recorder = new FakeAudioRecorder();
-        recorder.storageUnavailable = true;
+        recorder.terminalPreparationFailure = true;
+        FakePreparationListener listener = new FakePreparationListener();
+        List<CaptureEvent> received = new ArrayList<>();
+        SerializedRecordingCoordinator events = events(received);
+        AudioRecordingUseCase useCase = new AudioRecordingUseCase(recorder, Runnable::run,
+                () -> true, events, listener);
+
+        assertTrue(useCase.toggleAudioAsync());
+
+        assertTrue(received.isEmpty());
+        assertEquals(List.of("unavailable:SD card unavailable."), listener.events);
+        assertFalse(recorder.recording);
+    }
+    @Test void audioRequiresFreshPressAfterTerminalPreparationAndPreparingStates() {
+        FakeAudioRecorder recorder = new FakeAudioRecorder();
+        recorder.terminalPreparationFailure = true;
         FakePreparationListener listener = new FakePreparationListener();
         AudioRecordingUseCase useCase = new AudioRecordingUseCase(recorder, Runnable::run,
                 () -> true, events(new ArrayList<>()), listener);
 
         assertTrue(useCase.toggleAudioAsync());
-        recorder.storageUnavailable = false;
+        recorder.terminalPreparationFailure = false;
         recorder.retryablePreparationFailures = 1;
         assertTrue(useCase.toggleAudioAsync());
         assertFalse(recorder.recording);
@@ -258,11 +274,11 @@ final class AudioRecordingUseCaseTest {
         private boolean recording;
         private int retryablePreparationFailures;
         private boolean alwaysRetryablePreparation;
-        private boolean storageUnavailable;
+        private boolean terminalPreparationFailure;
 
         @Override public String toggle() {
             toggles++;
-            if (storageUnavailable) {
+            if (terminalPreparationFailure) {
                 throw AudioRecorder.PreparationException.unavailable("SD card unavailable.");
             }
             if (alwaysRetryablePreparation || retryablePreparationFailures > 0) {

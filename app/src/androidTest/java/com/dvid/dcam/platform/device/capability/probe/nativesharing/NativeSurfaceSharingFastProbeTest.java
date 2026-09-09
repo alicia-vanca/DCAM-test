@@ -10,6 +10,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.CameraFacts;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.EncoderFacts;
@@ -162,15 +163,15 @@ public final class NativeSurfaceSharingFastProbeTest {
     private record Fixture(CameraFacts camera, VideoMode video, ImageMode image) { }
 
     private static final class PrintingLogger implements Logger {
-        @Override public void debug(String message) { print(message); }
-        @Override public void info(String message) { print(message); }
-        @Override public void info(String message, Throwable error) {
+        @Override public void debug(LogCategory category, String eventName, String message) { print(message); }
+        @Override public void info(LogCategory category, String eventName, String message) { print(message); }
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             print(message + " error=" + error);
         }
-        @Override public void warn(String message, Throwable error) {
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             print(message + " error=" + error);
         }
-        @Override public void error(String message, Throwable error) {
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {
             print(message + " error=" + error);
         }
     }

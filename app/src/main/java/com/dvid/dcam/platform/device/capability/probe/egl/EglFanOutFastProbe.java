@@ -28,6 +28,7 @@ import android.os.HandlerThread;
 import android.util.Range;
 import android.view.Surface;
 import androidx.annotation.RequiresApi;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CandidateKey;
@@ -102,7 +103,7 @@ public final class EglFanOutFastProbe {
         ProbeFailure cameraCleanup = null;
         ProbeFailure eglCleanup = null;
         try {
-            logger.info(prefix(cameraId)+" stage=egl_init result=available"
+            logger.info(LogCategory.CAPABILITY, "unspecified", prefix(cameraId)+" stage=egl_init result=available"
                     +" cameraOutputCount=2 downstreamSurfaceCount=2"
                     +" cameraSurfaceClasses="+CAMERA_SOURCES
                     +" downstreamSurfaceClasses="+DOWNSTREAM_SOURCES);
@@ -333,7 +334,7 @@ public final class EglFanOutFastProbe {
     }
 
     private void logComplete(Result result,long imageProfileCount) {
-        logger.info(completeLog(result,imageProfileCount));
+        logger.info(LogCategory.CAPABILITY, "unspecified", completeLog(result,imageProfileCount));
     }
     static String completeLog(Result result,long imageProfileCount) {
         PipelineEvidence evidence=result.evidence();
@@ -357,7 +358,7 @@ public final class EglFanOutFastProbe {
                 .filter(candidate->candidate.kind()==CandidateKey.Kind.TUPLE).count();
     }
     private void logFailure(CameraId cameraId,String stage,ProbeFailure failure) {
-        logger.warn(prefix(cameraId)+" stage="+stage+" result="+id(failure.completion())
+        logger.warn(LogCategory.CAPABILITY, "unspecified", null, prefix(cameraId)+" stage="+stage+" result="+id(failure.completion())
                 +" detail="+failure.detail(),failure);
     }
     private static String prefix(CameraId cameraId) { return "camera_fast_probe cameraId="+cameraId

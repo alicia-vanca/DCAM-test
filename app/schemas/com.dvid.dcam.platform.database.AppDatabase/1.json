@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "2a18ce7e8c8b4a96b927120bc500f928",
+    "identityHash": "e2c908eac7606fda84191722409beeb9",
     "entities": [
       {
         "tableName": "pending_logs",
@@ -524,11 +524,48 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "media_file_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`file_name` TEXT NOT NULL, `file_state` TEXT NOT NULL, `storage_root` TEXT NOT NULL, `updated_at` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`file_name`))",
+        "fields": [
+          {
+            "fieldPath": "fileName",
+            "columnName": "file_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileState",
+            "columnName": "file_state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storageRoot",
+            "columnName": "storage_root",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "file_name"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2a18ce7e8c8b4a96b927120bc500f928')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e2c908eac7606fda84191722409beeb9')"
     ]
   }
 }

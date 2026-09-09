@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.camera.shared;
 import android.content.Context;
 import android.text.format.Formatter;
 import com.dvid.dcam.R;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.domain.RecordingMode;
 import com.dvid.dcam.feature.storage.domain.CaptureStorageCheck;
@@ -189,11 +190,11 @@ public final class AndroidSharedCameraMediaLifecycle implements SharedCameraMedi
         RecordingForegroundService.stopVideo(context);
         DcamRecordingOutput output = capture.recordingOutput();
         boolean outputOpenBeforeClose = output != null && output.isOpen();
-        logger.info("Fail recording '" + capture.mediaFile().getFileName()
+        logger.info(LogCategory.RECORDING, "unspecified", "Fail recording '" + capture.mediaFile().getFileName()
                 + "': closing its staged output. Output open before close: "
                 + outputOpenBeforeClose + ".");
         closeRecordingOutput(output);
-        logger.info("Fail recording '" + capture.mediaFile().getFileName()
+        logger.info(LogCategory.RECORDING, "unspecified", "Fail recording '" + capture.mediaFile().getFileName()
                 + "': staged output cleanup completed. Output open after close: "
                 + (output != null && output.isOpen()) + ".");
         mediaOutput.releaseMediaReservation(capture.mediaFile());

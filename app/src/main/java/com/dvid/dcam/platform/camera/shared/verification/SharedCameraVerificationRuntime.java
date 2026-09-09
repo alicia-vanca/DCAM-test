@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.camera.shared.verification;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraRuntimeOperations;
 import com.dvid.dcam.feature.device.application.port.CameraVerificationClock;
@@ -202,7 +203,7 @@ public final class SharedCameraVerificationRuntime implements CameraRuntimeOpera
             Files.deleteIfExists(path);
             return true;
         } catch (IOException | RuntimeException error) {
-            logger.warn("camera_verification artifact_cleanup_failed path=" + artifact, error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_verification artifact_cleanup_failed path=" + artifact, error);
             return false;
         }
     }

@@ -12,8 +12,10 @@ import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.muxer.MuxerUtil;
 import com.dvid.dcam.R;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.port.AudioRecorder;
+import com.dvid.dcam.feature.capture.application.usecase.CaptureEvents;
 import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
 import com.dvid.dcam.feature.capture.domain.AudioFileFormat;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
@@ -48,6 +50,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
     private final Context context;
     private final DcamMediaOutput mediaOutput;
     private final Logger log;
+    private final CaptureEvents captureEvents;
     private final SharedMicrophoneCapture microphoneCapture;
     private final BooleanSupplier mediaEncryptionEnabled;
     private final Supplier<String> operatorFileUserId;
@@ -78,7 +81,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                                     Supplier<String> deviceSerialNumber,
                                     Supplier<GpsCoordinate> captureLocation) {
         this(context, mediaOutput, log, mediaEncryptionEnabled, operatorFileUserId,
-                deviceSerialNumber, captureLocation, () -> AudioFileFormat.DEFAULT);
+                deviceSerialNumber, captureLocation, () -> AudioFileFormat.DEFAULT, null);
     }
 
     public AndroidAudioRecorderImpl(Context context, DcamMediaOutput mediaOutput, Logger log,
@@ -87,9 +90,21 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                                     Supplier<String> deviceSerialNumber,
                                     Supplier<GpsCoordinate> captureLocation,
                                     Supplier<AudioFileFormat> audioFileFormat) {
+        this(context, mediaOutput, log, mediaEncryptionEnabled, operatorFileUserId,
+                deviceSerialNumber, captureLocation, audioFileFormat, null);
+    }
+
+    public AndroidAudioRecorderImpl(Context context, DcamMediaOutput mediaOutput, Logger log,
+                                    BooleanSupplier mediaEncryptionEnabled,
+                                    Supplier<String> operatorFileUserId,
+                                    Supplier<String> deviceSerialNumber,
+                                    Supplier<GpsCoordinate> captureLocation,
+                                    Supplier<AudioFileFormat> audioFileFormat,
+                                    CaptureEvents captureEvents) {
         this.context = context;
         this.mediaOutput = mediaOutput;
         this.log = log;
+        this.captureEvents = captureEvents;
         microphoneCapture = SharedMicrophoneCapture.process(log);
         this.mediaEncryptionEnabled = Objects.requireNonNull(
                 mediaEncryptionEnabled, "mediaEncryptionEnabled");
@@ -104,7 +119,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             RecordingForegroundService.stopAudio(context);
-            log.warn("Audio permission missing", null);
+            log.warn(LogCategory.RECORDING, "unspecified", null, "Audio permission missing", null);
             return null;
         }
 
@@ -122,9 +137,12 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
             releaseFailedMediaReservation(failed);
             clearRecordingState();
             if (error instanceof AudioRecorder.PreparationException preparation) {
+                if (!preparation.retryable() && captureEvents != null) {
+                    captureEvents.captureStorageUnavailable();
+                }
                 throw preparation;
             }
-            log.error("Audio failed", error);
+            log.error(LogCategory.RECORDING, "unspecified", null, "Audio failed", error);
             return null;
         }
     }
@@ -133,7 +151,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         String fileUserId = operatorFileUserId.get();
         if (fileUserId == null || fileUserId.isBlank()) {
             RecordingForegroundService.stopAudio(context);
-            log.warn("Audio start ignored: operator login required", null);
+            log.warn(LogCategory.RECORDING, "capture_start_rejected", "OPERATOR_LOGIN_REQUIRED", "Audio start ignored: operator login required", null);
             return null;
         }
         CaptureStorageCheck storageCheck = mediaOutput.checkCaptureReady();
@@ -148,13 +166,14 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         }
         if (!storageCheck.isReady()) {
             RecordingForegroundService.stopAudio(context);
-            log.warn("Audio start rejected: " + storageCheck.getReason(), null);
-            return null;
+            log.warn(LogCategory.RECORDING, "capture_start_rejected", null, "Audio start rejected: " + storageCheck.getReason(), null);
+            throw AudioRecorder.PreparationException.unavailable(
+                    context.getString(R.string.capture_storage_unavailable));
         }
         String cameraId = currentDeviceSerial();
         if (cameraId == null) {
             RecordingForegroundService.stopAudio(context);
-            log.warn("Audio start rejected: device serial required", null);
+            log.warn(LogCategory.RECORDING, "capture_start_rejected", "DEVICE_SERIAL_REQUIRED", "Audio start rejected: device serial required", null);
             return null;
         }
         outputEncrypted = mediaEncryptionEnabled.getAsBoolean();
@@ -168,7 +187,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         }
         if (!usesM4aContainer()) startDurabilitySync();
         recordingStartedAtMillis = System.currentTimeMillis();
-        log.info("Audio started: " + outputFile.getAbsolutePath());
+        log.info(LogCategory.RECORDING, "unspecified", "Audio started: " + outputFile.getAbsolutePath());
         return outputMediaFile.getFileName();
     }
 
@@ -191,7 +210,8 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                             context.getString(R.string.sd_card_preparing),
                             context.getString(R.string.sd_card_unavailable), error);
             if (reservationPreparation != null) throw reservationPreparation;
-            throw error;
+            throw AudioRecorder.PreparationException.unavailable(
+                    context.getString(R.string.capture_storage_unavailable), error);
         }
     }
 
@@ -244,11 +264,11 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
             long encoderStoppedAt = System.nanoTime();
             Throwable failedEncoder = encoderFailure.get();
             if (!encoderStopped) {
-                log.error("Audio stop failed",
+                log.error(LogCategory.RECORDING, "unspecified", null, "Audio stop failed",
                         new IllegalStateException("audio_encoder_stop_timeout"));
                 output = null;
             } else if (failedEncoder != null) {
-                log.error("Audio stop failed", failedEncoder);
+                log.error(LogCategory.RECORDING, "unspecified", null, "Audio stop failed", failedEncoder);
                 output = null;
             }
             boolean empty = !hasAudioSamples();
@@ -271,7 +291,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                             context, completed, completedOutput, recordingDurationUs);
                     long publishedAt = System.nanoTime();
                     clearRecordingState();
-                    log.info((encrypted ? "Encrypted audio" : "Audio")
+                    log.info(LogCategory.RECORDING, "unspecified", (encrypted ? "Encrypted audio" : "Audio")
                             + " stop completed for '" + output + "'. Encoder shutdown: "
                             + elapsedMillis(stopStarted, encoderStoppedAt)
                             + " ms. M4A writer close: "
@@ -286,7 +306,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                 mediaOutput.finalizeSavedNow(context, completed);
                 long publishedAt = System.nanoTime();
                 clearRecordingState();
-                log.info((encrypted ? "Encrypted audio" : "Audio")
+                log.info(LogCategory.RECORDING, "unspecified", (encrypted ? "Encrypted audio" : "Audio")
                         + " AAC stop completed for '" + output + "'. Encoder shutdown: "
                         + elapsedMillis(stopStarted, encoderStoppedAt)
                         + " ms. Audio output finalization: "
@@ -300,7 +320,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
                 closeOutput();
                 releaseFailedMediaReservation(completed);
                 clearRecordingState();
-                log.error("Audio finalization failed: " + output, error);
+                log.error(LogCategory.RECORDING, "media_finalization_failed", null, "Audio finalization failed: " + output, error);
                 return null;
             }
         } finally {
@@ -621,7 +641,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         try {
             writer.close();
         } catch (IOException error) {
-            log.warn("Audio M4A writer close failed. Staged media remains available for "
+            log.warn(LogCategory.RECORDING, "media_finalization_failed", null, "Audio M4A writer close failed. Staged media remains available for "
                     + "startup recovery.", error);
         }
     }
@@ -649,7 +669,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
             recordingOutput.checkpoint();
             checkpointedOutputBytes = logicalBytes;
         } catch (IOException error) {
-            log.warn("Audio durability sync failed", error);
+            log.warn(LogCategory.RECORDING, "unspecified", null, "Audio durability sync failed", error);
         }
     }
 
@@ -658,7 +678,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         try {
             recordingOutput.close();
         } catch (IOException error) {
-            log.warn("Audio output close failed", error);
+            log.warn(LogCategory.RECORDING, "unspecified", null, "Audio output close failed", error);
         }
         recordingOutput = null;
     }
@@ -673,12 +693,12 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         try {
             if (!Files.deleteIfExists(staged.toPath())) return;
         } catch (IOException failure) {
-            log.warn("Could not remove empty staged audio file '" + staged.getAbsolutePath()
+            log.warn(LogCategory.RECORDING, "unspecified", null, "Could not remove empty staged audio file '" + staged.getAbsolutePath()
                     + "' after recording failure.", failure);
             return;
         }
         deleteEmptyParent(staged);
-        log.info("Removed empty staged audio file '" + staged.getName()
+        log.info(LogCategory.RECORDING, "unspecified", "Removed empty staged audio file '" + staged.getName()
                 + "' after recording failure. No audio data was available to recover.");
     }
 
@@ -690,7 +710,7 @@ public final class AndroidAudioRecorderImpl implements AudioRecorder {
         } catch (DirectoryNotEmptyException ignored) {
             // Other staged captures still use this date directory.
         } catch (IOException failure) {
-            log.warn("Could not remove empty audio staging directory '"
+            log.warn(LogCategory.RECORDING, "unspecified", null, "Could not remove empty audio staging directory '"
                     + dateDirectory.getAbsolutePath() + "'.", failure);
         }
     }

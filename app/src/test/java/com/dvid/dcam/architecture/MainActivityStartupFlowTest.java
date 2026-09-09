@@ -11,8 +11,22 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 final class MainActivityStartupFlowTest {
-        @Test
-        void serialEntryUsesAllCapsInputFilter() throws IOException {
+@Test
+void captureStateRenderRefreshesCameraSwitchAvailability() throws IOException {
+String activity = source("app/MainActivity.java");
+int renderStart = activity.indexOf("private void render(MainUiState state)");
+int renderEnd = activity.indexOf("private void onRouteAccepted", renderStart);
+assertTrue(renderStart >= 0);
+assertTrue(renderEnd > renderStart);
+String render = activity.substring(renderStart, renderEnd);
+int captureState = render.indexOf("settingsCoordinator.onCaptureStateChanged(");
+int switchRefresh = render.indexOf("requestCameraSwitchActionUpdate();", captureState);
+assertTrue(captureState >= 0);
+assertTrue(switchRefresh > captureState);
+}
+
+@Test
+void serialEntryUsesAllCapsInputFilter() throws IOException {
                 String activity = source("app/MainActivity.java");
 
                 assertTrue(activity.contains("new InputFilter.AllCaps()"));
@@ -61,15 +75,18 @@ final class MainActivityStartupFlowTest {
                                 "boolean serialConfigured = deviceSerialNumbers.isConfigured(", failure);
                 int nonBlocking = activity.indexOf(
                                 "identityRestoreError = serialConfigured ? null : error;", configured);
-                int warning = activity.indexOf(
-                                "configured serial remains available", nonBlocking);
-                int completion = activity.indexOf("completeDeviceIdentityCheck();", warning);
+                int errorLog = activity.indexOf(
+                                "Device identity mirror synchronization failed; continuing with the configured serial",
+                                nonBlocking);
+                int completion = activity.indexOf("completeDeviceIdentityCheck();", errorLog);
                 assertTrue(precheck >= 0);
                 assertTrue(failure > precheck);
                 assertTrue(configured > failure);
                 assertTrue(nonBlocking > configured);
-                assertTrue(warning > nonBlocking);
-                assertTrue(completion > warning);
+                assertTrue(errorLog > nonBlocking);
+                assertTrue(activity.substring(errorLog - 120, errorLog)
+                                .contains("logger.error("));
+                assertTrue(completion > errorLog);
                 assertTrue(english.contains(
                                 "<string name=\"device_identity_restore_retry\">Retry</string>"));
                 assertTrue(vietnamese.contains(
@@ -79,6 +96,8 @@ final class MainActivityStartupFlowTest {
         @Test
         void gpsSourceFallbackRefreshesSelectionAndKeepsApprovedCopy() throws IOException {
                 String activity = source("app/MainActivity.java");
+                String coordinator = source(
+                                "app/ui/settings/SettingsScreenCoordinator.java");
                 String renderer = source("app/ui/settings/SettingsControlRenderer.java");
                 String capabilities = source(
                                 "platform/location/AndroidLocationProviderCapabilities.java");
@@ -86,20 +105,20 @@ final class MainActivityStartupFlowTest {
                                 "platform/location/AndroidLocationControlGatewayImpl.java");
                 String vietnamese = resource("values-vi/strings.xml");
 
-                int refreshStart = activity.indexOf(
-                                "private void refreshDeveloperSettingsRows()");
-                int refreshEnd = activity.indexOf(
-                                "private void refreshCurrentSettingsControls()", refreshStart);
-                String refresh = activity.substring(refreshStart, refreshEnd);
+                int refreshStart = coordinator.indexOf(
+                                "public void onLocationSystemStateChanged()");
+                int refreshEnd = coordinator.indexOf(
+                                "public void onStorageMounted()", refreshStart);
+                String refresh = coordinator.substring(refreshStart, refreshEnd);
                 int receiverStart = activity.indexOf(
                                 "private final BroadcastReceiver locationModeChangedReceiver");
                 int receiverEnd = activity.indexOf("    };", receiverStart);
                 String receiver = activity.substring(receiverStart, receiverEnd);
                 int trackingRefresh = receiver.indexOf("refreshLocationTracking();");
-                int settingsRefresh = receiver.indexOf("refreshDeveloperSettingsRows();");
+                int settingsRefresh = receiver.indexOf(
+                                "settingsCoordinator.onLocationSystemStateChanged();");
 
-                assertTrue(refresh.contains(
-                                "settingsRenderer.refreshRows(developerSettingsModel());"));
+                assertTrue(refresh.contains("notifyListeners(Invalidation.ROWS);"));
                 assertTrue(trackingRefresh >= 0);
                 assertTrue(settingsRefresh > trackingRefresh);
                 assertFalse(activity.contains("refreshDeveloperSettingsEnabledState"));
@@ -121,7 +140,8 @@ final class MainActivityStartupFlowTest {
         void cameraSwitchStateUsesEventsInsteadOfClockPolling() throws IOException {
                 String activity = source("app/MainActivity.java");
                 int tick = activity.indexOf("private final Runnable cameraClockTick");
-                int nextField = activity.indexOf("private FrameLayout root", tick);
+                int nextField = activity.indexOf(
+                                "private long nextRecordingDurationTickAtMillis", tick);
 
                 assertTrue(tick >= 0);
                 assertTrue(nextField > tick);
@@ -151,7 +171,7 @@ final class MainActivityStartupFlowTest {
                 String activity = source("app/MainActivity.java");
                 String renderer = source("app/ui/RecordingStatusRenderer.java");
                 int render = activity.indexOf("private void render(MainUiState state)");
-                int screenRender = activity.indexOf("if (renderedScreen == null", render);
+                int screenRender = activity.indexOf("if (committedScreen() == null", render);
                 String transition = activity.substring(render, screenRender);
 
                 assertTrue(transition.contains("boolean wasRecording = hasActiveRecording(previousState);"));
@@ -331,6 +351,14 @@ final class MainActivityStartupFlowTest {
                 assertTrue(fallback > load);
                 assertTrue(set > fallback);
                 assertFalse(composition.contains("AppLogger.init("));
+
+                String activity = source("app/MainActivity.java");
+                assertTrue(activity.contains("QA-CSON-002: identity_input_required"));
+                assertTrue(activity.contains("QA-CSON-002: identity_input_saved"));
+                assertTrue(activity.contains("QA-CSON-002: identity_input_save_failed"));
+                String serialStore = source("platform/config/FileDeviceSerialNumberStore.java");
+                assertTrue(serialStore.contains("QA-CSON-002: room_identity_fallback"));
+                assertTrue(serialStore.contains("QA-CSON-002: cson_fallback"));
         }
 
         @Test
@@ -445,6 +473,8 @@ final class MainActivityStartupFlowTest {
         void devModeIdleCameraReleaseIsDefaultOnAndCoordinatorAware() throws IOException {
                 String activity = source("app/MainActivity.java");
                 String composition = source("app/AppComposition.java");
+                String settingsCoordinator = source(
+                                "app/ui/settings/SettingsScreenCoordinator.java");
                 String coordinator = source("app/ui/camera/CameraFlowCoordinator.java");
                 String store = source(
                                 "platform/device/capability/settings/SharedPreferencesDeveloperSettingsStore.java");
@@ -454,8 +484,10 @@ final class MainActivityStartupFlowTest {
 
                 assertTrue(store.contains("releaseCameraWhenScreenOff()"));
                 assertTrue(store.contains(".orElse(true)"));
-                assertTrue(activity.contains("SettingId.DEV_RELEASE_CAMERA_WHEN_SCREEN_OFF"));
-                assertTrue(activity.contains("R.string.release_camera_when_screen_off_description"));
+                assertTrue(settingsCoordinator.contains(
+                                "SettingId.DEV_RELEASE_CAMERA_WHEN_SCREEN_OFF"));
+                assertTrue(settingsCoordinator.contains(
+                                "R.string.release_camera_when_screen_off_description"));
                 assertTrue(activity.contains("Intent.ACTION_SCREEN_OFF"));
                 assertTrue(activity.contains("Intent.ACTION_SCREEN_ON"));
                 assertTrue(activity.contains("screenOff = !androidRuntime.isScreenInteractive()"));
@@ -486,7 +518,7 @@ final class MainActivityStartupFlowTest {
                 String activity = source("app/MainActivity.java");
                 String router = source("app/ui/input/HardwareButtonRouter.java");
                 String layout = coreSource("input/domain/HardwareButtonLayout.java");
-                String screen = source("app/ui/settings/DeveloperButtonBindingsScreen.java");
+                String screen = source("app/ui/settings/DeveloperButtonBindingsController.java");
                 String settingsRenderer = source("app/ui/settings/SettingsControlRenderer.java");
                 String preferences = source(
                                 "platform/input/SharedPreferencesHardwareButtonSettings.java");
@@ -520,7 +552,7 @@ final class MainActivityStartupFlowTest {
                 int receiverEnd = activity.indexOf("    };", receiverStart) + "    };".length();
                 String receiver = activity.substring(receiverStart, receiverEnd);
                 assertTrue(receiver.contains(
-                                "renderedScreen == MainScreen.DEVELOPER_BUTTON_BINDINGS"));
+                                "committedScreen() == MainScreen.DEVELOPER_BUTTON_BINDINGS"));
                 assertTrue(receiver.contains("hardwareButtons.clearTransientState();"));
                 assertTrue(receiver.contains("handleFirmwareBroadcastDown(action"));
                 assertFalse(receiver.contains("PowerManager"));

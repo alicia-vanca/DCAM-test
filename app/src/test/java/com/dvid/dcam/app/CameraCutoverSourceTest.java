@@ -22,18 +22,19 @@ final class CameraCutoverSourceTest {
     }
 
     @Test void deniedDeveloperPipelineSelectionKeepsCurrentRadioChecked() throws IOException {
-        String activity = source("app/MainActivity.java");
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
         String renderer = source("app/ui/settings/SettingsControlRenderer.java");
-        int guardStart = activity.indexOf("private boolean canSelectDeveloperSetting(");
-        int guardEnd = activity.indexOf("private void selectDeveloperSetting(", guardStart);
-        String guard = activity.substring(guardStart, guardEnd);
+        String fragment = source("app/ui/SettingsDetailFragment.java");
+        int guardStart = coordinator.indexOf("public boolean canSelectDeveloperSetting(");
+        int guardEnd = coordinator.indexOf("public void selectDeveloperSetting(", guardStart);
+        String guard = coordinator.substring(guardStart, guardEnd);
         int radioStart = renderer.indexOf("private void describedRadio(");
         int radioEnd = renderer.indexOf("private CharSequence describedRadioText(", radioStart);
         String radio = renderer.substring(radioStart, radioEnd);
 
-        assertTrue(activity.contains("this::canSelectDeveloperSetting"));
-        assertTrue(guard.contains("composition.canSelectCameraPipelineMode(cameraId.orElseThrow())"));
-        assertTrue(guard.contains("FloatingNotice.show(this, R.string.camera_pipeline_busy);"));
+        assertTrue(fragment.contains("settings::canSelectDeveloperSetting"));
+        assertTrue(guard.contains("runtime.canSelectCameraPipelineMode(cameraId.orElseThrow())"));
+        assertTrue(guard.contains("platform.showNotice(R.string.camera_pipeline_busy);"));
         assertTrue(radio.contains("@Override public boolean performClick()"));
         assertTrue(radio.contains("if (canSelect != null && !canSelect.getAsBoolean()) return true;"));
         assertTrue(radio.contains("return super.performClick();"));
@@ -129,15 +130,19 @@ final class CameraCutoverSourceTest {
     @Test void capabilityRecheckAvoidsClickRerenderAndRestoresTerminalScroll()
             throws IOException {
         String activity = source("app/MainActivity.java");
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
         String renderer = source("app/ui/settings/SettingsControlRenderer.java");
-        int action = activity.indexOf("if (id == SettingId.RECHECK_CAMERA_CAPABILITIES) {");
-        int nextAction = activity.indexOf("if (id == SettingId.WIFI_CONNECT)", action);
-        String actionBody = activity.substring(action, nextAction);
+        String fragment = source("app/ui/SettingsDetailFragment.java");
+        int action = coordinator.indexOf(
+                "if (id == SettingId.RECHECK_CAMERA_CAPABILITIES) {");
+        int nextAction = coordinator.indexOf("if (id == SettingId.WIFI_CONNECT)", action);
+        String actionBody = coordinator.substring(action, nextAction);
 
         assertFalse(activity.contains("rerenderCurrentScreenPreservingScroll"));
         assertFalse(actionBody.contains("render(latestState)"));
-        assertTrue(activity.contains("refreshCurrentSettingsControls();"));
-        assertTrue(activity.contains("settingsRenderer.refreshRows(settingsModel(screen));"));
+        assertTrue(activity.contains("settingsCoordinator.onCameraCapabilityChanged();"));
+        assertTrue(coordinator.contains("notifyListeners(Invalidation.ROWS);"));
+        assertTrue(fragment.contains("renderer.refreshRows(settings.model(screen));"));
         assertTrue(renderer.contains("public void refreshRows(SettingsScreenModel model)"));
         assertTrue(renderer.contains("if (!refreshingRows && onChanged != null)"));
         assertTrue(renderer.contains("ChoiceRowState state = new ChoiceRowState"));
@@ -170,8 +175,7 @@ final class CameraCutoverSourceTest {
         String composition = source("app/AppComposition.java");
 
         assertTrue(composition.contains("private boolean cameraRecordingActive()"));
-        assertTrue(composition.contains(
-                "recordingCoordinator.currentMode() != RecordingMode.IDLE"));
+        assertTrue(composition.contains("recordingCoordinator.isRecording()"));
         assertTrue(composition.contains(
                 "operation == ProcessCameraRuntimeBackend.Operation.START_RECORDING"));
         assertTrue(composition.contains(
@@ -182,35 +186,36 @@ final class CameraCutoverSourceTest {
     @Test void capabilityRecheckKeepsControlsInteractiveWhileRuntimeRejectsBusyActions()
             throws IOException {
         String composition = source("app/AppComposition.java").replaceAll("\\s+", " ");
-        String activity = source("app/MainActivity.java").replaceAll("\\s+", " ");
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java")
+                .replaceAll("\\s+", " ");
 
         assertTrue(composition.contains(
                 "public boolean cameraCapabilityRecheckControlEnabled()"));
         assertTrue(composition.contains(
                 "if (!cameraCapabilityRecheckControlEnabled()) return false;"));
-        assertTrue(activity.contains(
-                "boolean recheckBlocked = !composition.cameraCapabilityRecheckControlEnabled()"
-                        + " && !composition.cameraCapabilityRecheckInFlight();"));
-        assertTrue(activity.contains(
-                "!fullyVerified || composition.cameraCapabilityRecheckInFlight()"
-                        + " || composition.cameraPipelineModeControlEnabled(cameraId)"));
-        assertTrue(activity.contains(
-                "FloatingNotice.show(this, R.string.camera_capabilities_recheck_busy);"));
-        assertTrue(activity.contains(
-                "FloatingNotice.show(this, R.string.camera_pipeline_busy);"));
+        assertTrue(coordinator.contains(
+                "boolean recheckBlocked = !runtime.cameraCapabilityRecheckControlEnabled()"
+                        + " && !runtime.cameraCapabilityRecheckInFlight();"));
+        assertTrue(coordinator.contains(
+                "!fullyVerified || runtime.cameraCapabilityRecheckInFlight()"
+                        + " || runtime.cameraPipelineModeControlEnabled(cameraId)"));
+        assertTrue(coordinator.contains(
+                "platform.showNotice(R.string.camera_capabilities_recheck_busy);"));
+        assertTrue(coordinator.contains(
+                "platform.showNotice(R.string.camera_pipeline_busy);"));
     }
 
     @Test void autoPipelineDescriptionUsesAutoDecisionInsteadOfCurrentSelection()
             throws IOException {
-        String activity = source("app/MainActivity.java");
-        int autoOption = activity.indexOf(
+        String coordinator = source("app/ui/settings/SettingsScreenCoordinator.java");
+        int autoOption = coordinator.indexOf(
                 "private DescribedRadioOptionUiState cameraPipelineAutoOption(");
-        int nextOption = activity.indexOf(
+        int nextOption = coordinator.indexOf(
                 "private DescribedRadioOptionUiState cameraPipelineOption(", autoOption);
-        String option = activity.substring(autoOption, nextOption);
+        String option = coordinator.substring(autoOption, nextOption);
 
-        assertTrue(option.contains("composition.cameraPipelineAutoSelections()"));
-        assertFalse(option.contains("composition.cameraPipelineSelections()"));
+        assertTrue(option.contains("runtime.cameraPipelineAutoSelections()"));
+        assertFalse(option.contains("runtime.cameraPipelineSelections()"));
     }
 
     @Test void devModeComparisonPublishesSnapshotForAutoSelection() throws IOException {

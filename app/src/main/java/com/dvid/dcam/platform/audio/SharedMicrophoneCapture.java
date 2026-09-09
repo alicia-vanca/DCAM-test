@@ -3,6 +3,7 @@ package com.dvid.dcam.platform.audio;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.domain.AudioCaptureSettings;
 import java.io.IOException;
@@ -65,7 +66,7 @@ public final class SharedMicrophoneCapture {
                             throw error;
                         }
                     }
-                    logger.info("Shared microphone consumer attached. Consumers: "
+                    logger.info(LogCategory.RECORDING, "unspecified", "Shared microphone consumer attached. Consumers: "
                             + subscriptions.size() + ".");
                     return subscription;
                 }
@@ -110,7 +111,7 @@ public final class SharedMicrophoneCapture {
             captureThread = nextThread;
             nextThread.start();
             long threadStartedAt = android.os.SystemClock.elapsedRealtime();
-            logger.info("Start shared microphone capture success. Minimum buffer query: "
+            logger.info(LogCategory.RECORDING, "unspecified", "Start shared microphone capture success. Minimum buffer query: "
                     + (bufferReadyAt - startedAt) + " ms. AudioRecord initialization: "
                     + (recorderReadyAt - bufferReadyAt) + " ms. AudioRecord start: "
                     + (captureReadyAt - recorderReadyAt) + " ms. Capture thread start: "
@@ -190,7 +191,7 @@ public final class SharedMicrophoneCapture {
             subscriptions.clear();
         }
         for (Subscription subscription : failed) subscription.signalFailure(failure);
-        logger.warn("Shared microphone capture stopped after read failure. Consumers: "
+        logger.warn(LogCategory.RECORDING, "unspecified", null, "Shared microphone capture stopped after read failure. Consumers: "
                 + failed.size() + ".", failure);
     }
 
@@ -213,7 +214,7 @@ public final class SharedMicrophoneCapture {
             // The capture thread performs final release; stop is best effort during unsubscribe.
         }
         if (thread != null && thread != Thread.currentThread()) join(thread);
-        logger.info("Shared microphone capture stopped. No consumers remain.");
+        logger.info(LogCategory.RECORDING, "unspecified", "Shared microphone capture stopped. No consumers remain.");
     }
 
 

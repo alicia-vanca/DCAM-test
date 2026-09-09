@@ -7,6 +7,7 @@ import androidx.media3.container.Mp4LocationData;
 import androidx.media3.muxer.BufferInfo;
 import androidx.media3.muxer.FragmentedMp4Muxer;
 import androidx.media3.muxer.MuxerException;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.location.domain.GpsCoordinate;
 import java.io.IOException;
@@ -52,7 +53,7 @@ public final class DcamAudioM4aWriter implements AutoCloseable {
                 muxer.addMetadataEntry(new Mp4LocationData(
                         (float) location.getLatitude(), (float) location.getLongitude()));
             } catch (RuntimeException error) {
-                logger.warn("Start audio recording without MP4 location snapshot because the "
+                logger.warn(LogCategory.RECORDING, "unspecified", null, "Start audio recording without MP4 location snapshot because the "
                         + "M4A muxer rejected current location.", error);
             }
         }
@@ -96,7 +97,7 @@ public final class DcamAudioM4aWriter implements AutoCloseable {
             lastGpsCoordinate = coordinate;
         } catch (RuntimeException error) {
             gpsRouteEnabled = false;
-            logger.warn("Stop embedding GPS route metadata because the M4A output rejected a "
+            logger.warn(LogCategory.RECORDING, "unspecified", null, "Stop embedding GPS route metadata because the M4A output rejected a "
                     + "route point. Audio recording continues.", error);
         }
     }
@@ -107,7 +108,7 @@ public final class DcamAudioM4aWriter implements AutoCloseable {
         } catch (RuntimeException error) {
             if (!gpsLookupFailureLogged) {
                 gpsLookupFailureLogged = true;
-                logger.warn("Audio GPS route lookup failed. Recording continues without new GPS "
+                logger.warn(LogCategory.RECORDING, "unspecified", null, "Audio GPS route lookup failed. Recording continues without new GPS "
                         + "metadata until location becomes available.", error);
             }
             return null;

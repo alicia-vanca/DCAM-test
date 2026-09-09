@@ -5,6 +5,7 @@ import androidx.room.Database;
 import androidx.room.Room;
 import androidx.room.RoomDatabase;
 import com.dvid.dcam.platform.database.dao.CloudStateDao;
+import com.dvid.dcam.platform.database.dao.MediaFileStateDao;
 import com.dvid.dcam.platform.database.dao.OperatorAuthDao;
 import com.dvid.dcam.platform.database.dao.PendingLogDao;
 import com.dvid.dcam.platform.database.entities.DeviceIdentityEntity;
@@ -12,6 +13,7 @@ import com.dvid.dcam.platform.database.entities.OperationalSettingEntity;
 import com.dvid.dcam.platform.database.entities.OperatorSessionEntity;
 import com.dvid.dcam.platform.database.entities.PendingLogEntity;
 import com.dvid.dcam.platform.database.entities.RemoteConfigEntity;
+import com.dvid.dcam.platform.database.entities.MediaFileStateEntity;
 import com.dvid.dcam.platform.database.entities.UserAuthMethodEntity;
 import com.dvid.dcam.platform.database.entities.UserProfileEntity;
 import com.dvid.dcam.platform.database.migrations.AppDatabaseMigrations;
@@ -43,7 +45,8 @@ import com.dvid.dcam.platform.database.migrations.AppDatabaseMigrations;
                 OperationalSettingEntity.class,
                 UserProfileEntity.class,
                 UserAuthMethodEntity.class,
-                OperatorSessionEntity.class
+                OperatorSessionEntity.class,
+                MediaFileStateEntity.class
         },
         version = AppDatabaseMigrations.LATEST_VERSION,
         exportSchema = true
@@ -56,6 +59,7 @@ public abstract class AppDatabase extends RoomDatabase {
     public abstract PendingLogDao pendingLogs();
     public abstract CloudStateDao cloudState();
     public abstract OperatorAuthDao operatorAuth();
+    public abstract MediaFileStateDao mediaFileStates();
 
     public static AppDatabase get(Context context) {
         AppDatabase current = instance;

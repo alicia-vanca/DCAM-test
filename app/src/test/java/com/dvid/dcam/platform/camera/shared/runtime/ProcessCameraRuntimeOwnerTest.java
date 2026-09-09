@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.domain.camera.CameraId;
 import com.dvid.dcam.feature.device.domain.camera.CameraOperationContext;
@@ -97,6 +98,32 @@ final class ProcessCameraRuntimeOwnerTest {
         assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.START_RECORDING));
         assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO));
         assertEquals(1, backend.maxPending());
+    }
+
+    @Test void photoDuringSettingVerificationRunsWithTheVerifiedTargetTuple() {
+        ManualBackend backend = new ManualBackend();
+        CameraRuntimeSelection original = selection("0", StandardResolutionLabel.FHD);
+        CameraRuntimeSelection updated = selection("0", StandardResolutionLabel.HD, 24);
+        ProcessCameraRuntimeOwner owner = readyOwner(backend, original);
+
+        assertEquals(ProcessCameraRuntimeOwner.Submission.ACCEPTED,
+                owner.verifySetting(updated));
+        assertEquals(ProcessCameraRuntimeOwner.Submission.HELD,
+                owner.capturePhoto());
+        assertTrue(owner.snapshot().pendingPhoto());
+
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.ready(
+                updated, context(updated, 2), "setting_ready"));
+
+        assertEquals(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO,
+                backend.lastCommand().operation());
+        assertEquals(updated, owner.snapshot().committedSelection().orElseThrow());
+        assertFalse(owner.snapshot().pendingPhoto());
+
+        backend.completeNext(ProcessCameraRuntimeBackend.Result.pass("photo"));
+
+        assertEquals(1, backend.count(ProcessCameraRuntimeBackend.Operation.CAPTURE_PHOTO));
+        assertEquals(CameraRuntimeState.READY, owner.snapshot().state());
     }
 
     @Test void recordStartDuringActivePhotoIsHeldAndRunsAfterPhoto() {
@@ -742,10 +769,10 @@ final class ProcessCameraRuntimeOwnerTest {
     }
 
     private static final class NoOpLogger implements Logger {
-        @Override public void debug(String message) {}
-        @Override public void info(String message) {}
-        @Override public void info(String message, Throwable error) {}
-        @Override public void warn(String message, Throwable error) {}
-        @Override public void error(String message, Throwable error) {}
+        @Override public void debug(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String message) {}
+        @Override public void info(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void warn(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
+        @Override public void error(LogCategory category, String eventName, String reasonCode, String message, Throwable error) {}
     }
 }

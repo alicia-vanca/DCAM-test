@@ -7,6 +7,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 import com.dvid.dcam.app.AppComposition;
 import com.dvid.dcam.app.ui.camera.CameraFlowCoordinator;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.usecase.SerializedRecordingCoordinator;
 import com.dvid.dcam.feature.device.domain.camera.CameraRuntimeState;
@@ -71,7 +72,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
                     throw new IllegalArgumentException("Unsupported camera latency action: " + action);
                 }
             } catch (Exception error) {
-                logger.error("Camera idle release latency probe failed. Action: " + action
+                logger.error(LogCategory.PERF, "unspecified", null, "Camera idle release latency probe failed. Action: " + action
                         + ". Run: " + value(runId) + ". Trial: " + trial + ".", error);
                 if (composition != null && camera != null) {
                     stopAndRestore(applicationContext, composition, camera, logger);
@@ -101,7 +102,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
         }
         ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot = await(camera,
                 CameraIdleReleaseLatencyReceiver::ready, CAMERA_TIMEOUT_MS, "prepare camera");
-        logger.info("Prepare camera latency probe success. Camera: "
+        logger.info(LogCategory.PERF, "unspecified", "Prepare camera latency probe success. Camera: "
                 + snapshot.committedSelection().orElseThrow().cameraId().value()
                 + ". Runtime is ready.");
     }
@@ -122,7 +123,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
                         && snapshot.inFlight().isEmpty(),
                 CAMERA_TIMEOUT_MS, "release camera");
         RecordingForegroundService.releaseCameraReady(context);
-        logger.info("Release idle camera while screen is off success. Elapsed: "
+        logger.info(LogCategory.PERF, "unspecified", "Release idle camera while screen is off success. Elapsed: "
                 + (SystemClock.elapsedRealtime() - startedAt) + " ms. Runtime is closed.");
     }
 
@@ -137,7 +138,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
                     && snapshot.inFlight().isEmpty()) recording.countDown();
         });
         long buttonAt = SystemClock.elapsedRealtime();
-        logger.info("Start " + temperature(cold)
+        logger.info(LogCategory.PERF, "unspecified", "Start " + temperature(cold)
                 + " camera latency trial for video while screen is off. Run: "
                 + runId + ". Trial: " + trial + ".");
         try {
@@ -150,7 +151,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
             attachment.close();
         }
         long elapsed = SystemClock.elapsedRealtime() - buttonAt;
-        logger.info("Complete " + temperature(cold)
+        logger.info(LogCategory.PERF, "unspecified", "Complete " + temperature(cold)
                 + " camera latency trial for video while screen is off. Button to recording start: "
                 + elapsed + " ms. Run: " + runId + ". Trial: " + trial + ".");
         SystemClock.sleep(VIDEO_HOLD_MS);
@@ -176,7 +177,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
             }
         });
         long buttonAt = SystemClock.elapsedRealtime();
-        logger.info("Start " + temperature(cold)
+        logger.info(LogCategory.PERF, "unspecified", "Start " + temperature(cold)
                 + " camera latency trial for photo while screen is off. Run: "
                 + runId + ". Trial: " + trial + ".");
         try {
@@ -189,7 +190,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
             attachment.close();
         }
         long elapsed = SystemClock.elapsedRealtime() - buttonAt;
-        logger.info("Complete " + temperature(cold)
+        logger.info(LogCategory.PERF, "unspecified", "Complete " + temperature(cold)
                 + " camera latency trial for photo while screen is off. Button to photo operation completion: "
                 + elapsed + " ms. Run: " + runId + ". Trial: " + trial + ".");
     }
@@ -290,7 +291,7 @@ public final class CameraIdleReleaseLatencyReceiver extends BroadcastReceiver {
             }
             prepare(context, composition, camera, logger);
         } catch (Exception cleanupError) {
-            logger.warn("Restore normal camera state after latency probe failure failed.",
+            logger.warn(LogCategory.PERF, "unspecified", null, "Restore normal camera state after latency probe failure failed.",
                     cleanupError);
         }
     }

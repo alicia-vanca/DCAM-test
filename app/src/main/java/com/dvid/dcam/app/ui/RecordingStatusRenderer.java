@@ -4,7 +4,6 @@ import android.view.View;
 
 import com.dvid.dcam.app.ui.MainScreen;
 import com.dvid.dcam.databinding.ActivityMainBinding;
-import com.dvid.dcam.databinding.ScreenCameraBinding;
 import com.dvid.dcam.app.ui.MainUiState;
 
 import java.time.LocalDateTime;
@@ -16,7 +15,7 @@ public final class RecordingStatusRenderer {
     private static final DateTimeFormatter CLOCK =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final ActivityMainBinding activityBinding;
-    private final Supplier<ScreenCameraBinding> cameraScreen;
+    private final Supplier<CameraScreenView> cameraScreen;
     private final Supplier<MainUiState> latestState;
     private final Supplier<MainScreen> renderedScreen;
     private boolean recordingStateInitialized;
@@ -27,7 +26,7 @@ public final class RecordingStatusRenderer {
 
     public RecordingStatusRenderer(
             ActivityMainBinding activityBinding,
-            Supplier<ScreenCameraBinding> cameraScreen,
+            Supplier<CameraScreenView> cameraScreen,
             Supplier<MainUiState> latestState,
             Supplier<MainScreen> renderedScreen) {
         this.activityBinding = activityBinding;
@@ -64,15 +63,12 @@ public final class RecordingStatusRenderer {
 
     private void renderCameraClock(MainUiState state) {
         renderFloatingRecordingStatus(state);
-        ScreenCameraBinding screen = cameraScreen.get();
+        CameraScreenView screen = cameraScreen.get();
         if (screen == null) return;
         boolean videoRecording = isVideoRecording(state);
         boolean audioRecording = isAudioRecording(state);
-        screen.currentTime.setText(CLOCK.format(LocalDateTime.now()));
-        screen.videoRecordingStatus.setVisibility(videoRecording ? View.VISIBLE : View.GONE);
-        screen.audioRecordingStatus.setVisibility(audioRecording ? View.VISIBLE : View.GONE);
-        screen.recordingTimer.setText(videoRecording ? formatDuration(videoDurationSeconds) : "");
-        screen.audioRecordingTimer.setText(
+        screen.renderRecordingClock(CLOCK.format(LocalDateTime.now()), videoRecording,
+                videoRecording ? formatDuration(videoDurationSeconds) : "", audioRecording,
                 audioRecording ? formatDuration(audioDurationSeconds) : "");
     }
 

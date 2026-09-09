@@ -18,9 +18,10 @@ public record CameraOperationResult(
             throw new IllegalArgumentException(
                     "candidate conclusion requires failure class");
         }
-        if (!outcome.isCandidateFailure() && failureClass != CameraFailureClass.NONE) {
+        if (outcome == CameraOperationOutcome.PASS
+                && failureClass != CameraFailureClass.NONE) {
             throw new IllegalArgumentException(
-                    "non-candidate outcome cannot have failure class");
+                    "successful outcome cannot have failure class");
         }
         if (elapsedMillis < 0) {
             throw new IllegalArgumentException("elapsedMillis must not be negative");

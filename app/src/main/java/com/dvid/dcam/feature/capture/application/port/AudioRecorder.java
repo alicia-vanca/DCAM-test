@@ -22,6 +22,10 @@ public interface AudioRecorder {
             return new PreparationException(message, false, message, null);
         }
 
+        public static PreparationException unavailable(String message, Throwable cause) {
+            return new PreparationException(message, false, message, cause);
+        }
+
         public boolean retryable() { return retryable; }
         public String terminalMessage() { return terminalMessage; }
     }

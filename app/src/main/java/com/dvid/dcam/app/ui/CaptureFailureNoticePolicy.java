@@ -10,6 +10,7 @@ public final class CaptureFailureNoticePolicy {
     private static final String LOW_STORAGE_MARKER = "%1$s";
 
     public enum Kind {
+        CAPTURE_FAILED,
         FINALIZATION_FAILED,
         LOW_STORAGE_RECORDING_BLOCKED,
         SD_CARD_UNAVAILABLE,
@@ -26,14 +27,12 @@ public final class CaptureFailureNoticePolicy {
     private CaptureFailureNoticePolicy() {}
 
     public static Optional<Notice> notice(
-            String previousMessage,
             String message,
             String sdCardUnavailableMessage,
             String lowStorageTemplate) {
         Objects.requireNonNull(sdCardUnavailableMessage, "sdCardUnavailableMessage");
         Objects.requireNonNull(lowStorageTemplate, "lowStorageTemplate");
-        if (previousMessage == null || message == null || message.equals(previousMessage))
-            return Optional.empty();
+        if (message == null) return Optional.empty();
         if (message.startsWith(FINALIZATION_FAILURE_PREFIX))
             return Optional.of(new Notice(Kind.FINALIZATION_FAILED, ""));
 
@@ -45,7 +44,7 @@ public final class CaptureFailureNoticePolicy {
             return Optional.of(new Notice(Kind.SD_CARD_UNAVAILABLE, ""));
         if (message.startsWith(STORAGE_FAILURE_PREFIX))
             return Optional.of(new Notice(Kind.STORAGE_UNAVAILABLE, ""));
-        return Optional.empty();
+        return Optional.of(new Notice(Kind.CAPTURE_FAILED, message));
     }
 
     private static Optional<String> lowStorageDetail(String message, String template) {

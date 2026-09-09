@@ -1,5 +1,6 @@
 package com.dvid.dcam.platform.camera.shared;
 
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.capture.application.port.AudioPreparationEvents;
 import com.dvid.dcam.feature.capture.application.port.CameraGateway;
@@ -40,6 +41,7 @@ public final class SharedCameraGateway implements CameraGateway {
     private boolean pendingImpHandoff;
     private AudioPreparationEvents storagePreparationEvents = NO_STORAGE_PREPARATION_EVENTS;
     private long recoveryNoticeGeneration = -1L;
+    private long startupRecoveryBaselineGeneration = -1L;
     private CapabilityCheckProgress capabilityCheckProgress;
 
     public SharedCameraGateway(
@@ -139,6 +141,7 @@ public final class SharedCameraGateway implements CameraGateway {
             }
             return;
         }
+        startupRecoveryBaselineGeneration = runtimeOwner.snapshot().healthGeneration();
         capabilityCheckFailed = false;
         if (previewView != null) previewView.showStarting();
     }
@@ -154,8 +157,9 @@ public final class SharedCameraGateway implements CameraGateway {
         capabilityCheckInProgress = true;
         capabilityCheckFailed = false;
         startupPreviewReady = false;
+        startupRecoveryBaselineGeneration = -1L;
         capabilityCheckProgress = null;
-        logger.info("shared_camera_gateway stage=capability_progress"
+        logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_gateway stage=capability_progress"
                 + " surface=preview_overlay action=begin");
         if (previewView != null) previewView.showCheckingCapabilities();
     }
@@ -166,7 +170,7 @@ public final class SharedCameraGateway implements CameraGateway {
         CapabilityCheckProgress progress = new CapabilityCheckProgress(profile, cameraId, stage,
                 completed, total, detail);
         capabilityCheckProgress = progress;
-        logger.info("shared_camera_gateway stage=capability_progress surface=preview_overlay"
+        logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_gateway stage=capability_progress surface=preview_overlay"
                 + " profile=" + profile + " camera=" + cameraId + " stage=" + stage
                 + " completed=" + completed + " total=" + total);
         if (previewView != null) previewView.showCheckingCapabilities(profile, cameraId, stage,
@@ -178,7 +182,7 @@ public final class SharedCameraGateway implements CameraGateway {
         capabilityCheckProgress = null;
         capabilityCheckFailed = !successful;
         startupPreviewReady = successful;
-        logger.info("shared_camera_gateway stage=capability_progress"
+        logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_gateway stage=capability_progress"
                 + " surface=preview_overlay action=terminal successful=" + successful);
         if (previewView == null) return;
         if (successful) previewView.showPreviewWhenFrameArrives();
@@ -205,7 +209,7 @@ public final class SharedCameraGateway implements CameraGateway {
         else if (capabilityCheckFailed) view.showCapabilityCheckFailed();
         else view.showStarting();
         onRuntimeStateChanged(runtimeOwner.snapshot());
-        logger.info("shared_camera_gateway preview=attached cameraLifetime=retained");
+        logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_gateway preview=attached cameraLifetime=retained");
     }
 
     synchronized void setPreviewExpected(
@@ -220,7 +224,7 @@ public final class SharedCameraGateway implements CameraGateway {
         view.detachSurfaceHandle();
         previewView = null;
         runtimeOwner.setPreviewExpected(false);
-        logger.info("shared_camera_gateway preview=detached cameraLifetime=retained");
+        logger.info(LogCategory.CAMERA, "unspecified", "shared_camera_gateway preview=detached cameraLifetime=retained");
     }
 
     private record CapabilityCheckProgress(String profile, String cameraId, String stage,
@@ -231,7 +235,6 @@ public final class SharedCameraGateway implements CameraGateway {
         if (accepted(submission)) return;
         String detail = submissionMessage(PHOTO_OPERATION, submission);
         captureEvents.photoFailed(PHOTO_OPERATION, detail);
-        showTransientError(detail);
         logRejected(PHOTO_OPERATION, submission);
     }
 
@@ -239,7 +242,7 @@ public final class SharedCameraGateway implements CameraGateway {
         backend.requestRecording(RecordingMode.VIDEO);
         ProcessCameraRuntimeOwner.Submission submission =
                 runtimeOwner.startRecording(DcamFileType.VIDEO);
-        logger.info("Submit video recording start to retained camera runtime. Result: "
+        logger.info(LogCategory.CAMERA, "unspecified", "Submit video recording start to retained camera runtime. Result: "
                 + submission + ".");
         submitRecording(submission, "Recording");
     }
@@ -284,7 +287,6 @@ public final class SharedCameraGateway implements CameraGateway {
             String operation, ProcessCameraRuntimeOwner.Submission submission) {
         String detail = submissionMessage(operation, submission);
         captureEvents.captureFailed(operation, detail);
-        showTransientError(detail);
         logRejected(operation, submission);
     }
 
@@ -311,7 +313,7 @@ public final class SharedCameraGateway implements CameraGateway {
         ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot = runtimeOwner.snapshot();
         String inFlight = snapshot.inFlight()
                 .map(value -> value.name().toLowerCase(Locale.ROOT)).orElse("none");
-        logger.warn("shared_camera_gateway command_rejected operation="
+        logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_gateway command_rejected operation="
                 + operation.toLowerCase(Locale.ROOT)
                 + " submission=" + submission.name().toLowerCase(Locale.ROOT)
                 + " state=" + snapshot.state().name().toLowerCase(Locale.ROOT)
@@ -321,13 +323,30 @@ public final class SharedCameraGateway implements CameraGateway {
     private synchronized void onRuntimeStateChanged(ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot) {
         stopForStorageLimit(snapshot);
         startPendingImp(snapshot);
+        if (snapshot.state() == CameraRuntimeState.READY
+                || snapshot.state() == CameraRuntimeState.RECORDING) {
+            startupRecoveryBaselineGeneration = -1L;
+        }
         if (snapshot.state() != CameraRuntimeState.RECOVERING
                 || previewView == null
                 || recoveryNoticeGeneration == snapshot.healthGeneration()) return;
         recoveryNoticeGeneration = snapshot.healthGeneration();
+        if (isInitialStartupRecovery(snapshot, startupRecoveryBaselineGeneration)) {
+            logger.info(LogCategory.CAMERA, "unspecified", "Camera startup recovery is in progress; keeping the startup overlay instead of showing a transient unavailable notice. Health generation: "
+                    + snapshot.healthGeneration() + ".");
+            return;
+        }
         previewView.showTransientError("Camera unavailable. Retrying recovery.");
-        logger.warn("shared_camera_gateway recovery_notice healthGeneration="
+        logger.warn(LogCategory.CAMERA, "unspecified", null, "shared_camera_gateway recovery_notice healthGeneration="
                 + snapshot.healthGeneration(), null);
+    }
+
+    static boolean isInitialStartupRecovery(
+            ProcessCameraRuntimeOwner.RuntimeSnapshot snapshot,
+            long startupRecoveryBaselineGeneration) {
+        return snapshot.state() == CameraRuntimeState.RECOVERING
+                && startupRecoveryBaselineGeneration >= 0
+                && snapshot.healthGeneration() == startupRecoveryBaselineGeneration + 1;
     }
 
     private synchronized void queueImpHandoff() {
@@ -367,7 +386,4 @@ public final class SharedCameraGateway implements CameraGateway {
         storagePreparationEvents.onUnavailable(message);
     }
 
-    private synchronized void showTransientError(String detail) {
-        if (previewView != null) previewView.showTransientError(detail);
-    }
 }

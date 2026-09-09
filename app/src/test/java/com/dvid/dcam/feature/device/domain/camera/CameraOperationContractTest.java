@@ -74,6 +74,19 @@ final class CameraOperationContractTest {
         assertTrue(CameraOperationOutcome.STALE.isUnknown());
     }
 
+    @Test void failedOperationCanCarryTypedFailureClass() {
+        CameraOperationResult blocked = new CameraOperationResult(
+                context(1L, 0L), CameraPipelineOperation.CAPTURE_JPEG,
+                CameraOperationOutcome.BLOCKED_EXTERNAL, CameraFailureClass.JPEG_OUTPUT,
+                1L, "jpeg_write:IOException");
+
+        assertEquals(CameraFailureClass.JPEG_OUTPUT, blocked.failureClass());
+        assertThrows(IllegalArgumentException.class, () -> new CameraOperationResult(
+                context(1L, 0L), CameraPipelineOperation.CAPTURE_JPEG,
+                CameraOperationOutcome.PASS, CameraFailureClass.JPEG_OUTPUT,
+                1L, "invalid"));
+    }
+
     @Test void operationContextRequiresCompleteRuntimeIdentity() {
         CameraOperationContext context = context(7L, 4L);
 

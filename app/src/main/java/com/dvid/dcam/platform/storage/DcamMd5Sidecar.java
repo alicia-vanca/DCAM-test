@@ -12,7 +12,7 @@ final class DcamMd5Sidecar {
     private DcamMd5Sidecar() {}
 
     static File write(File media, String digest) throws IOException {
-        File sidecar = new File(media.getParentFile(), baseName(media.getName()) + ".md5");
+        File sidecar = fileFor(media);
         if (sidecar.isFile()
                 && digest.equals(new String(Files.readAllBytes(sidecar.toPath()), StandardCharsets.US_ASCII).trim())) {
             return sidecar;
@@ -37,6 +37,14 @@ final class DcamMd5Sidecar {
         } finally {
             Files.deleteIfExists(partial.toPath());
         }
+    }
+
+    static boolean exists(File media) {
+        return fileFor(media).isFile();
+    }
+
+    private static File fileFor(File media) {
+        return new File(media.getParentFile(), baseName(media.getName()) + ".md5");
     }
 
     private static String baseName(String name) {

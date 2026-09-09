@@ -4,28 +4,33 @@ import android.content.Context;
 import android.util.Log;
 import com.dvid.dcam.BuildConfig;
 import com.dvid.dcam.BuildSecrets;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.core.device.domain.DeviceInfo;
 import com.dvid.dcam.platform.logging.loggly.LogglyCrashSpool;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
  * App-process Logger adapter: writes Logcat, local logs.txt, Room, and crash
@@ -36,12 +41,14 @@ public final class AppLogger implements Logger {
     private static final String TAG = "DCAM";
     private static final String UNKNOWN = "unknown";
     private static final String ERROR_LEVEL = "ERROR";
+    private static final int LOG_SCHEMA_VERSION = 1;
     private static final String CRASH_MESSAGE_PREFIX = "Crash on ";
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     private static final DateTimeFormatter LOG_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final ZoneId BDMA_TIME_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final int LOCAL_LOG_RETENTION_DAYS = 14;
     private static final Object LOCAL_LOG_LOCK = new Object();
+    private static final Pattern SERIAL_VALUE_PATTERN = Pattern.compile(
+            "(?i)(serial\\s*[:=]\\s*)([^\\s,;]+)");
     private static final ExecutorService PERSISTENCE_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "app-log-persistence");
         thread.setDaemon(true);
@@ -84,7 +91,7 @@ public final class AppLogger implements Logger {
             try {
                 roomWriter = new RoomLogWriter(appContext);
             } catch (Exception error) {
-                writeInternal(ERROR_LEVEL, "Room log writer initialization failed", error);
+                writeInternal(LogCategory.DB, "unspecified", null, ERROR_LEVEL, "Room log writer initialization failed", error);
             }
         }
     }
@@ -93,7 +100,7 @@ public final class AppLogger implements Logger {
         bootstrap(context);
         hardwareId = safe(deviceInfo.getHardwareId());
         model = safe(deviceInfo.getModel());
-        INSTANCE.info("Logger started: " + logFile.getAbsolutePath());
+        INSTANCE.info(LogCategory.APP, "unspecified", "Logger started: " + logFile.getAbsolutePath());
     }
 
     private static void installCrashHandler() {
@@ -121,16 +128,17 @@ public final class AppLogger implements Logger {
         String message = CRASH_MESSAGE_PREFIX + threadName;
         String source = crashSource(error);
         try {
-            write(ERROR_LEVEL, message, error, source);
+            write(LogCategory.APP, "unspecified", null, ERROR_LEVEL, message, error, source);
         } catch (Throwable loggingFailure) {
             try {
-                writeInternal(ERROR_LEVEL, "Crash persistence failed", loggingFailure);
+                writeInternal(LogCategory.APP, "unspecified", null, ERROR_LEVEL, "Crash persistence failed", loggingFailure);
             } catch (Throwable ignored) {
                 // A second logging failure must not interfere with crash delegation.
             }
             if (BuildSecrets.LOGGLY_TOKEN_CONFIGURED()) {
                 try {
-                    spoolCrash(json(ERROR_LEVEL, message, error, threadName, source));
+                    spoolCrash(json(LogCategory.APP, "unspecified", null,
+                            ERROR_LEVEL, message, error, threadName, source));
                 } catch (Throwable ignored) {
                     // The crash spool is optional after primary crash persistence has failed.
                 }
@@ -145,54 +153,55 @@ public final class AppLogger implements Logger {
     }
 
     @Override
-    public void debug(String message) {
-        write("DEBUG", message, null);
+    public void debug(LogCategory category, String eventName, String message) {
+        write(category, eventName, null, "DEBUG", message, null);
     }
 
     @Override
-    public void info(String message) {
-        write("INFO", message, null);
+    public void info(LogCategory category, String eventName, String message) {
+        write(category, eventName, null, "INFO", message, null);
     }
 
     @Override
-    public void info(String message, Throwable error) {
-        write("INFO", message, error);
+    public void info(LogCategory category, String eventName, String reasonCode,
+            String message, Throwable error) {
+        write(category, eventName, reasonCode, "INFO", message, error);
     }
 
     @Override
-    public void warn(String message, Throwable error) {
-        write("WARN", message, error);
+    public void warn(LogCategory category, String eventName, String reasonCode,
+            String message, Throwable error) {
+        write(category, eventName, reasonCode, "WARN", message, error);
     }
 
     @Override
-    public void error(String message, Throwable error) {
-        write(ERROR_LEVEL, message, error);
-    }
-
-    private static void write(String level, String message, Throwable error) {
-        write(level, message, error, callerClass());
+    public void error(LogCategory category, String eventName, String reasonCode,
+            String message, Throwable error) {
+        write(category, eventName, reasonCode, ERROR_LEVEL, message, error);
     }
 
     private static void write(
+            LogCategory category, String eventName, String reasonCode,
+            String level, String message, Throwable error) {
+        write(category, eventName, reasonCode, level, message, error, callerClass());
+    }
+
+    private static void write(
+            LogCategory category, String eventName, String reasonCode,
             String level, String message, Throwable error, String source) {
         Log.println(toAndroidLevel(level), TAG, message + (error == null ? "" : "\n" + stackTrace(error)));
         String thread = safe(Thread.currentThread().getName());
         String resolvedSource = safe(source);
-        String line = TIME.format(LocalDateTime.now(ZoneId.systemDefault())) + " " + level + " version=" + BuildConfig.VERSION_NAME
-                + " thread=\"" + thread + "\" source=" + resolvedSource + " hardwareId=" + hardwareId
-                + " model=\"" + model + "\" deviceSerial="
-                + (deviceSerial == null ? "null" : "\"" + deviceSerial + "\"") + " message:\n" + message + "\n";
-        String payload = json(level, message, error, thread, resolvedSource);
+        String payload = json(category, eventName, reasonCode, level, message, error, thread, resolvedSource);
         if (!isCrashPersistence(level, message)) {
-            persistAsync(level, line, error, payload);
+            persistAsync(level, payload);
             return;
         }
-        boolean savedToRoom = persist(level, line, error, payload);
+        boolean savedToRoom = persist(level, payload);
         boolean logglyConfigured = BuildSecrets.LOGGLY_TOKEN_CONFIGURED();
         if (shouldSpoolCrash(level, message, logglyConfigured, savedToRoom))
             spoolCrash(payload);
     }
-
     static boolean isCrashPersistence(String level, String message) {
         return ERROR_LEVEL.equals(level) && message != null && message.startsWith(CRASH_MESSAGE_PREFIX);
     }
@@ -202,15 +211,15 @@ public final class AppLogger implements Logger {
      * availability for subsequent events.
      */
     @SuppressWarnings("java:S1181")
-    private static void persistAsync(
-            String level, String line, Throwable error, String payload) {
+    private static void persistAsync(String level, String payload) {
         try {
             PERSISTENCE_EXECUTOR.execute(() -> {
                 try {
-                    persist(level, line, error, payload);
+                    persist(level, payload);
                 } catch (Throwable persistenceFailure) {
                     try {
-                        writeInternal(ERROR_LEVEL, "Asynchronous log persistence failed", persistenceFailure);
+                        writeInternal(LogCategory.STORAGE, "unspecified", null, ERROR_LEVEL,
+                                "Asynchronous log persistence failed", persistenceFailure);
                     } catch (Throwable ignored) {
                         // Reporting a failed log write must not terminate the persistence worker.
                     }
@@ -218,22 +227,21 @@ public final class AppLogger implements Logger {
             });
         } catch (Throwable persistenceFailure) {
             try {
-                writeInternal(ERROR_LEVEL, "Could not queue asynchronous log persistence", persistenceFailure);
+                writeInternal(LogCategory.STORAGE, "unspecified", null, ERROR_LEVEL,
+                        "Could not queue asynchronous log persistence", persistenceFailure);
             } catch (Throwable ignored) {
                 // There is no synchronous fallback when the logging executor is unavailable.
             }
         }
     }
 
-    private static boolean persist(
-            String level, String line, Throwable error, String payload) {
+    private static boolean persist(String level, String payload) {
         synchronized (LOCAL_LOG_LOCK) {
             if (logFile != null) {
                 prepareLocalLog();
-                try (PrintWriter out = new PrintWriter(new FileWriter(logFile, true))) {
-                    out.println(line);
-                    if (error != null)
-                        error.printStackTrace(out);
+                try (PrintWriter out = new PrintWriter(new OutputStreamWriter(
+                        new FileOutputStream(logFile, true), StandardCharsets.UTF_8))) {
+                    out.println(payload);
                 } catch (Exception ignored) {
                     // Local file logging is optional; Room persistence still proceeds.
                 }
@@ -251,7 +259,7 @@ public final class AppLogger implements Logger {
             return roomWriter.write(level, payload);
         } catch (Throwable error) {
             try {
-                writeInternal(ERROR_LEVEL, "Room log write failed", error);
+                writeInternal(LogCategory.DB, "unspecified", null, ERROR_LEVEL, "Room log write failed", error);
             } catch (Throwable ignored) {
                 // A diagnostic write cannot recover a failed Room write.
             }
@@ -283,30 +291,111 @@ public final class AppLogger implements Logger {
         if (appContext == null || payload == null || payload.isBlank())
             return;
         if (!LogglyCrashSpool.enqueue(appContext, payload)) {
-            writeInternal(ERROR_LEVEL, "Could not queue crash for Loggly upload", null);
+            writeInternal(LogCategory.NETWORK, "unspecified", null, ERROR_LEVEL,
+                    "Could not queue crash for Loggly upload", null);
         }
     }
 
     static String json(String message, Throwable error, String thread, String source) {
-        return json("INFO", message, error, thread, source);
+        return json(LogCategory.UNSPECIFIED, "unspecified", null,
+                "INFO", message, error, thread, source);
     }
 
-    static String json(String level, String message, Throwable error, String thread, String source) {
-        String timestamp = OffsetDateTime.now(BDMA_TIME_ZONE)
-                .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-        String stack = stackTrace(error);
-        return "{\"app\":\"DCAM\",\"version\":\"" + escape(BuildConfig.VERSION_NAME) + "\",\"level\":\""
-                + escape(level) + "\",\"timestamp\":\"" + escape(timestamp) + "\",\"thread\":\""
-                + escape(safe(thread)) + "\",\"source\":\""
-                + escape(source) + "\",\"hardwareId\":\"" + escape(hardwareId) + "\",\"model\":\""
-                + escape(model) + "\",\"deviceSerial\":"
-                + (deviceSerial == null ? "null" : "\"" + escape(deviceSerial) + "\"")
-                + ",\"message\":\"" + escape(message == null ? "" : message) + "\""
-                + (stack.isEmpty() ? "" : ",\"stack\":\"" + escape(stack) + "\"") + "}";
+    static String json(
+            String level, String message, Throwable error,
+            String thread, String source) {
+        return json(LogCategory.UNSPECIFIED, "unspecified", null,
+                level, message, error, thread, source);
     }
 
-    private static String escape(String text) {
-        return text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+    static String json(
+            LogCategory category, String level, String message,
+            Throwable error, String thread, String source) {
+        return json(category, "unspecified", null, level, message, error, thread, source);
+    }
+
+    static String json(
+            LogCategory category, String eventName, String reasonCode,
+            String level, String message, Throwable error, String thread, String source) {
+        JSONObject payload = new JSONObject();
+        try {
+            payload.put("schemaVersion", LOG_SCHEMA_VERSION);
+            payload.put("eventName", valueOr(eventName, "unspecified"));
+            if ("WARN".equals(level) || ERROR_LEVEL.equals(level)) {
+                payload.put("reasonCode", valueOr(reasonCode, "unspecified"));
+            } else if (reasonCode != null && !reasonCode.isBlank()
+                    && !"unspecified".equals(reasonCode)) {
+                payload.put("reasonCode", reasonCode);
+            }
+            payload.put("app", "DCAM");
+            payload.put("version", BuildConfig.VERSION_NAME);
+            payload.put("level", valueOr(level, UNKNOWN));
+            payload.put("timestamp", OffsetDateTime.now(BDMA_TIME_ZONE)
+                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+            payload.put("thread", valueOr(localValue(thread), UNKNOWN));
+            payload.put("source", valueOr(source, UNKNOWN));
+            String resolvedHardwareId = valueOr(hardwareId, UNKNOWN);
+            payload.put("hardwareId", UNKNOWN.equals(resolvedHardwareId)
+                    ? UNKNOWN : maskExplicit(resolvedHardwareId));
+            payload.put("model", valueOr(model, UNKNOWN));
+            String serial = valueOr(deviceSerial, UNKNOWN);
+            payload.put("deviceSerial", UNKNOWN.equals(serial) ? UNKNOWN : maskExplicit(serial));
+            String normalizedMessage = sanitizeLocalText(message);
+            payload.put("message", valueOr(normalizedMessage, ""));
+            String stack = sanitizeLocalText(stackTrace(error));
+            if (!stack.isBlank())
+                payload.put("stack", stack);
+            payload.put("category", category == null ? LogCategory.UNSPECIFIED.name() : category.name());
+            return payload.toString();
+        } catch (JSONException ignored) {
+            return new JSONObject().toString();
+        }
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    static String maskExplicit(String value) {
+        if (value == null || value.isEmpty())
+            return value;
+        int length = value.length();
+        int visiblePrefixLength = length >= 9 ? 2 : 0;
+        int visibleSuffixLength = length <= 4 ? 0 : length <= 8 ? 2 : 4;
+        StringBuilder masked = new StringBuilder(value);
+        for (int index = visiblePrefixLength; index < length - visibleSuffixLength; index++)
+            masked.setCharAt(index, '*');
+        return masked.toString();
+    }
+
+    private static String maskSerialValues(String text) {
+        Matcher matcher = SERIAL_VALUE_PATTERN.matcher(text);
+        StringBuffer masked = new StringBuffer();
+        while (matcher.find()) {
+            String replacement = matcher.group(1) + maskExplicit(matcher.group(2));
+            matcher.appendReplacement(masked, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(masked);
+        return masked.toString();
+    }
+
+    private static String sanitizeLocalText(String text) {
+        if (text == null)
+            return null;
+        String sanitized = maskSerialValues(text);
+        sanitized = sanitized.replaceAll(
+                "(?i)(password|passwd|credential|token|secret|android[_ ]id|latitude|longitude|location)\\s*[:=]\\s*[^\\s,;]+",
+                "$1=[REDACTED]");
+        sanitized = sanitized.replaceAll(
+                "(?i)(bearer\\s+)[^\\s,;]+",
+                "$1[REDACTED]");
+        return sanitized.replace("\r\n", "\n").replace("\r", "\n");
+    }
+
+    private static String localValue(String text) {
+        if (text == null || text.isBlank() || UNKNOWN.equals(text))
+            return null;
+        return text.trim().replaceAll("\\s+", " ");
     }
 
     private static String safe(String text) {
@@ -339,21 +428,23 @@ public final class AppLogger implements Logger {
         return buffer.toString();
     }
 
-    static synchronized void writeInternal(String level, String message, Throwable error) {
+    static synchronized void writeInternal(
+            LogCategory category, String eventName, String reasonCode,
+            String level, String message, Throwable error) {
         Log.println(toAndroidLevel(level), TAG,
                 message + (error == null ? "" : "\n" + stackTrace(error)));
         if (logFile == null)
             return;
         prepareLocalLog();
-        try (PrintWriter out = new PrintWriter(new FileWriter(logFile, true))) {
-            out.println(TIME.format(LocalDateTime.now(ZoneId.systemDefault())) + " " + level + " message:\n" + message + "\n");
-            if (error != null)
-                error.printStackTrace(out);
+        try (PrintWriter out = new PrintWriter(new OutputStreamWriter(
+                        new FileOutputStream(logFile, true), StandardCharsets.UTF_8))) {
+            out.println(json(
+                    category, eventName, reasonCode, level, message, error,
+                    Thread.currentThread().getName(), "AppLogger"));
         } catch (Exception ignored) {
             // Internal diagnostics must not throw back to the original logging operation.
         }
     }
-
     private static int toAndroidLevel(String level) {
         if (ERROR_LEVEL.equals(level))
             return Log.ERROR;

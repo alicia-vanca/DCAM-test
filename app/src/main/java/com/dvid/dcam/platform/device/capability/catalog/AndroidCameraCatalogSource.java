@@ -14,6 +14,7 @@ import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Range;
 import android.util.Size;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource;
 import com.dvid.dcam.feature.device.application.port.CameraCatalogSource.CameraFacts;
@@ -92,13 +93,13 @@ public final class AndroidCameraCatalogSource implements CameraCatalogSource {
                     readDeviceIdentity(), cameras, concurrency, encoders);
             logStage(stage, stageStartNanos,
                     "inputLength=" + catalog.hardwareSignatureInput().length());
-            logger.info("camera_catalog stage=complete outcome=success"
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_catalog stage=complete outcome=success"
                     + " cameraCount=" + catalog.cameras().size()
                     + " h264EncoderCount=" + catalog.h264Encoders().size()
                     + " elapsedMs=" + elapsedMillis(totalStartNanos));
             return catalog;
         } catch (CameraAccessException | RuntimeException error) {
-            logger.warn("camera_catalog stage=" + stage + " outcome=failure"
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_catalog stage=" + stage + " outcome=failure"
                     + " elapsedMs=" + elapsedMillis(totalStartNanos), error);
             throw new CatalogException("Camera catalog failed at stage " + stage, error);
         }
@@ -130,7 +131,7 @@ public final class AndroidCameraCatalogSource implements CameraCatalogSource {
                     map == null ? List.of() : jpegOutputs(map),
                     frameRateRanges(characteristics.get(
                             CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES))));
-            logger.info("camera_catalog stage=camera_characteristics outcome=success"
+            logger.info(LogCategory.CAPABILITY, "unspecified", "camera_catalog stage=camera_characteristics outcome=success"
                     + " cameraId=" + rawCameraId
                     + " streamMapAvailable=" + (map != null)
                     + " elapsedMs=" + elapsedMillis(startNanos));
@@ -448,7 +449,7 @@ public final class AndroidCameraCatalogSource implements CameraCatalogSource {
     private static String safe(String value) { return value == null ? "" : value; }
 
     private void logStage(String stage, long startNanos, String fields) {
-        logger.info("camera_catalog stage=" + stage + " outcome=success " + fields
+        logger.info(LogCategory.CAPABILITY, "unspecified", "camera_catalog stage=" + stage + " outcome=success " + fields
                 + " elapsedMs=" + elapsedMillis(startNanos));
     }
 

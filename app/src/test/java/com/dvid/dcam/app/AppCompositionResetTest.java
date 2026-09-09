@@ -50,6 +50,15 @@ final class AppCompositionResetTest {
         assertTrue(AppComposition.cameraRuntimeAcceptsPhotoRequest(
                 snapshot(CameraRuntimeState.RECORDING, Optional.of(
                         ProcessCameraRuntimeBackend.Operation.STOP_RECORDING))));
+        assertTrue(AppComposition.cameraRuntimeCanHoldPhotoForTupleVerification(
+                snapshot(CameraRuntimeState.VERIFYING, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.VERIFY_SETTING))));
+        assertFalse(AppComposition.cameraRuntimeCanHoldPhotoForTupleVerification(
+                snapshot(CameraRuntimeState.BINDING, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.BIND_COMMITTED))));
+        assertFalse(AppComposition.cameraRuntimeCanHoldPhotoForTupleVerification(
+                snapshot(CameraRuntimeState.VERIFYING, Optional.of(
+                        ProcessCameraRuntimeBackend.Operation.SWITCH_CAMERA))));
 
         assertFalse(AppComposition.cameraRuntimeAcceptsRecordingStartRequest(
                 snapshot(CameraRuntimeState.READY, Optional.of(

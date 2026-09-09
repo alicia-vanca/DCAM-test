@@ -289,8 +289,6 @@ public class DcamStorageTest {
         assertFalse(new File(media.getFile().getParent()).exists());
         assertTrue(new File(media.getFile().getParentFile().getParent()).isDirectory());
         assertEquals(3L, published.length());
-        assertFalse(new File(media.getFile().getParentFile(),
-                media.getFileName() + ".target").exists());
     }
 
 

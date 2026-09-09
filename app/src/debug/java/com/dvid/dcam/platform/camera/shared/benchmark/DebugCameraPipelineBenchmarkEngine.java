@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.PowerManager;
 import android.util.JsonWriter;
 import androidx.annotation.NonNull;
+import com.dvid.dcam.core.logging.domain.LogCategory;
 import com.dvid.dcam.core.logging.application.port.Logger;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore;
 import com.dvid.dcam.feature.device.application.port.CameraCapabilityStore.CameraSnapshot;
@@ -113,7 +114,7 @@ public final class DebugCameraPipelineBenchmarkEngine
             cameraIds = result;
             return result;
         } catch (Exception error) {
-            logger.warn("camera_devmode stage=catalog outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_devmode stage=catalog outcome=failed", error);
             return cameraIds;
         }
     }
@@ -140,7 +141,7 @@ public final class DebugCameraPipelineBenchmarkEngine
             return runSingle(request, fast, plan, cancellationSignal, progressListener,
                     startedNanos);
         } catch (RuntimeException error) {
-            logger.warn("camera_devmode outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_devmode outcome=failed", error);
             return new DebugCameraBenchmarkUseCase.RunResult(
                     DebugCameraBenchmarkUseCase.Status.FAILED,
                     "failed:" + error.getClass().getSimpleName(), Optional.empty());
@@ -165,7 +166,7 @@ public final class DebugCameraPipelineBenchmarkEngine
             return new DebugCameraBenchmarkUseCase.ExportResult(true,
                     "exported", Optional.of(target.getAbsolutePath()));
         } catch (IOException error) {
-            logger.warn("camera_devmode stage=export outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_devmode stage=export outcome=failed", error);
             return new DebugCameraBenchmarkUseCase.ExportResult(false,
                     "export failed:" + error.getClass().getSimpleName(), Optional.empty());
         }
@@ -245,7 +246,7 @@ public final class DebugCameraPipelineBenchmarkEngine
         try {
             writeSingleReport(reportFile, request, run);
         } catch (IOException error) {
-            logger.warn("camera_devmode stage=single_report outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_devmode stage=single_report outcome=failed", error);
             return incomplete(startedNanos, "report_write_failed");
         }
         lastReport = reportFile;
@@ -346,7 +347,7 @@ public final class DebugCameraPipelineBenchmarkEngine
                     int sensorOrientationDegrees = sensorOrientationDegrees(
                             frozenFast, operationContext.cameraId());
                     pipeline.setRotation(sensorOrientationDegrees);
-                    logger.info("camera_devmode stage=orientation outcome=applied"
+                    logger.info(LogCategory.CAPABILITY, "unspecified", "camera_devmode stage=orientation outcome=applied"
                             + " cameraId=" + operationContext.cameraId().value()
                             + " sensorDegrees=" + sensorOrientationDegrees
                             + " outputDegrees=" + pipeline.outputRotationDegrees());
@@ -418,7 +419,7 @@ public final class DebugCameraPipelineBenchmarkEngine
             CameraPipelineBenchmarkReportJson.writeAtomic(file, report);
             return true;
         } catch (IOException error) {
-            logger.warn("camera_devmode stage=publish outcome=failed", error);
+            logger.warn(LogCategory.CAPABILITY, "unspecified", null, "camera_devmode stage=publish outcome=failed", error);
             return false;
         }
     }
