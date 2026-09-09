@@ -1,7 +1,7 @@
 # DCAM-2 — Device POC Results & Evidence Summary
 
 **Page ID**: 57344040  
-**Version**: 14  
+**Version**: 22  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/57344040
 
@@ -24,7 +24,7 @@ Device POC Results & Evidence Summary
 
 Version
 
-1.3
+1.5
 
 Status
 
@@ -56,7 +56,7 @@ Target Audience
 
 Related Documents
 
-[DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix); [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry); [DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP).
+[DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix); [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry);
 
 Related Jira
 
@@ -64,29 +64,23 @@ Related Jira
 
 Dependencies / Blockers
 
-WRS-004: **Fail** do GAP requirement ↔ code (ngưỡng tĩnh 2 GiB chưa đáp ứng PERF-STOR-001, 200 MiB chưa đáp ứng PERF-STOR-003); WRS-009: **Blocked**, chờ PM xác nhận nới độ dài 6–10 → 6–11 ký tự và sửa code (chặn chữ thường)
+Không có
 
 Last Updated
 
-07 Aug 2026
+20 Aug 2026
 
 Data cutoff
 
-2026-07-31 15:30:15 ICT
+2026-08-19 15:30:15 ICT
 
 ## 1. Mục đích và cách sử dụng
 
-Tài liệu này tổng hợp kết quả kỹ thuật, Evidence ID và giới hạn của các POC thuộc phạm vi trực tiếp của DCAM-2; đồng thời cung cấp dữ liệu đối chiếu cho tài liệu cha §16/§16.1.
+Tài liệu tổng hợp kết quả kỹ thuật, Evidence ID và giới hạn của các POC trong phạm vi DCAM-2, làm dữ liệu đối chiếu cho tài liệu cha **DCAM Device POC & Hardware Validation Report** (§16/§16.1). Đây là bản tổng hợp thực thi đang làm việc (working execution summary): kết luận POC chính thức thuộc tài liệu cha; quy trình thực hiện và bàn giao quản lý trong Jira; mức độ bao phủ quản lý trong Traceability Matrix.
 
-Đây là bản tổng hợp thực thi đang làm việc (working execution summary). Kết luận POC chính thức thuộc **DCAM Device POC & Hardware Validation Report**; quy trình thực hiện và bàn giao được quản lý trong Jira; mức độ bao phủ được quản lý trong Traceability Matrix.
+Kết quả POC chỉ áp dụng cho build và phạm vi đã kiểm chứng; không tự động đồng nghĩa với việc đã đáp ứng đầy đủ yêu cầu, được chấp thuận phát hành hoặc sẵn sàng triển khai diện rộng. Khi mã nguồn hoặc dependency liên quan thay đổi, các WRS bị ảnh hưởng phải được kiểm tra lại trước khi sử dụng kết quả.
 
-Evidence gốc, vị trí lưu trữ chi tiết, thông tin định danh thiết bị và checksum được lưu trong kho evidence nội bộ trên NAS (máy chủ lưu trữ tệp nội bộ dùng chung của dự án). Trang này chỉ nêu Evidence ID, kết quả và giới hạn; người có quyền truy cập dùng Evidence ID cùng controlled reference trong Jira hoặc manifest để tra cứu gói evidence tương ứng.
-
-Kết quả POC chỉ phản ánh phạm vi đã kiểm chứng; không tự động đồng nghĩa với việc đã đáp ứng đầy đủ yêu cầu, được chấp thuận phát hành hoặc sẵn sàng triển khai diện rộng. Kết quả chỉ áp dụng cho build và phạm vi đã kiểm chứng; khi mã nguồn hoặc dependency liên quan thay đổi, các WRS bị ảnh hưởng cần được kiểm tra lại trước khi sử dụng kết quả.
-
-DCAM-14 sử dụng kết quả POC-WRS-001 làm exact reference device baseline và POC-WRS-002 làm Camera API/recording-capture capability baseline để xây dựng camera lifecycle/failure observation harness, runner và evidence structure.
-
-DCAM-49 kế thừa qualified source từ DCAM-14 để disposition sáu camera lifecycle/failure cases, kiểm tra restore và đóng gói active evidence. DCAM-14 và DCAM-49 là supporting engineering evidence tasks, không tạo POC ID mới và không tự thay đổi kết quả trong POC Result Matrix.
+DCAM-14 dùng POC-WRS-001 (exact reference device baseline) và POC-WRS-002 (Camera API/recording-capture capability baseline) để xây camera lifecycle/failure observation harness, runner và evidence structure; DCAM-49 kế thừa qualified source từ DCAM-14 để disposition sáu camera lifecycle/failure cases, kiểm tra restore và đóng gói active evidence. Hai task này là supporting engineering evidence, không tạo POC ID mới và không tự thay đổi kết quả trong POC Result Matrix.
 
 ## 2. POC Result Matrix
 
@@ -100,8 +94,6 @@ Evidence ID
 
 Kết quả chính
 
-Phạm vi / giới hạn
-
 POC-WRS-001
 
 DCAM-11
@@ -111,8 +103,6 @@ DCAM-11
 `EV-DCAM-DCAM-11-20260724-04`
 
 Ghi nhận model thương mại `NCC-036V`, model Android `BWC`, Android 12/API 31 và firmware.
-
-Không khẳng định hai nhãn model tương đương trong mọi trường hợp; không suy rộng thành qualification nhiều thiết bị.
 
 POC-WRS-002
 
@@ -124,8 +114,6 @@ DCAM-12
 
 Đã kiểm chứng Camera API, camera inventory/lens, FPS, preview, JPG, MP4 và permission.
 
-Áp dụng cho thiết bị/build tham chiếu; duration/container metadata và codec/profile chưa được xác minh bằng `ffprobe`.
-
 POC-WRS-003
 
 DCAM-13
@@ -136,43 +124,35 @@ DCAM-13
 
 Đã kiểm chứng Internal storage mapping, scoped-storage behavior, ADB visibility và việc từ chối External/Auto.
 
-Chỉ áp dụng cho Internal-active của Build 0.1.
-
 POC-WRS-004
 
 DCAM-15
 
-**Fail**
+**Pass**
 
-`EV-DCAM-DCAM-15-20260805-01`
+`EV-DCAM-DCAM-15-20260819-04`
 
-Fail cũ do phương pháp test (fill/rollback lặp trên state không fresh → LMK kill do thrashing), không phải lỗi code; retest 05/8 fresh install trên cùng commit đạt.
-
-Giữ **Fail** vì ngưỡng tĩnh 2 GiB/200 MiB chưa đáp ứng PERF-STOR-001/003; cần khắc phục và kiểm tra lại trên các cấu hình.
+Ứng dụng xử lý đúng khi sắp hết dung lượng ở cả 3 chất lượng SD/HD/FHD: (1) chặn bắt đầu ghi khi không đủ chỗ; (2) tự dừng an toàn sau khoảng 30 phút và luôn giữ lại reserve 500 MiB; (3) từ chối ghi lại sau khi đã dừng; file MP4 phát lại và kiểm tra hash hợp lệ.
 
 POC-WRS-005
 
 —
 
-**Not Executed** trong phạm vi DCAM-2
+—
 
-**Not Evidenced**
+—
 
-Chưa ghi nhận kết quả trong tài liệu này.
-
-Ngoài phạm vi thực thi trực tiếp của DCAM-2; chỉ cập nhật sau khi nhận evidence handoff đã được rà soát từ phạm vi liên quan. Không được hiểu là **Pass** hoặc **Fail**.
+Không thuộc phạm vi DCAM-2
 
 POC-WRS-006
 
 —
 
-**Not Executed** trong phạm vi DCAM-2
+—
 
-**Not Evidenced**
+—
 
-Chưa ghi nhận kết quả trong tài liệu này.
-
-Ngoài phạm vi thực thi trực tiếp của DCAM-2; chỉ cập nhật sau khi nhận evidence handoff đã được rà soát từ phạm vi liên quan. Không được hiểu là **Pass** hoặc **Fail**.
+Không thuộc phạm vi DCAM-2
 
 POC-WRS-007
 
@@ -180,35 +160,29 @@ DCAM-15
 
 **Pass**
 
-`EV-DCAM-DCAM-15-20260805-01`
+`EV-DCAM-DCAM-15-20260819-04`
 
-Đã xác nhận GPS, Internal free storage và Battery trên thiết bị đã cấu hình.
-
-Free storage được xác định bằng `Total − Used`; Battery dùng phần trăm pin trên Android status bar và cần bật cấu hình hiển thị.
+Ứng dụng báo đúng trạng thái pin, dung lượng bộ nhớ trong và GPS trên thiết bị tham chiếu, với các giới hạn đã được phê duyệt.
 
 POC-WRS-008
 
 —
 
-**Not Executed** trong phạm vi DCAM-2
+—
 
-**Not Evidenced**
+—
 
-Chưa ghi nhận kết quả trong tài liệu này.
-
-Ngoài phạm vi thực thi trực tiếp của DCAM-2; chỉ cập nhật sau khi nhận evidence handoff đã được rà soát từ phạm vi liên quan. Không được hiểu là **Pass** hoặc **Fail**.
+Không thuộc phạm vi DCAM-2
 
 POC-WRS-009
 
 DCAM-15
 
-**Blocked**
+**Pass**
 
-`EV-DCAM-DCAM-15-20260805-01`
+`EV-DCAM-DCAM-15-20260819-04`
 
-Token đạt định dạng `[A-Z0-9]{6,10}`; recovery đã được kiểm chứng bằng một file MP4 thực tế.
-
-Thứ tự ưu tiên serial đã rõ: DB → `dcam_config.cson` → backup SD → `configs.cson` (vendor) → nhập tay; blocker còn lại là PM xác nhận nới độ dài 6–10 → 6–11 và sửa code chặn chữ thường.
+Token trong filename đúng định dạng `[A-Z0-9]{6,10}` lấy từ serial đã xác nhận (khôi phục từ thẻ SD, lưu đúng một lần); file JPG/MP4 tạo ra có đúng token và BDMA import đ��ợc — có kiểm tra MD5, chặn file thiếu/sai hash, báo lỗi rõ ràng.
 
 ## 3. Kết quả theo Jira
 
@@ -256,8 +230,6 @@ Supporting observation; không tạo POC ID
 
 Disposition sáu camera lifecycle/failure cases, kiểm tra evidence/restore/integrity và cung cấp closure input cho DCAM-2 cùng Camera Recording Prototype.
 
-Các hồ sơ DCAM-11/12/13/15 giữ Evidence ID tương ứng. DCAM-14 dùng NAS README làm execution instruction. DCAM-49 dùng NAS Procedure làm review authority để kiểm tra selected case, evidence, Blocked rationale và closure decision.
-
 ### 3.1 — DCAM-11 / POC-WRS-001
 
 Field
@@ -275,6 +247,10 @@ Jira Worklog
 Evidence ID
 
 `EV-DCAM-DCAM-11-20260724-04`
+
+NAS location
+
+`\\192.168.100.2\SERVER-SnT\2. DCAM\Artifacts\Build-0.1\Sprint-2\DCAM-11\20260724_04`
 
 Key outcome
 
@@ -297,6 +273,10 @@ Execution result
 Jira Worklog
 
 [Worklog #10002 — DCAM-12](https://ducviet.atlassian.net/browse/DCAM-12?focusedWorklogId=10002)
+
+NAS location
+
+`\\192.168.100.2\SERVER-SnT\2. DCAM\Artifacts\Build-0.1\Sprint-2\DCAM-12\20260724_04`
 
 Evidence ID
 
@@ -328,6 +308,10 @@ Evidence ID
 
 `EV-DCAM-DCAM-13-20260724-02`
 
+NAS location
+
+`\\192.168.100.2\SERVER-SnT\2. DCAM\Artifacts\Build-0.1\Sprint-3\DCAM-13\20260724_02`
+
 Key outcome
 
 Đã kiểm chứng Internal storage mapping, scoped-storage behavior, ADB visibility và việc từ chối External/Auto trong Build 0.1.
@@ -344,31 +328,40 @@ Value
 
 Execution result
 
-WRS-004: **Fail**; WRS-007: **Pass**; WRS-009: **Blocked**.
-
-Evidence ID
-
-`EV-DCAM-DCAM-15-20260805-01`
-
-Key outcome
-
-**WRS-004:** Fail cũ do phương pháp test (lặp fill/rollback trên state không fresh → dirty pages tích tụ → LMK kill do thrashing 63–65%, không riêng app), không phải lỗi code. Hành vi guard 2 GiB chỉ kiểm tra lúc start là logic nghiệp vụ đúng; khi đang ghi, dừng theo file-size-limit `(free − 200 MiB) / 2`, không dùng lại guard 2 GiB. Retest 05/8 fresh install (cùng commit c4da859): auto-stop/finalize/pre-start rejection đúng, PID giữ nguyên, không ANR, MP4 hợp lệ. 
-
-**WRS-007:** Đã xác nhận GPS, dung lượng bộ nhớ Internal và mức pin trên thiết bị tham chiếu đã cấu hình. 
-
-**WRS-009:** Token đạt định dạng `[A-Z0-9]{6,10}`; ứng dụng tạo và liệt kê được file local; các unit test mục tiêu cho filename, recovery và serial đạt. Gói evidence hiện hành xác nhận recovery thành công bằng một file MP4 thực tế và file sau recovery giữ nguyên nội dung.
+**Pass**
 
 Jira Worklog
 
-[Worklog #10004 — DCAM-15](https://ducviet.atlassian.net/browse/DCAM-15?focusedWorklogId=10004)
+    
+
+            
+
+    
+                [ DCAM-15](https://ducviet.atlassian.net/browse/DCAM-15)
+                    -
+            Getting issue details...
+                                    STATUS
+            
+ 
+Evidence ID
+
+`EV-DCAM-DCAM-15-20260819-04`
+
+NAS location
+
+`\\192.168.100.2\SERVER-SnT\2. DCAM\Artifacts\Build-0.1\Sprint-3\DCAM-15\20260819_04`
+
+Key outcome
+
+**WRS-004 Pass **— SD/HD/FHD đều giữ reserve 500 MiB, tự dừng/finalize, từ chối ghi sau khi dừng và đạt kiểm tra playback/hash. 
+
+**WRS-007** **Pass ** — Battery, Internal storage và GPS được xác minh theo các rule đã phê duyệt. 
+
+**WRS-009** **Pass** — DEVICE_TOKEN remediation Pass, applicability trên qualification target Accepted carry-forward, và parser/import Pass cho JPG hợp lệ, MP4 có MD5 đúng, đồng thời chặn MP4 thiếu hoặc sai MD5.
 
 Limitation
 
-**WRS-004:** Giữ **Fail** do GAP requirement ↔ code: PERF-STOR-001 yêu cầu ngưỡng start tính động = bitrate × 30 phút + 500 MB (FHD 12 Mbps → ~3.2 GB, code dùng hằng số tĩnh 2.0 GB nên chỉ đảm bảo ~10 phút), PERF-STOR-003 yêu cầu 500 MB cho finalization trong khi code dùng 200 MiB. Cần khắc phục và retest trên các cấu hình SD/HD/FHD. 
-
-**WRS-007:** Free storage được xác định bằng `Total − Used`;
-
-**WRS-009:** Thứ tự ưu tiên lấy serial đã rõ: DB → `dcam_config.cson` → backup SD → `configs.cson` (vendor) → nhập tay khi cài app. WRS-009 giữ **Blocked** cho đến khi PM xác nhận nới độ dài 6–10 → 6–11 ký tự (để khớp serial 11 ký tự trên nhãn thiết bị trong `configs.cson`) và dev sửa code (thứ tự đọc serial + chặn chữ thường `[A-Z0-9]` + độ dài theo xác nhận) rồi retest. Vẫn cần phân biệt serial trên nhãn thiết bị dài 11 ký tự và serial hệ thống `ro.serialno` đọc qua Android/ADB dài 18 ký tự.
+|  
 
 ### 3.5 — DCAM-14 / Camera Lifecycle/Failure Observation Harness and Evidence Structure
 
@@ -423,23 +416,3 @@ Permission denial, camera unavailable/recovery và background/foreground return 
 Limitation
 
 `CAM-FL-003` và `CAM-FL-004` giữ **Blocked** vì chưa có deterministic safe injection cho recording-start và stop/finalize failure. Kết quả không chứng minh actual behavior của hai case này hoặc Production/fleet/multi-firmware readiness.
-
-## 4. Các vấn đề và quyết định còn mở
-
-Nội dung
-
-Trạng thái hiện tại
-
-Điều cần làm / lưu ý
-
-WRS-004 / độ ổn định khi dung lượng thấp
-
-**Fail**
-
-Fail cũ đã xác định do phương pháp test, không phải lỗi code; retest fresh install đạt. Mở implementation issue sửa `CaptureStorageCapacityPolicy`: ngưỡng start tính động = bitrate × 30 phút + 500 MB (PERF-STOR-001) và nâng `MIN_CAPTURE_FREE_BYTES` từ 200 MiB lên 500 MB (PERF-STOR-003), sau đó retest trên các cấu hình SD/HD/FHD. Giữ **Fail** cho đến khi lượt kiểm tra lại đạt yêu cầu và có evidence mới đã được rà soát.
-
-WRS-009 / `DEVICE_TOKEN`
-
-**Blocked**
-
-Cần PM xác nhận nới độ dài 6–10 → 6–11 ký tự (khớp serial 11 ký tự trong `configs.cson`)

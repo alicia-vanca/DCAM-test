@@ -1,7 +1,7 @@
 # DCAM SQLite Database Design
 
 **Page ID**: 48529463  
-**Version**: 20  
+**Version**: 22  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529463
 
@@ -24,7 +24,7 @@ Technical Design
 
 Version
 
-Approved Provisional Baseline 1.8
+Approved Provisional Baseline 2.0
 
 Status
 
@@ -56,7 +56,7 @@ Tech Lead, Android Developers, BDMA Developers, QA, Support, Cloud/WebServer Tea
 
 Last Updated
 
-2026-07-16
+2026-08-25
 
 Related Jira
 
@@ -68,7 +68,7 @@ Technical Review cho physical schema, `schema_version`, recovery representation 
 
 Related Documents
 
-DCAM Factory Provisioning & Device Production SOP, DCAM Web Portal & Device API Contract, DCAM-BDMA Data Contract, 04 - Device Configuration Requirements, 05 - User & Device Operation Requirements, 09 - System Settings Requirements, 06 - Cloud Services, Update & Configuration Architecture, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, DCAM Device Capability & Feature Eligibility Design, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM State Machine Design, DCAM Security & Encryption Design, 07 - Logging & Diagnostics Requirements, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+DCAM Factory Provisioning & Device Production SOP, DCAM Factory Provisioning Portal & BFF API Contract, DCAM-BDMA Data Contract, 04 - Device Configuration Requirements, 05 - User & Device Operation Requirements, 09 - System Settings Requirements, 06 - Cloud Services, Update & Configuration Architecture, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, DCAM Device Capability & Feature Eligibility Design, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM State Machine Design, DCAM Security & Encryption Design, 07 - Logging & Diagnostics Requirements, ADR - DCAM GMS-free Android Runtime Baseline, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 ## 1. Purpose
 
@@ -103,8 +103,8 @@ Android Device Owner / Kiosk Policy runtime snapshot when needed
 In-app console settings and visibility state
 Maintenance session/audit state
 Self Update / APK update state
-Optional manual Play Store fallback audit state
-Firebase/WebServer identity and remote config
+Prohibited update-source rejection audit state
+BFF device identity and desired-state configuration
 BDMA Desktop write-back / user sync
 Recording / Storage / Recovery
 User / Operator Authentication
@@ -138,9 +138,9 @@ DCAM Factory Provisioning & Device Production SOP
 
 DSetup resolves serial from SD Identity File or barcode and injects serial into DCAM.
 
-API/data schema and Firestore identity contract
+Factory Portal/BFF API and identity contract
 
-DCAM Web Portal & Device API Contract
+DCAM Factory Provisioning Portal & BFF API Contract
 
 Định nghĩa `serial_lookup/{serial_number}`, `devices/{dcam_cloud_device_id}` và production record fields.
 
@@ -150,11 +150,11 @@ Device identity, device information and CSON scope
 
 Tài liệu này lưu identity mirror, device information mirror và provisioning state.
 
-Firebase/WebServer identity and provisioning architecture
+BFF identity and Factory Portal provisioning architecture
 
 06 - Cloud Services, Update & Configuration Architecture
 
-Định nghĩa `dcam_cloud_device_id`, `serial_number`, Web Portal/Firebase provisioning and cloud metadata.
+Định nghĩa `dcam_cloud_device_id`, `serial_number`, Factory Portal/BFF provisioning and cloud metadata.
 
 Android Device Owner / kiosk policy
 
@@ -208,7 +208,7 @@ Credentials, identity values, maintenance values, Google account and policy-sens
 
 Android owns database schema và runtime invariants.
 
-BDMA và Firebase/WebServer chỉ có thể ảnh hưởng tới approved data thông qua approved sync/config flows. Android validate trước khi apply runtime state.
+BDMA và BFF chỉ có thể ảnh hưởng tới approved data thông qua approved sync/config flows. Android validate trước khi apply runtime state.
 
 Core rules:
 
@@ -222,8 +222,8 @@ Android owns in-app console setting/apply state.
 Android owns maintenance session/audit state.
 Android owns Self Update state/history.
 KioskPolicyManager owns actual Android Device Owner / Lock Task / User Restrictions behavior.
-Firebase/WebServer owns cloud device record and target config revision.
-Firebase/WebServer may provide requested kiosk/update settings through remote config.
+BFF owns cloud device record and target config revision.
+BFF may provide requested kiosk/update settings through desired-state/config contract.
 BDMA may write approved user/operator/auth/setting/import fields only.
 BDMA must not write bdma_decoder_profile_id because DCAM does not use dynamic decoder profile.
 External writes must be detectable by Android.
@@ -235,7 +235,7 @@ Android Write
 
 BDMA Write
 
-Firebase/WebServer Write to Device DB
+BFF Write to Device DB
 
 Conflict Policy
 
@@ -621,13 +621,13 @@ Self Update state, validation result, install result and history.
 
 Android-owned.
 
-Play Store Fallback Audit
+GMS-free Update-source Audit
 
-`play_store_fallback_history` optional
+`prohibited_update_source_event` optional
 
-Optional manual fallback audit only; no Google password/token.
+Rejected request/source event only; no Google account or token.
 
-Android-owned if fallback enabled.
+Android-owned when an attempted prohibited source must be audited.
 
 Diagnostics
 
@@ -659,7 +659,7 @@ Meaning
 
 `dcam_cloud_device_id`
 
-Stable Firebase/WebServer primary cloud device id.
+Stable BFF primary cloud device id.
 
 `serial_number`
 
@@ -681,9 +681,9 @@ Device manufacture date in ISO format `YYYY-MM-DD`.
 
 Source of owner/manufacture/device info values.
 
-`firebase_installation_id`
+`app_installation_id`
 
-Current app-install instance metadata; not a device identity key.
+Current app-install instance metadata; not a device identity key and not tied to any cloud SDK.
 
 `device_model`
 
@@ -920,7 +920,7 @@ Maintenance password value must never be stored in dcam.db.
 Maintenance password hash input must never be stored in logs/history.
 Only non-sensitive lockout/cooldown/session/audit metadata may be stored.
 Emergency override cannot satisfy Maintenance Password Gate.
-## 10. Self Update and Optional Play Store Fallback State
+## 10. Self Update and GMS-free Update-source State
 
 ### 10.1 `update_state`
 
@@ -934,7 +934,7 @@ Current/last update operation id.
 
 `update_source`
 
-`SELF_UPDATE`, `LOCAL_FACTORY_APK`, `PLAY_STORE_FALLBACK`.
+`BFF_R2_SELF_UPDATE`, `LOCAL_FACTORY_APK`.
 
 `current_version_code`
 
@@ -986,11 +986,11 @@ Unique event id.
 
 `event_type`
 
-`CHECK_STARTED`, `MANIFEST_LOADED`, `APK_DOWNLOADED`, `APK_VALIDATED`, `INSTALL_STARTED`, `INSTALL_FAILED`, `VERSION_VERIFIED`, `POLICY_RESTORED`, `PLAY_FALLBACK_STARTED`, `PLAY_FALLBACK_COMPLETED`.
+`CHECK_STARTED`, `MANIFEST_LOADED`, `APK_DOWNLOADED`, `APK_VALIDATED`, `INSTALL_STARTED`, `INSTALL_FAILED`, `VERSION_VERIFIED`, `POLICY_RESTORED`, `PROHIBITED_UPDATE_SOURCE_REJECTED`.
 
 `source`
 
-`SELF_UPDATE`, `LOCAL_FACTORY_APK`, `PLAY_STORE_FALLBACK`.
+`BFF_R2_SELF_UPDATE`, `LOCAL_FACTORY_APK`, `PROHIBITED_SOURCE`.
 
 `target_package`
 
@@ -1014,9 +1014,9 @@ Timestamp.
 
 Rules:
 
-Current baseline uses Self Update / APK update as primary update path.
-Managed Google Play / Android Management API policy-driven update is not represented as an active runtime update state for current baseline.
-Manual Play Store fallback state is stored only if fallback is enabled and used.
+Current baseline uses BFF-authorized Self Update from immutable R2/CDN artifact as the primary remote update path, with an approved local/factory APK fallback only.
+Google Play Store, Managed Google Play, Android Management API and Google-account update flows are prohibited and are not represented as active runtime update states.
+If a prohibited source is requested or detected, DCAM rejects it and may append a safe `PROHIBITED_UPDATE_SOURCE_REJECTED` audit event without storing account/token data.
 Do not store Google account password/token in dcam.db.
 ## 11. Remote Config Tables
 
@@ -1147,7 +1147,7 @@ MAINTENANCE_POLICY_RESTORED
 SELF_UPDATE_REQUESTED
 SELF_UPDATE_DEFERRED
 SELF_UPDATE_VERIFIED
-PLAY_STORE_FALLBACK_USED
+PROHIBITED_UPDATE_SOURCE_REJECTED
 USER_PROFILE_UPDATE
 USER_AUTH_METHOD_UPDATE
 USER_SYNC_CHECKPOINT
@@ -1352,7 +1352,7 @@ Required example logs use safe identifiers/reason codes only:
 [MAINTENANCE] Policy restore result: <reason_code>
 [UPDATE] Self update deferred: <reason_code>
 [UPDATE] Self update verified
-[UPDATE] Play Store fallback used
+[UPDATE] Prohibited GMS/Play update source rejected
 [DB] External write detected: <change_type>
 [AUTH] Session expired by reboot
 ## 18. Build 0.1 Minimal Subset
@@ -1493,7 +1493,7 @@ Initial requested-policy groups defined in System Settings/Kiosk Policy Design; 
 
 Provisioning API exact contract
 
-API contract baseline defined in DCAM Web Portal & Device API Contract; exact implementation/auth details TBD
+API contract baseline defined in DCAM Factory Provisioning Portal & BFF API Contract; exact implementation/auth details TBD
 
 Provisioning QR signature/expiration format
 

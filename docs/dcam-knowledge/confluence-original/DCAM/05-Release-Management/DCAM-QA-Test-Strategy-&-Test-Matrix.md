@@ -1,7 +1,7 @@
 # DCAM QA Test Strategy & Test Matrix
 
 **Page ID**: 49545345  
-**Version**: 21  
+**Version**: 22  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49545345
 
@@ -24,7 +24,7 @@ QA Strategy / Test Matrix
 
 Version
 
-Approved 2.6
+Approved 2.7
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, QA, BDMA Team, Cloud/WebServer Team, Secur
 
 Last Updated
 
-2026-07-29
+2026-08-25
 
 Related Jira
 
@@ -442,13 +442,13 @@ Conditional when cloud provider integrated
 
 Required when provider enabled
 
-Non-GMS Device
+GMS-free Android Runtime
 
-Non-GMS compatibility.
+No prohibited GMS/Play Store/account dependency or flow; target-device evidence required for production profile.
 
-Conditional if target includes non-GMS
+Required dependency/source guard
 
-Required if target profile includes non-GMS
+Required production gate
 
 Web Portal Test Backend
 
@@ -622,15 +622,15 @@ Draft
 
 QA-LOG-008
 
-Non-GMS / Fallback
+GMS-free / Provider Independence
 
-Local logs and BDMA artifact work without GMS/provider.
+Local logs and BDMA artifact work without GMS/provider; provider outage does not affect core diagnostics.
 
 P0
 
-Conditional if target is non-GMS
+Required for production profile
 
-Logging Requirements + Device POC
+Logging Requirements + Device POC + ADR
 
 Draft
 
@@ -1704,11 +1704,11 @@ Conditional when enabled
 
 Safe report and classification evidence.
 
-Non-GMS fallback
+GMS-free/provider independence
 
-Conditional if target includes non-GMS
+Required for production profile
 
-Local logs and BDMA artifact without provider.
+Local logs and BDMA artifact without GMS/provider; prohibited dependency/source tests pass.
 
 Logging provider failure is a diagnostics degradation,
 not a recording/storage/emergency failure.

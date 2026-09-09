@@ -1,6 +1,6 @@
 # Data contract
 
-Source status: current Confluence page version 13, last registry review 2026-07-14. This page is a local implementation-oriented digest; the [Confluence Data Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47743153) remains authoritative.
+Source status: current Confluence page version 17 (approved contract 1.14), last updated 2026-08-25. This page is a local implementation-oriented digest; the [Confluence Data Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47743153) remains authoritative.
 
 ## System boundary
 
@@ -19,7 +19,7 @@ Current source requirements cannot all be satisfied for the reference device:
 - `OPERATOR_TOKEN` `B01OPR` is valid at exactly `6` characters.
 
 Treat filename identity qualification as blocked by a requirement contradiction until authoritative documents change. Device POC must confirm the physical `serial_number`; local code or documentation must not manufacture a compliant-looking substitute.
-DCAM is the Android-side data producer. BDMA is the desktop-side consumer, importer, sync/write-back actor, and cleanup actor. Firebase/WebServer owns cloud device identity, Web Portal provisioning, remote-config metadata, and audit metadata.
+DCAM is the Android-side data producer. BDMA is the desktop-side consumer, importer, sync/write-back actor, and cleanup actor. Spring Boot BFF plus PostgreSQL `ddmp` owns cloud device identity, Factory Portal provisioning, remote-config metadata, and audit metadata; Firebase/BaaS is not this authority boundary.
 
 BDMA discovers data over ADB and must scan both the external and internal DCAM media roots, external first. Physical Android paths remain device-specific and require validation on real BodyCamera hardware.
 
@@ -31,13 +31,14 @@ DCAM device identity is not based on serial number, owner name, or manufacture d
 
 | Field | Role | Storage |
 |---|---|---|
-| `dcam_cloud_device_id` | Firebase/WebServer primary key | Firebase/WebServer and `dcam.db` |
-| `android_id_hash` | Recovery lookup key when local DB/CSON is lost | Firebase/WebServer lookup and `dcam.db` |
-| `serial_number` | Mutable device information | `dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer |
-| `owner_name` | Mutable/semi-static owner/customer display | `dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer |
-| `manufacture_date` | Semi-static manufacture date, ISO `YYYY-MM-DD` | `dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer |
-| `serial_history` | Historical serial values | Firebase/WebServer; optional DB mirror |
-| `firebase_installation_id` | App-install metadata | Firebase/WebServer; optional DB metadata |
+| `dcam_cloud_device_id` | BFF/PostgreSQL `ddmp` primary cloud key | BFF/PostgreSQL `ddmp` and `dcam.db` |
+| `platformDeviceId` | BFF↔DCAM contract name for the same logical cloud identity | Resolved by BFF; not a second root identity |
+| `serial_number` | Hardware identity and primary recovery key | App-private storage, `dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL `ddmp`, SD recovery cache |
+| `android_id_hash` | Not used by the current contract | Must not be used as identity or recovery lookup |
+| `owner_name` | Mutable/semi-static device information | `dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL `ddmp` |
+| `manufacture_date` | Semi-static device information, ISO `YYYY-MM-DD` | `dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL `ddmp` |
+| `serial_history` | Historical serial values | BFF/PostgreSQL `ddmp`; optional DB mirror |
+| `app_installation_id` | App-install metadata only | Optional metadata; not a device identity key |
 
 BDMA recognizes the app and contract through metadata such as `app_code`, `app_package_name`, app version, `dcam_data_contract_version`, `media_contract_version`, and `encoder_contract_version`. `bdma_decoder_profile_id` is not part of the contract; BDMA must use its built-in compatibility table for supported app/media/encoder contract versions.
 
@@ -71,7 +72,7 @@ DCAM_<CameraID>_<UserID>_<YYYYMMDD>_<HHMMSS>[_IMP][_enc].<ext>
 - `CameraID` is 6–10 characters; `UserID` is exactly 6 characters.
 - Important media uses `_IMP` and is stored in `Media/IMP` regardless of media type.
 - AES-256 encrypted media uses `_enc`. Important encrypted media must use suffix order `_IMP_enc`.
-- Metadata is embedded in the media file when the format supports it. A separate per-media JSON file is not part of contract 1.6.
+- Metadata is embedded in the media file when the format supports it. A separate per-media JSON file is not part of contract 1.14.
 - Encryption algorithm detail, keys, rotation, and BDMA decryption remain for the Security & Encryption Design.
 
 ## MP4 checksum behavior
@@ -98,17 +99,17 @@ Deleting a source MP4 also permits deletion of its matching `.md5`. Cleanup must
 
 `dcam_config.cson` may contain device display identity, device name, model, serial number, owner name, manufacture date, firmware/hardware version, and app/contract metadata if needed for compatibility display. It must not contain media metadata, user/history data, storage mode, feature flags, MD5/encryption settings, cleanup policy, import/sync state, logs, credentials, or operational settings. Those belong in `dcam.db`.
 
-`dcam.db` covers device identity/provisioning, remote config cache, user/operator/auth/session/sync data, operational and applied settings, runtime state, media/session/finalization/recovery state, BDMA import/write-back state, tracking state, and optional diagnostic events.
+`dcam.db` covers device identity/provisioning, remote config cache, user/operator/auth/session/sync data, operational and applied settings, runtime state, media/session/finalization/recovery state, BDMA import/write-back state, tracking state, and optional diagnostic events. It does not make `android_id_hash`, `headwindDeviceRef`, or a local installation ID into a device identity.
 
 BDMA must not alter source media bytes, embedded metadata, MD5 content, `Temp`, active operator-session runtime state, active media-session lifecycle fields, or the server-owned device identity primary mapping. It may delete source media only after a successful import under the cleanup matrix above.
 
 ## User/operator sync
 
-DCAM and BDMA both maintain user/operator management data. Normal recording/capture evidence requires an authenticated operator session on DCAM. Emergency recording may use the protected system identity `EMERGENCY_OVERRIDE_ADMIN` when no operator is logged in. User/auth sync records must be versioned/revisioned and must not interrupt active evidence capture.
+DCAM and BDMA both maintain user/operator management data. Later profiles may require an authenticated operator session on DCAM; Build 0.1 uses the approved fixed technical operator exception and no login UI. Emergency recording may use the protected system identity `EMERGENCY_OVERRIDE_ADMIN` when no operator is logged in. User/auth sync records must be versioned/revisioned and must not interrupt active evidence capture.
 
 ## Versioning and remaining design work
 
-- Contract version: 1.6.
+- Contract version: 1.14.
 - Media naming and media contract metadata must be versioned; breaking naming changes require a contract update and BDMA compatibility review.
 - `dcam.db` must expose schema/version metadata for BDMA compatibility checks.
 - App package/version and data/media/encoder contract metadata must be sufficient for BDMA app recognition.

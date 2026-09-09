@@ -1,6 +1,6 @@
 # Product brief and PM intent
 
-Source refresh: **2026-07-15**. Build 0.1 scope is governed by Release & Build Applicability Matrix plus DEC-01-DEC-07 Decision Brief; long-term product direction does not make deferred features release blockers.
+Source refresh: **2026-08-26**. Build 0.1 scope is governed by Release & Build Applicability Matrix plus DEC-01-DEC-07 Decision Brief; long-term product direction does not make deferred features release blockers. The mandatory GMS-free production Android runtime and the BFF/PostgreSQL factory/device-management boundary are cross-build architecture guards, not Build 0.1 scope expansion.
 
 ## One-sentence definition
 
@@ -78,8 +78,10 @@ Longer-term measures also include GPS availability, storage handling reliability
 ## Product boundary
 
 - DCAM owns Android-side capture, original media/metadata, local states, device context, and source logs.
-- BDMA owns desktop connection, pull/sync, import, validation, indexing, long-term management, display, backup, export, and reports. Contract 1.6 also permits controlled device-info/database write-back and post-import source cleanup; it may not modify source media, embedded metadata, MD5 content, temp files, active runtime state, or logs.
+- BDMA owns desktop connection, pull/sync, import, validation, indexing, long-term management, display, backup, export, and reports. Contract 1.14 also permits controlled device-info/database write-back and post-import source cleanup; it may not modify source media, embedded metadata, MD5 content, temp files, active runtime state, or logs.
 - Cloud is not required for core operation.
+- Production Android operation is GMS-free: Google Play services, Play Store, Google-account maintenance, FCM, Analytics, and Play Integrity are not dependencies or flows. Crashlytics is optional bounded crash/stability telemetry only.
+- Factory provisioning and device-management authority belongs to the Spring Boot BFF and PostgreSQL `ddmp`; it is a later-phase platform boundary and does not replace the local/ADB Build 0.1 path.
 - Customer Pilot / Production Candidate is narrower than full commercial production readiness.
 - Remote device management and advanced user management in Phase 2 are foundations, not full fleet management or enterprise IAM.
 - Streaming, PTT, full GPS route, and advanced encryption in Phase 3 are beta/basic capabilities.

@@ -1,7 +1,7 @@
 # 10 - Android Device Operation Requirements
 
 **Page ID**: 48496661  
-**Version**: 11  
+**Version**: 13  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496661
 
@@ -24,7 +24,7 @@ Functional Requirements
 
 Version
 
-Approved 1.9
+Approved 1.11
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Android device-operation target requirements; active subset thuộc Matrix, hardware behavior phụ thuộc Device POC khi được nêu.
+Android device-operation target requirements, including approved DDMP Hybrid authority boundary; active subset thuộc Matrix, hardware behavior phụ thuộc Device POC khi được nêu.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, AI/ML Engineer, QA
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -79,7 +79,7 @@ No Android Management API.
 No Managed Google Play policy-driven update.
 DCAM-as-DPC / local Device Owner is preferred if target firmware supports it.
 Primary update path is DCAM Self Update / APK update.
-Manual Google Play Store update is optional controlled maintenance fallback only if device capability and approved process allow it.
+Google Play Store/Managed Google Play/Google-account update is not a supported production maintenance flow.
 User/operator requirement chi tiết thuộc **05 - User & Device Operation Requirements**. Chi tiết kiosk policy thuộc **DCAM Android Device Owner & Kiosk Policy Design**. Chi tiết các màn hình/tính năng bên trong app khi chạy kiosk thuộc **DCAM In-App Operation, Device Settings & Media Console Design**. Chi tiết update package/download/install thuộc **DCAM Self Update Design**. Trang này chỉ mô tả tác động ở mức requirement.
 
 ## 2. Scope
@@ -102,9 +102,9 @@ DCAM phải support Device Owner / DPC-capable policy behavior nếu target firm
 
 Approved Direction / POC Required
 
-No External EMM Baseline
+No External Privileged EMM Baseline
 
-Current baseline không giả định external EMM, Android Management API hoặc Managed Google Play policy-driven update.
+Không có external DPC/EMM, Android Management API hoặc Managed Google Play nắm privileged device policy. Headwind Client chỉ được chạy Application mode.
 
 Approved Direction
 
@@ -186,11 +186,11 @@ DCAM Self Update / APK update là primary update path cho current no-EMM baselin
 
 Approved Direction
 
-Manual Play Store Fallback
+GMS-free Android Runtime
 
-Optional only if GMS/Play Store exists and approved maintenance process allows it.
+No Google Play services, Play Store, Google account, FCM, Analytics or Play Integrity dependency/flow; ADR release gates apply.
 
-Conditional / POC Required
+Approved Direction
 
 Full Screen Operation
 
@@ -292,7 +292,7 @@ DCAM runs safe DB/storage/recovery checks
     ↓
 DCAM loads settings, remote config cache and update metadata cache
     ↓
-DCAM detects device capability including GMS/Play Store availability and update capability
+DCAM evaluates self-update install capability, package-installer constraints, runtime guard and GMS-free compliance
     ↓
 DCAM evaluates feature eligibility
     ↓
@@ -714,13 +714,13 @@ Status
 
 Self Update primary path
 
-DCAM Self Update / APK update là primary update path cho current baseline.
+Trong Hybrid profile, BFF-authorized DCAM Self Update từ immutable Cloudflare R2/CDN artifact là primary update path.
 
 Approved Direction
 
 No Managed Google Play baseline
 
-Managed Google Play / Android Management API policy-driven update is not applicable.
+Managed Google Play / Android Management API policy-driven update is not applicable. Headwind Client is not an Android policy/update authority.
 
 Approved Direction
 
@@ -732,7 +732,13 @@ Approved Direction
 
 Package validation
 
-Update package must pass package identity, checksum, signature, version and compatibility validation.
+Update package must pass BFF release authorization plus package identity, checksum, signature, version and compatibility validation.
+
+Approved Direction
+
+DDMP request boundary
+
+BFF desired-state/release input must be validated and may only be executed by DCAM after local safety/policy guards pass; direct Headwind command bridge is not a baseline dependency.
 
 Approved Direction
 
@@ -748,17 +754,11 @@ Update failure must preserve controlled runtime state and must not corrupt evide
 
 Approved Direction
 
-Manual Play Store fallback
+Prohibited update source
 
-Optional only if GMS/Play Store exists and approved maintenance/factory process allows it.
+Google Play Store/Managed Google Play/Android Management API/Google-account update must be rejected; no console target or policy exception exists.
 
-Conditional / POC Required
-
-Play Store fallback control
-
-Play Store fallback must run only through approved maintenance flow and approved target list.
-
-Conditional / POC Required
+Approved Direction
 
 ## 9. Device Capability Requirements
 
@@ -794,7 +794,7 @@ Approved Direction
 
 Update Capability
 
-Detect Self Update install capability, package installer constraints, GMS/Play Store availability and fallback availability.
+Detect Self Update install capability, package-installer constraints, runtime guard and GMS-free compliance evidence status.
 
 Approved Direction
 
@@ -914,11 +914,11 @@ Không chạy install nếu package validation, runtime guard hoặc policy stat
 
 Approved Direction
 
-Manual Play Store Fallback
+GMS-free compliance
 
-Không show/enable nếu GMS/Play Store unavailable hoặc process chưa approved.
+Không claim production profile nếu prohibited dependency/flow hoặc target-device evidence thiếu.
 
-Conditional
+Required production gate
 
 Device/System Settings Control
 
@@ -1135,6 +1135,10 @@ DCAM State Machine Design
 
 Source of truth cho cross-runtime guards, kiosk policy states, update states và runtime registration boundaries.
 
+DDMP 06 Device Integration Contracts
+
+Shared DCAM↔BFF desired-state, ACK, identity mapping and update authorization boundary; Hybrid is Phase 2+/POC-gated.
+
 DCAM Realtime AI Detection Design
 
 AI chỉ start nếu device eligible và chỉ emit events.
@@ -1156,7 +1160,7 @@ Settings không được override capability limits; kiosk config là requested 
 DCAM Android operation phải capability-aware, login-aware, kiosk-policy-aware, console-aware và update-aware.
 
 Detect device policy state early
-Do not assume external EMM / Android Management API / Managed Google Play
+Do not assume any external DPC/EMM owns privileged Android policy; Headwind Client runs Application mode only
 Prefer DCAM-as-DPC / local Device Owner if firmware supports it
 Apply/verify approved User Restrictions
 Verify Lock Task allowlist
@@ -1170,7 +1174,7 @@ Expose File/Storage Manager and Media Viewer as read-only/view-only
 Support Login Settings and Admin-only User Settings
 Require Maintenance Password Gate for controlled maintenance
 Use DCAM Self Update / APK update as primary update path
-Treat manual Play Store update as optional controlled fallback only
+Reject Play Store/Managed Google Play/Android Management API/Google-account update source and retain controlled state
 Keep Emergency Settings, Server Connection, Live Stream, PTT and AI Mode as TBD/future groups until approved
 Detect capability early
 Evaluate feature eligibility

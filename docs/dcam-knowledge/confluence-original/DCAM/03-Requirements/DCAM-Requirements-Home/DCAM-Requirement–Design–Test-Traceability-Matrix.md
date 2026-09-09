@@ -1,7 +1,7 @@
 # DCAM Requirement–Design–Test Traceability Matrix
 
 **Page ID**: 51085669  
-**Version**: 10  
+**Version**: 20  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51085669
 
@@ -24,7 +24,7 @@ Requirement–Design–Test Traceability Matrix
 
 Version
 
-Approved Provisional Baseline 1.9
+Approved Provisional Baseline 2.1
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Developers, QA, BDMA Team, Security Reviewer
 
 Last Updated
 
-2026-08-07
+2026-08-21
 
 Related Jira
 
@@ -170,7 +170,9 @@ QA-REC-001
 
 Working Recording Slice video result
 
-Partially Covered
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)  
+
+Covered
 
 REC-VID-002
 
@@ -180,11 +182,11 @@ DCAM-BDMA Data Contract §7/§16.4; DCAM Recording & Capture Design §5
 
 QA-MEDIA-NAME-001/002, QA-BDMA-001
 
-[DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Filename token validation và final media import evidence not attached
+[Filename token validation](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary) và [final media import evidence](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 REC-VID-003
 
@@ -224,9 +226,9 @@ QA-BDMA-001/002/003/007, QA-PERF-003
 
 [DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8)
 
-MP4/MD5 timestamps, failure/import result not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 REC-VID-006
 
@@ -250,11 +252,12 @@ Recording Design §7; Data Contract §7
 
 QA-IMG-001
 
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5);
 [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Working Recording Slice image result not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 REC-IMG-002
 
@@ -264,11 +267,11 @@ Data Contract §7/§16.4
 
 QA-IMG-002, QA-MEDIA-NAME-001/002
 
-[DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Filename token validation và BDMA sample import evidence not attached
+ [Filename token validation](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary) và [BDMA sample import](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 REC-IMG-004
 
@@ -278,11 +281,11 @@ Data Contract §8
 
 QA-IMG-002, QA-BDMA-004
 
-[DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8)
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8)
 
-Image no-MD5 import evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 REC-IMG-005
 
@@ -294,9 +297,9 @@ QA-IMG-004
 
 [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5)
 
-Failure/recovery evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 REC-STATE-001
 
@@ -308,9 +311,9 @@ QA-REC-001, QA-STO-001, QA-STO-002
 
 [DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-7](https://ducviet.atlassian.net/browse/DCAM-7)
 
-State transition logs
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 REC-STATE-005
 
@@ -322,9 +325,9 @@ QA-PERF-008 plus recovery test group
 
 [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-7](https://ducviet.atlassian.net/browse/DCAM-7)
 
-Crash/storage recovery result
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 PERF-REC-001
 
@@ -362,11 +365,11 @@ Performance Budget §4.1–4.2; Recording Design §5
 
 QA-PERF-003
 
-[DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-`critical_finalization_latency_ms` + `BDMA_READY`
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 PERF-REC-004
 
@@ -376,11 +379,11 @@ Performance Budget §4.1
 
 QA-IMG-003
 
-[DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Image capture timing not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 PERF-REC-006
 
@@ -392,9 +395,9 @@ QA-PERF-007 partially covers precheck constraints; dedicated timing assertion re
 
 [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Precheck timing
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 PERF-ANR-001
 
@@ -448,9 +451,9 @@ QA-PERF-007, QA-PERF-008
 
 [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Near-full/storage-full result
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 PERF-STAB-001/003/004/005
 
@@ -462,7 +465,7 @@ QA-PERF-009, QA-PERF-010
 
 [DCAM-6](https://ducviet.atlassian.net/browse/DCAM-6); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Long-running test report
+DCAM-6: DCAM-38 — `EV-DCAM-38-20260815-001` (Pass 2/2 BDMA import, candidate commit `8928ab7d…`, APK SHA-256 `42CA4F32…`); DCAM-40 — 20 Pass, 3 Blocked (`EV-DCAM-40-20260817-001/004/007`); DCAM-10 — Evidence package pending final review
 
 Partially Covered
 
@@ -474,11 +477,11 @@ DCAM-BDMA Data Contract §16
 
 QA-BDMA-001/002/003/004/005/006/007
 
-[DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-BDMA sample import and error evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Partially Covered
+Covered
 
 STO-LOC-001 / STO-LOC-002 / STO-MODE-001 / STO-PRE-001 / STO-FAIL-001/002
 
@@ -490,9 +493,9 @@ QA-STO-003/004, QA-PERF-007/008
 
 [DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5)
 
-Internal path and failure evidence Pending Device POC
+DCAM-2: DCAM-13 — `EV-DCAM-DCAM-13-20260724-02`; DCAM-15 — `EV-DCAM-DCAM-15-20260819-04`; DCAM-5: [DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import)
 
-Blocked
+Covered
 
 STO-ART-001 / STO-TEMP-001 / STO-FINAL-001 / STO-REC-001
 
@@ -504,7 +507,8 @@ QA-STO-001/002, QA-DB-002/003, QA-CSON-001/002, QA-BDMA-005
 
 [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-7](https://ducviet.atlassian.net/browse/DCAM-7)
 
-DB/CSON/storage recovery evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
+Chưa có evidence db/cson từ DCAM-7
 
 Partially Covered
 
@@ -516,11 +520,11 @@ BDMA Integration Requirements §3; BDMA Integration Technical Design §7; Data C
 
 QA-BDMA-001/003/004/005/006
 
-[DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
+[DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-BDMA import/error evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 BDMA-INT-005
 
@@ -588,7 +592,7 @@ Build 0.1 Working Recording Slice checklist
 
 [DCAM-6](https://ducviet.atlassian.net/browse/DCAM-6); [DCAM-10](https://ducviet.atlassian.net/browse/DCAM-10)
 
-Runnable APK + sample artifacts + BDMA import
+DCAM-6: DCAM-38 — `EV-DCAM-38-20260815-001` (Pass 2/2 BDMA import, candidate commit `8928ab7d…`, APK SHA-256 `42CA4F32…`); DCAM-40 — 20 Pass, 3 Blocked (`EV-DCAM-40-20260817-001/004/007`); DCAM-10 — Evidence package pending final review
 
 Partially Covered
 
@@ -814,7 +818,7 @@ QA-WRS-DEV-001, POC-WRS-001/002
 
 [DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-3](https://ducviet.atlassian.net/browse/DCAM-3)
 
-POC-WRS-001/002 Pass (`EV-DCAM-DCAM-11-20260724-04`, `EV-DCAM-DCAM-12-20260724-04`); blocker: single reference device, chưa phải fleet/multi-model
+DCAM-2: DCAM-11 — `EV-DCAM-DCAM-11-20260724-04`; DCAM-12 — `EV-DCAM-DCAM-12-20260724-04` (POC-WRS-001/002 Pass); DCAM-3: `EV-DCAM-3-20260821-001` (PASS; build/install/launch baseline); 
 
 Partially Covered
 
@@ -828,9 +832,9 @@ QA-STO-003/004, POC-WRS-003/004
 
 [DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5)
 
-Pre-check/safe-stop evidence từ POC-WRS-004 retest fresh install (`EV-DCAM-DCAM-15-20260805-01`) đã có; giữ **Blocked** vì ngưỡng tĩnh 2 GiB/200 MiB chưa đạt PERF-STOR-001/003
+DCAM-2: DCAM-13 — `EV-DCAM-DCAM-13-20260724-02`; DCAM-15 — `EV-DCAM-DCAM-15-20260819-04`; DCAM-5: [DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Blocked
+Partially Covered
 
 DEC-03 / REC-VID-005/007/008 / BDMA-B01-002/003/004
 
@@ -842,9 +846,9 @@ QA-PERF-003, QA-BDMA-001/002/003/007, POC-WRS-005
 
 [DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-5](https://ducviet.atlassian.net/browse/DCAM-5); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8)
 
-Finalize/MD5/readiness/import evidence not attached
+[DCAM-30](/wiki/spaces/DVID/pages/67436575/DCAM-30+Build+0.1+Camera+Recording+Image+Capture+and+BDMA+Sample+Import) 
 
-Partially Covered
+Covered
 
 DEC-04 / UDO-B01-001…004 / CFG-B01-001/002 / LOG-B01-OP-001
 
@@ -870,7 +874,7 @@ QA-WRS-STATUS-001, POC-WRS-007
 
 [DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-7](https://ducviet.atlassian.net/browse/DCAM-7)
 
-Battery/storage/GPS status evidence `EV-DCAM-DCAM-15-20260805-01` đã có (WRS-007 Pass); cần rà soát evidence trước khi nâng coverage
+DCAM-2: DCAM-15 — `EV-DCAM-DCAM-15-20260819-04`; DCAM-7: TBD — DCAM-7
 
 Partially Covered
 
@@ -884,7 +888,7 @@ QA-WRS-DEV-001, POC-WRS-001/008
 
 [DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-6](https://ducviet.atlassian.net/browse/DCAM-6)
 
-POC-WRS-001 Pass, nhưng WRS-008 Not Executed → end-to-end WRS evidence chưa đủ
+DCAM-2: POC-WRS-001 Pass — `EV-DCAM-DCAM-11-20260724-04`; DCAM-6: DCAM-38 — `EV-DCAM-38-20260815-001` (Pass 2/2 BDMA import); DCAM-40 — 3 Blocked (`EV-DCAM-40-20260817-001/004/007`); DCAM-10 — Evidence package pending final review
 
 Blocked
 
@@ -894,11 +898,13 @@ DCAM MVP Internal Build 0.1
 
 Data Contract §7/§16.4; Data Architecture §8; BDMA Design §13
 
+Decision Brief DEC-07;
+
 QA-MEDIA-NAME-001/002, POC-WRS-009
 
-[DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-4](https://ducviet.atlassian.net/browse/DCAM-4); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9)
+[DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2); [DCAM-8](https://ducviet.atlassian.net/browse/DCAM-8); [DCAM-9](https://ducviet.atlassian.net/browse/DCAM-9)
 
-Filename format/recovery/unit tests pass (POC-WRS-009, `EV-DCAM-DCAM-15-20260805-01`); nguồn serial đã xác định; blocker: PM nới 6–11 ký tự + fix chặn chữ thường
+DCAM-2: DCAM-15 — `EV-DCAM-DCAM-15-20260819-04`; DCAM-8: `EV-DCAM-8-20260814-001`; DCAM-9: TBD — DCAM-9
 
 Partially Covered
 

@@ -1,7 +1,7 @@
 # DCAM State Machine Design
 
 **Page ID**: 48496753  
-**Version**: 14  
+**Version**: 17  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496753
 
@@ -24,7 +24,7 @@ Technical Design
 
 Version
 
-2.1
+2.4
 
 Status
 
@@ -32,7 +32,7 @@ Approved Provisional Baseline
 
 Approval Scope
 
-Target-state model với approved Build 0.1 no-login/checksum overlay
+Target-state model with approved Build 0.1 no-login/checksum overlay and DDMP Hybrid command boundary; exact integration remains POC-gated.
 
 Owner
 
@@ -56,7 +56,7 @@ Tech Lead, Android Developers, QA, Support
 
 Last Updated
 
-2026-07-13
+2026-08-26
 
 Related Jira
 
@@ -168,11 +168,11 @@ DCAM Self Update Design and 09 - System Settings Requirements
 
 Reference Self Update flow, AutoUpdate safety preconditions và policy-safe update guard.
 
-Optional Play Store fallback state
+GMS-free update-source rejection state
 
-DCAM In-App Operation, Device Settings & Media Console Design + DCAM Self Update Design
+ADR - DCAM GMS-free Android Runtime Baseline + DCAM Self Update Design
 
-Reference only when fallback is enabled and capability-approved.
+Reject prohibited Play Store/Managed Google Play/Google-account update request without leaving controlled state.
 
 ## 3. Official Feature Eligibility States
 
@@ -254,11 +254,11 @@ Self Update flow
 
 DCAM Self Update Design
 
-Play Store fallback
+GMS-free update-source rejection
 
-`PLAY_FALLBACK_UNAVAILABLE`, `PLAY_FALLBACK_AUTH_REQUIRED`, `PLAY_FALLBACK_ACTIVE`, `PLAY_FALLBACK_RETURN_REQUIRED`
+`GMS_FREE_COMPLIANCE_BLOCKED`, `PROHIBITED_UPDATE_SOURCE_REQUESTED`
 
-In-App Console + Self Update
+Self Update + In-App Console + ADR
 
 The examples above are references only. Detailed meaning, transitions and persistence requirements stay in the authoritative document for each runtime area.
 
@@ -484,12 +484,12 @@ User disabled by BDMA sync không được interrupt active recording; new recor
 
 ## 9. Self Update Guard
 
-Current baseline uses Self Update / APK update as primary path.
+In the Hybrid profile, the primary update path is BFF-authorized DCAM Self Update from immutable Cloudflare R2/CDN artifact.
 
 Update request
     ↓
 UpdateGuard
-    ├── Managed Google Play requested
+    ├── Prohibited update source requested (Play Store/Managed Google Play/Android Management API/Google account)
     │       → reject/not applicable for current baseline
     ├── Recording/Emergency/Finalizing active
     │       → defer update
@@ -507,7 +507,7 @@ Description
 
 SM-UPD-001
 
-Self Update is the primary update path for current no-external-EMM baseline.
+In the Hybrid profile, BFF authorizes release and DCAM Self Update validates/installs the immutable R2/CDN artifact; no external DPC/EMM owns the install decision.
 
 SM-UPD-002
 
@@ -531,7 +531,7 @@ After update/restart, policy restore and Lock Task recovery must be checked.
 
 SM-UPD-007
 
-Manual Play Store fallback requires Controlled Maintenance Mode and capability-approved target.
+Google Play Store/Managed Google Play/Android Management API/Google-account update request must be rejected and return to controlled maintenance/state recovery.
 
 ## 10. Cross-runtime Coordination Rules
 
@@ -599,6 +599,35 @@ SM-CROSS-015
 
 Console setting changes must not bypass recording, policy or update guards.
 
+SM-CROSS-016
+
+BFF desired-state is input to the coordinator, not a direct state transition. Only DCAM may accept/defer/reject/execute after local guard evaluation.
+
+SM-CROSS-017
+
+Headwind Client status/configuration must not create Device Owner, kiosk, Lock Task, restriction or package-install transitions.
+
+SM-CROSS-018
+
+Desired-state/release handling must distinguish received, accepted/deferred/rejected, executed and acknowledged; duplicates are idempotent.
+
+SM-CROSS-019
+
+Hybrid provider outage/unavailability must defer management work without breaking local recording, evidence preservation, policy recovery or Build 0.1 operation.
+
+## DDMP Hybrid Command Boundary
+
+BFF desired-state / release authorization
+    ↓
+DCAM validates identity, revision, schema and local guards
+    ├── unsafe / unsupported / duplicate → defer or reject + ACK reason
+    └── safe and eligible → DCAM-owned domain transition / execution
+            ↓
+        DCAM emits result / health / ACK to BFF
+Headwind Community is not a state-machine owner. Its role is limited control-plane integration through BFF. The exact message schema, retry timing and security fields are owned by DDMP 03/06; the Hybrid profile remains Phase 2+/POC-gated.
+
+Authoritative DDMP sources: [DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2).
+
 ## 11. Capability Evaluation and Runtime Registration
 
 App Start / Boot
@@ -607,7 +636,7 @@ Android Operation Startup
         ↓
 Device Policy State Detection if required
         ↓
-Device Capability Evaluation including update and Play Store fallback capability
+Device Capability Evaluation including update install constraints and GMS-free compliance capability
         ↓
 Feature Eligibility Result
         ↓
@@ -770,3 +799,13 @@ MP4 không chuyển sang BDMA_READY trước MD5 success; missing/mismatch/failu
 Exact enum/state name cần Technical Review; behavior boundary đã được PM approve.
 
 Target-state authentication flow phía trên vẫn áp dụng cho build sau.
+
+## Credential lifecycle overlay
+
+Credential lifecycle follows [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline) and is orthogonal to capture/recording states.
+
+CREDENTIAL_ABSENT → ENROLLMENT_PENDING → CREDENTIAL_ACTIVE
+CREDENTIAL_ACTIVE → ROTATION_DUE → CREDENTIAL_ACTIVE
+CREDENTIAL_ACTIVE → CREDENTIAL_REJECTED → RE_ENROLLMENT_REQUIRED
+CREDENTIAL_ABSENT / RE_ENROLLMENT_REQUIRED must not transition to field cloud control by serial_number alone.
+A credential failure may defer/reject BFF actions and queue local diagnostics, but it must not force-stop recording, unlock kiosk or discard evidence. State-machine test cases must cover revoke, key loss, re-enrolment, offline queue and rotation-grace transitions.

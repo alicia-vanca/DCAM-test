@@ -1,6 +1,6 @@
 # Feature map by product phase
 
-Source refresh: **2026-07-15**. For Build 0.1, Release & Build Applicability Matrix overrides phase-level feature lists. Important Media is Conditional - Not Activated; only Working Recording Slice features can block acceptance.
+Source refresh: **2026-08-26**. For Build 0.1, Release & Build Applicability Matrix overrides phase-level feature lists. Important Media is Conditional - Not Activated; only Working Recording Slice features can block acceptance. The GMS-free Android runtime guard applies across production profiles.
 
 ## Phase 1 — MVP Foundation
 
@@ -32,7 +32,7 @@ MVP Internal Build 0.1 plus demo, test checklist, and known issues.
 
 ### Data and desktop integration
 
-- Implement the approved DCAM–BDMA Data Contract 1.6 baseline.
+- Implement the approved DCAM–BDMA Data Contract 1.14 baseline.
 - ADB discovery/read/import E2E demo.
 - Metadata mapping for media, device, time, GPS, and status.
 - File recovery/pending/corrupt handling.
@@ -47,6 +47,12 @@ MVP Internal Build 0.1 plus demo, test checklist, and known issues.
 ### Security
 
 - Basic media/metadata encryption scope after agreed design and device benchmark.
+- BFF-authorized per-device mTLS enrollment, rotation, revocation, and Keystore proof-of-possession after Security Review/POC.
+
+### Factory and management platform
+
+- Spring Boot BFF + Thymeleaf Factory Portal with PostgreSQL `ddmp`.
+- BFF-owned desired-state/configuration, identity, and audit boundary; Headwind remains limited Application-mode control plane.
 
 ### Deliverable
 
@@ -81,7 +87,7 @@ These are beta capabilities, not a promise of full production hardening.
 
 ## Important prototype-vs-scope note
 
-The current repository contains standalone AAC recording, SOS action/state, device-identity storage, Loggly upload, a Room-backed log outbox, and contract-shaped media folders/naming. SOS remains an application action in current code, but Important Media creation/activation is conditional and not active for Build 0.1. Contract storage modes, app/contract metadata, MP4 MD5 generation, `dcam.db` operational scope, and BDMA integration remain implementation gaps.
+The current repository contains standalone AAC recording, SOS action/state, device-identity storage, Loggly upload, a Room-backed log outbox, and contract-shaped media folders/naming. SOS remains an application action in current code, but Important Media creation/activation is conditional and not active for Build 0.1. Contract storage modes, app/contract metadata, MP4 MD5 generation, `dcam.db` operational scope, and BDMA integration remain implementation gaps. The refreshed Confluence evidence pages report observed Build 0.1 recording/recovery/image/MD5/BDMA results, but they do not change this code-vs-contract distinction or grant production approval.
 
 ## Cross-feature platform capabilities
 
@@ -89,8 +95,8 @@ The current repository contains standalone AAC recording, SOS action/state, devi
 - **Dedicated-device policy:** Device Owner/DPC, Lock Task, Home/Launcher role, user restrictions, controlled maintenance, and policy restore.
 - **In-app console:** operation, device status, settings, media view, diagnostics, maintenance actions, and permission/policy-aware controls without external Settings/file manager dependency.
 - **Capability eligibility:** hardware, permission, policy, safety, and performance gating with explicit enabled/degraded/unsupported states.
-- **Provisioning:** QR lookup, serial/owner/manufacture-date validation, cloud device identity, audit, and conflict handling.
-- **Self Update:** signed APK metadata, safe download/install guard, recording-aware scheduling, rollback/recovery direction, and no Managed Google Play dependency.
+- **Provisioning:** BFF/Thymeleaf QR lookup, serial/owner/manufacture-date validation, cloud device identity, audit, and conflict handling.
+- **Self Update:** BFF-authorized immutable R2/CDN signed APK metadata, safe download/install guard, recording-aware scheduling, rollback/recovery direction, and no Managed Google Play dependency.
 - **Diagnostics:** local logs, crash/stability evidence, correlation, metrics, recovery data, optional provider upload, and secret-safe redaction.
 - **Factory/production:** identity validation, DSetup workflow, kiosk/update/storage/ADB checks, READY_TO_SHIP or QUARANTINED decision, and evidence retention.
 - **Optional advanced modules:** sensor/location and realtime AI remain capability-gated producers of observations/events; streaming/PTT stay future design work.

@@ -1,7 +1,7 @@
 # DCAM-BDMA Data Contract
 
 **Page ID**: 47743153  
-**Version**: 16  
+**Version**: 17  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47743153
 
@@ -24,7 +24,7 @@ Data Contract / Integration Contract
 
 Version
 
-Approved 1.13
+Approved 1.14
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, BDMA Developers, QA, Support, Cloud/WebSer
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -74,7 +74,7 @@ Tài liệu này định nghĩa **Data Contract** giữa:
 
 **BDMA Desktop** chạy trên Windows/Desktop.
 
-**Firebase/WebServer** quản lý device identity, Web Portal provisioning, remote config và backend metadata.
+**BFF/PostgreSQL ddmp** quản lý device identity, Web Portal provisioning, remote config và backend metadata.
 
 Contract thống nhất cách DCAM tạo, lưu trữ và expose dữ liệu để BDMA có thể read, verify, import, update, sync hoặc delete theo rule đã thống nhất.
 
@@ -110,7 +110,7 @@ This Data Contract
 
 DCAM Android = Offline Data Producer + Runtime Owner
 BDMA Desktop = Active Data Consumer / Importer / Administrative Sync Manager
-Firebase/WebServer = Cloud Identity + Remote Config + Web Portal Provisioning Owner
+BFF/PostgreSQL ddmp = Cloud Identity + Remote Config + Web Portal Provisioning Owner
 DSetup = Factory helper tool up to imported serial_number verification
 ### 2.1 DCAM Responsibilities
 
@@ -236,7 +236,7 @@ Cleanup
 
 Xóa source media sau import theo cleanup policy; không cleanup diagnostics/config/database artifacts.
 
-### 2.3 Firebase/WebServer Responsibilities
+### 2.3 BFF/PostgreSQL ddmp Responsibilities
 
 Area
 
@@ -284,15 +284,15 @@ Storage
 
 `dcam_cloud_device_id`
 
-Firebase/WebServer primary cloud key.
+BFF/PostgreSQL ddmp primary cloud key.
 
-Firebase/WebServer + `dcam.db`.
+BFF/PostgreSQL ddmp + `dcam.db`.
 
 `serial_number`
 
 Hardware Identity / primary recovery key.
 
-App-private storage, `dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer, SD Identity File cache.
+App-private storage, `dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp, SD Identity File cache.
 
 SD Identity File
 
@@ -304,21 +304,21 @@ External SD card, approved Factory SOP path.
 
 Mutable/semi-static device information.
 
-`dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer.
+`dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp.
 
 `manufacture_date`
 
 Semi-static manufacture date using `YYYY-MM-DD`.
 
-`dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer.
+`dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp.
 
 `serial_history`
 
 Lịch sử serial nếu approved rework/support process thay đổi serial.
 
-Firebase/WebServer; optional DB mirror.
+BFF/PostgreSQL ddmp; optional DB mirror.
 
-`firebase_installation_id`
+`app_installation_id`
 
 App-install instance metadata only.
 
@@ -820,7 +820,7 @@ DB ownership:
 
 Android owns schema and runtime invariants.
 BDMA writes only approved tables/fields.
-Firebase/WebServer does not write directly into local DB.
+BFF/PostgreSQL ddmp does not write directly into local DB.
 BDMA checks schema_version before write-back.
 Android safely applies/defers/rejects external writes.
 ## 12. User / Operator Sync Contract
@@ -958,7 +958,7 @@ BDMA
 
 Read-only.
 
-Firebase/WebServer
+BFF/PostgreSQL ddmp
 
 Không direct-access file; nhận operational events qua approved relay/API nếu implemented.
 
@@ -969,7 +969,7 @@ BDMA không được write, modify, truncate, rename hoặc delete `logs.txt`.
 `logs.txt` không được chứa:
 
 password or credential
-Firebase/auth/access token
+BFF device access token
 maintenance password
 factory Wi-Fi password
 Google account password/token
@@ -1048,7 +1048,7 @@ Android runtime-owned.
 
 Device identity primary mapping
 
-Firebase/WebServer provisioning-owned.
+BFF/PostgreSQL ddmp provisioning-owned.
 
 `bdma_decoder_profile_id`
 
@@ -1217,7 +1217,7 @@ May evolve within Logging Design without Data Contract change if `logs.txt` cont
 ## 17. Practical Conclusion
 
 DCAM creates media, device config, dcam.db and operational diagnostics.
-Firebase/WebServer owns dcam_cloud_device_id and serial_lookup mapping.
+BFF/PostgreSQL ddmp owns dcam_cloud_device_id and serial_lookup mapping.
 serial_number is Hardware Identity / primary recovery key.
 dcam_cloud_device_id is Cloud Identity / primary cloud device id.
 SD Identity File is recovery cache, not Hardware Identity.

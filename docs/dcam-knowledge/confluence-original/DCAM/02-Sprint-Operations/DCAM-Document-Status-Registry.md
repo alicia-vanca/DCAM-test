@@ -1,7 +1,7 @@
 # DCAM Document Status Registry
 
 **Page ID**: 51085647  
-**Version**: 33  
+**Version**: 63  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51085647
 
@@ -24,7 +24,7 @@ Document Status / Version Registry
 
 Version
 
-Approved 1.22
+Approved 1.44
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Cross-document version/status/approval-scope summary; coverage 78/78 current pages; change set chỉ đồng bộ live hierarchy/navigation và không nâng Status, evidence, POC hoặc release conclusion.
+Cross-document version/status/approval-scope summary; coverage 81/81 current pages. This controlled change aligns Factory Portal provisioning with Spring Boot BFF, Docker deployment, host-native PostgreSQL and the mandatory mTLS pending-enrollment/proof-of-possession boundary. It does not change Build 0.1 scope or grant production approval to QR/PKI/RBAC implementation details.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Document Owners, QA, Reviewers, Approvers
 
 Last Updated
 
-2026-08-05
+2026-08-26
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM Documentation Governance, DCAM Project Home, DCAM Architecture Home, DCAM Requirements Home, DCAM Release & Build Applicability Matrix, DCAM Requirement–Design–Test Traceability Matrix, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+DCAM Documentation Governance, DCAM Project Home, DCAM Architecture Home, DCAM Requirements Home, DCAM Release & Build Applicability Matrix, DCAM Requirement–Design–Test Traceability Matrix, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice, [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
 
 ## 1. Purpose
 
@@ -73,7 +73,7 @@ Trang này là registry duy nhất để tổng hợp version, document status, 
 Document page metadata = trạng thái chính thức của chính tài liệu đó.
 DCAM Document Status Registry = nơi tổng hợp duy nhất để review toàn bộ bộ tài liệu.
 Navigation pages must not copy version/status tables.
-Khi version hoặc status của một tài liệu thay đổi, document owner phải cập nhật metadata của trang và registry này trong cùng change set.
+Khi version hoặc status của một tài liệu thay đổi, document owner phải cập nhật metadata của trang và registry này trong cùng change set. Change set Hybrid ngày 2026-08-24 đã đồng bộ các DCAM ADR/design affected và navigation/knowledge pages. Change set ngày 2026-08-25 bổ sung approved ADR GMS-free Android Runtime Baseline và đồng bộ Architecture Home/Registry; change set sau đó chốt delivery Diagnostics offline-first: DCAM lưu cục bộ có giới hạn, BFF xác nhận theo `event_id`, còn provider vận hành là downstream thay thế được. DDMP giữ registry riêng theo governance của DDMP. Change set hiện tại chuyển Factory Portal sang Spring Boot BFF + Thymeleaf và PostgreSQL ddmp, đồng bộ Cloud/Identity/SOP/BFF contracts; Firebase không còn là provisioning or device-management authority.
 
 ## 2. Status Taxonomy
 
@@ -173,19 +173,17 @@ Khi registry và page metadata khác nhau, page metadata là nguồn tức thờ
 
 ## 4. Current Document Register
 
-**Data cut-off:** 2026-08-05
+**Data cut-off:** 2026-08-25
 
-**Current coverage:** `78/78` named, retrievable current Confluence pages có page metadata `Project` bắt đầu bằng `DCAM`. `76/78` trang có governed metadata đủ điều kiện theo Registry; DCAM-8 và DCAM-9 vẫn chưa đủ điều kiện vì thiếu trường bắt buộc và dùng `Review`, không thuộc Status Taxonomy.
+**Current coverage:** `80/80` named, retrievable current Confluence pages có page metadata `Project` bắt đầu bằng `DCAM`. `80/80` trang có governed metadata đủ điều kiện theo Registry;
 
-**Hierarchy validation:** Live descendants có 78 entries gồm 78 current page nodes và 0 folder nodes. Mười section containers đã được metadata-managed như Documentation Section / Physical Hierarchy Index. Không có untitled hoặc `Dangling` entry; page ID `49774716` không xuất hiện.
+**Hierarchy validation:** Live descendants có 80 entries gồm 80 current page nodes và 0 folder nodes. Mười section containers đã được metadata-managed như Documentation Section / Physical Hierarchy Index. Không có untitled hoặc `Dangling` entry; page ID `49774716` không xuất hiện.
 
 **Working Instruction record:** [Build and Launch Process for DCAM Application with ADB and Gradle](/wiki/spaces/DVID/pages/54394925/Build+and+Launch+Process+for+DCAM+Application+with+ADB+and+Gradle) now has Draft Working Instruction / Engineering Runbook metadata and a Registry row. Its commands and expected outputs do not confirm execution evidence, Device POC result, build pass or release approval.
 
-**Scope authority:** [DCAM Documentation Governance](/wiki/spaces/DVID/pages/47120620/DCAM+Documentation+Governance) §5.3.1–§5.3.2. Registry chỉ tổng hợp page metadata, không nâng `Status` hoặc mở rộng `Approval Scope`.
+| [DCAM Documentation Governance](/wiki/spaces/DVID/pages/47120620/DCAM+Documentation+Governance) | 1.20 | Approved | Ownership guide now routes Factory Portal BFF/Thymeleaf implementation to its implementation design; governance rules unchanged. | Hoàng Ngọc Quyền | 2026-08-25 |
 
-**Working POC-summary record:** [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary) là child vật lý của [DCAM Device POC & Hardware Validation Report](/wiki/spaces/DVID/pages/49545399/DCAM+Device+POC+Hardware+Validation+Report) dưới `4.3 - Android Development`.  Đây là working execution/evidence summary, không được dùng để cập nhật POC conclusion, Evidence Handoff, Traceability, Jira workflow hoặc release readiness.
-
-**Unqualified evidence-summary records:** [DCAM-9: Image Capture POC Results & Evidence Summary](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary) và [DCAM-8: BDMA Sample Import & Evidence Summary](/wiki/spaces/DVID/pages/60030996/DCAM-8+BDMA+Sample+Import+Evidence+Summary) đều là child vật lý của POC Report. Registry ghi nhận đúng metadata hiện hành và thiếu sót governance của chúng; `Review` không thuộc Status Taxonomy, vì vậy không có Status/evidence/POC/release uplift từ change set này.
+‌
 
 ### 4.1 Approved Implementation Repository Mapping
 
@@ -231,15 +229,15 @@ Last Reviewed
 
 [DCAM Project Home](/wiki/spaces/DVID/pages/41648280/DCAM+Project+Home)
 
-3.41
+3.44
 
 Approved
 
-Project navigation, physical hierarchy và current-summary only; §4 synchronized to the 2026-08-05 live hierarchy; không sở hữu mutable version/status hoặc requirement/design baseline.
+Project summary/hierarchy now names BFF + Thymeleaf Factory Portal + PostgreSQL ddmp and remains navigation-only.
 
 Hoàng Ngọc Quyền
 
-2026-08-05
+2026-08-25
 
 [DCAM Project Charter](/wiki/spaces/DVID/pages/41156610/DCAM+Project+Charter)
 
@@ -303,15 +301,15 @@ Hoàng Ngọc Quyền
 
 [DCAM Documentation Governance](/wiki/spaces/DVID/pages/47120620/DCAM+Documentation+Governance)
 
-1.18
+1.19
 
 Approved
 
-Documentation ownership, status taxonomy, approval integrity, traceability và Registry inclusion/exclusion/coverage rules.
+Documentation ownership, status taxonomy, approval integrity, traceability and GMS-free authoritative-baseline/reference rule.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP)
 
@@ -327,27 +325,27 @@ Hoàng Ngọc Quyền
 
 [DCAM Release & Build Applicability Matrix](/wiki/spaces/DVID/pages/51020012/DCAM+Release+Build+Applicability+Matrix)
 
-1.6
+1.8
 
 Approved
 
-Build applicability for DCAM MVP Internal Build 0.1, DEC-01–DEC-07, Important Media Conditional — Not Activated, legacy MD5 exclusion guardrail and DEC-P2-WEB-01 Phase 2 Web Portal minimum-scope boundary.
+Build applicability unchanged; Phase 2 provisioning blockers now use BFF/PostgreSQL security/deployment terminology.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry)
 
-1.22
+Approved 1.44
 
 Approved
 
-Cross-document version/status/approval-scope summary; coverage 78/78 current pages; DCAM-8/DCAM-9 are tracked as unqualified pending metadata correction.
+Cross-document status summary including controlled Factory Portal BFF/mTLS pending-enrollment synchronization; does not approve Build 0.1 or production QR/PKI/RBAC details.
 
 Hoàng Ngọc Quyền
 
-2026-08-05
+2026-08-26
 
 [DCAM Requirements Home](/wiki/spaces/DVID/pages/47710513/DCAM+Requirements+Home)
 
@@ -363,7 +361,7 @@ Hoàng Ngọc Quyền
 
 [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix)
 
-1.9
+2.1
 
 Approved Provisional Baseline
 
@@ -371,7 +369,7 @@ DEC-01–DEC-07 Build 0.1 traceability plus DEC-P2-WEB-01 Phase 2 planning bound
 
 Hoàng Ngọc Quyền
 
-2026-08-07
+2026-08-21
 
 [01 - Recording & Capture Requirements](/wiki/spaces/DVID/pages/47743356/01+-+Recording+Capture+Requirements)
 
@@ -411,15 +409,15 @@ Hoàng Ngọc Quyền
 
 [07 - Logging & Diagnostics Requirements](/wiki/spaces/DVID/pages/47776094/07+-+Logging+Diagnostics+Requirements)
 
-1.7
+1.9
 
 Approved
 
-Stable Build 0.1 logging requirements cho storage, checksum, operator và Device Status
+GMS-free/provider-independent diagnostics require bounded `DiagnosticsOutbox`, BFF acknowledgement/idempotency and optional Crashlytics only.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM Storage Design](/wiki/spaces/DVID/pages/48496699/DCAM+Storage+Design)
 
@@ -435,15 +433,15 @@ Hoàng Ngọc Quyền
 
 [DCAM SQLite Database Design](/wiki/spaces/DVID/pages/48529463/DCAM+SQLite+Database+Design)
 
-1.8
+2.0
 
 Approved Provisional Baseline
 
-Build 0.1 minimal data/state subset; exact schema/migration/transaction boundary Pending Technical Review
+Cloud identity/config ownership terminology is BFF + PostgreSQL ddmp; app_installation_id is provider-neutral metadata, not a device identity key.
 
 Hoàng Ngọc Quyền
 
-2026-07-16
+2026-08-25
 
 [DCAM BDMA Integration Technical Design](/wiki/spaces/DVID/pages/48595030/DCAM+BDMA+Integration+Technical+Design)
 
@@ -471,51 +469,51 @@ Hoàng Ngọc Quyền
 
 [DCAM-BDMA Data Contract](/wiki/spaces/DVID/pages/47743153/DCAM-BDMA+Data+Contract)
 
-1.13
+1.14
 
 Approved
 
-Global contract với authoritative media filename token mapping, Build 0.1 exchange profile và legacy MD5 applicability guardrail.
+Cloud identity/provisioning terminology uses BFF/PostgreSQL ddmp; app_installation_id is provider-neutral metadata, not a device identity key.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM Non-functional Requirements](/wiki/spaces/DVID/pages/48595009/DCAM+Non-functional+Requirements)
 
-1.13
+1.14
 
 Approved
 
-System quality direction; numeric performance budgets và hardware-dependent behavior thuộc Performance Budget và Device POC.
+System quality includes mandatory GMS-free runtime guard; numeric budgets remain POC-dependent.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM Architecture Home](/wiki/spaces/DVID/pages/47185929/DCAM+Architecture+Home)
 
-1.37
+1.42
 
 Approved
 
-Architecture/Technical Design navigation, reading order và current-summary only; §1.1 synchronized to the 2026-08-05 live technical hierarchy; không sở hữu mutable version/status table.
+Navigation/reading order adds the Device API Credential & mTLS ADR while remaining non-authoritative for mutable baselines.
 
 Hoàng Ngọc Quyền
 
-2026-08-05
+2026-08-26
 
 [DCAM Architecture Delivery Profile](/wiki/spaces/DVID/pages/50626744/DCAM+Architecture+Delivery+Profile)
 
-1.3
+1.5
 
 Approved for Build DCAM MVP Internal Build 0.1
 
-Architecture guardrails cho Working Recording Slice; không phải Production/fleet approval
+Architecture guardrails for Working Recording Slice; GMS-free dependency/source guard applies to every profile; not Production/fleet approval.
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-08-25
 
 [DCAM Recording & Capture Design](/wiki/spaces/DVID/pages/48529484/DCAM+Recording+Capture+Design)
 
@@ -531,51 +529,51 @@ Hoàng Ngọc Quyền
 
 [DCAM Security & Encryption Design](/wiki/spaces/DVID/pages/48496720/DCAM+Security+Encryption+Design)
 
-1.7
+1.11
 
 Approved Pending Security Review
 
-Authentication, authorization, credential-protection direction, maintenance-entry model and sensitive-data constraints are approved; exact cryptographic/key/policy values and Security Review evidence remain pending.
+Adds Keystore-backed per-device mTLS direction and prohibits credential/identity conflation; PKI values and evidence remain under Security Review.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 [DCAM Performance Budget & Resource Constraints](/wiki/spaces/DVID/pages/50659486/DCAM+Performance+Budget+Resource+Constraints)
 
-0.6
+0.8
 
 Approved Pending Device POC
 
-Build 0.1 performance guardrails; reference-device timing/resource/battery/thermal/storage measurements and reviewed evidence Pending Device POC.
+Performance guardrails add GMS-free telemetry isolation; numeric/device evidence remains Pending Device POC.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-25
 
 [DCAM QA Test Strategy & Test Matrix](/wiki/spaces/DVID/pages/49545345/DCAM+QA+Test+Strategy+Test+Matrix)
 
-2.6
+2.7
 
 Approved
 
-Build 0.1 test definitions and release gates; Important Media Conditional — Not Activated; DEC-P2-WEB-01 Phase 2 Web Portal planning boundary recorded without Jira mapping, execution evidence or coverage uplift.
+Build/release test definitions including mandatory GMS-free dependency/source and provider-independent diagnostics checks for production profile; no execution evidence uplift.
 
 Hoàng Ngọc Quyền
 
-2026-07-29
+2026-08-25
 
 [DCAM Device POC & Hardware Validation Report](/wiki/spaces/DVID/pages/49545399/DCAM+Device+POC+Hardware+Validation+Report)
 
-0.9
+1.1
 
 Approved Pending Device POC
 
-Reference configuration and Build 0.1 test plan approved; physical NCC-036V access/setup and reviewed Evidence ID/UNC plus Pass/Fail/Blocked conclusion pending.
+Reference configuration/test plan plus GMS-free dependency/manifest/source and target-firmware POC matrix; physical evidence and conclusion remain pending.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-25
 
 [Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice](/wiki/spaces/DVID/pages/51642452/Decision+Brief+DCAM+MVP+Internal+Build+0.1+Working+Recording+Slice)
 
@@ -591,27 +589,27 @@ Hoàng Ngọc Quyền
 
 [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
 
-1.0
+1.1
 
 Approved
 
-DEC-P2-WEB-01 product-scope precedence for Phase 2 / Secure Platform MVP Build 0.2 onward; not implementation, Security Review, Factory acceptance or release approval.
+Phase 2 scope is unchanged; implementation/deployment blockers now name BFF identity/session/RBAC, PostgreSQL and QR policy rather than a legacy provider.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [04 - Device Configuration Requirements](/wiki/spaces/DVID/pages/47710554/04+-+Device+Configuration+Requirements)
 
-1.7
+1.8
 
 Approved
 
-Device configuration requirements với narrow Build 0.1 operator exception
+Device identity/config requirements now use the BFF/PostgreSQL ddmp provider boundary; scope remains unchanged.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [05 - User & Device Operation Requirements](/wiki/spaces/DVID/pages/47710574/05+-+User+Device+Operation+Requirements)
 
@@ -627,63 +625,63 @@ Hoàng Ngọc Quyền
 
 [DCAM Logging & Diagnostics Design](/wiki/spaces/DVID/pages/51019937/DCAM+Logging+Diagnostics+Design)
 
-0.6
+1.0
 
 Approved
 
-Build 0.1 operational logging cho approved decisions; không thay Security Profile
+Clarifies DCAM local-first diagnostics versus BFF monitoring: expected device/security events are audit/metrics, unexpected BFF failures use backend observability; no direct Android Sentry/OTel path.
 
 Hoàng Ngọc Quyền
 
-2026-07-16
+2026-08-26
 
 [DCAM State Machine Design](/wiki/spaces/DVID/pages/48496753/DCAM+State+Machine+Design)
 
-2.1
+2.4
 
 Approved Provisional Baseline
 
-Target-state model với approved Build 0.1 no-login/checksum overlay
+Adds credential lifecycle overlay: enrollment, active, rotation, revocation and re-enrolment without disrupting local recording/evidence.
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-08-26
 
 [DCAM Android Operation Design](/wiki/spaces/DVID/pages/48562239/DCAM+Android+Operation+Design)
 
-2.2
+2.6
 
 Approved Provisional Baseline
 
-Build 0.1 operation overlay; reference-device lifecycle, boot/background/foreground/recovery behavior Pending Device POC.
+Defines operational credential states and safe offline/recovery behaviour; exact PKI implementation remains POC-gated.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 [03 - Android Platform & Compatibility Strategy](/wiki/spaces/DVID/pages/47120437/03+-+Android+Platform+Compatibility+Strategy)
 
-1.7
+1.10
 
 Approved
 
-Global platform strategy; Build 0.1 reference profile remains Pending Device POC (NCC-036V / Android 12 / API 31 camera/platform compatibility evidence).
+GMS-free compatibility baseline uses provider-neutral remote-configuration wording.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-25
 
 [04 - Application & Module Architecture](/wiki/spaces/DVID/pages/47218698/04+-+Application+Module+Architecture)
 
-1.11
+1.15
 
 Approved
 
-Module boundaries với approved Build 0.1 reference/camera/checksum constraints
+Adds logical DeviceCredentialManager, enrollment coordinator and mTLS Device API client boundaries.
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-08-26
 
 [08 - DCAM-BDMA Integration Boundary](/wiki/spaces/DVID/pages/47153235/08+-+DCAM-BDMA+Integration+Boundary)
 
@@ -699,27 +697,51 @@ Hoàng Ngọc Quyền
 
 [ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id](/wiki/spaces/DVID/pages/50692110/ADR+-+DCAM+Device+Identity+Baseline+serial_number+dcam_cloud_device_id)
 
-1.1
+1.9
+
+Approved
+
+Links the one-cloud-identity baseline to the separate mTLS credential ADR; identity fields remain non-credentials.
+
+Hoàng Ngọc Quyền
+
+2026-08-26
+
+[ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline)
+
+Approved Direction 1.0
 
 Approved Direction
 
-Device Identity direction: serial_number là Hardware Identity / primary recovery key và dcam_cloud_device_id là Cloud Identity; implementation, migration, Security/Factory/QA evidence chưa được Production-approved.
+Authoritative per-device Device API credential baseline: Android Keystore key, mTLS client certificate, controlled enrollment/rotation/revocation and separate human/device scopes; exact PKI values/evidence remain gated.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-26
+
+[ADR - DCAM GMS-free Android Runtime Baseline](/wiki/spaces/DVID/pages/69730306/ADR+-+DCAM+GMS-free+Android+Runtime+Baseline)
+
+Approved Direction 1.0
+
+Approved Direction
+
+Mandatory production Android runtime baseline: no Google Play services/GMS, Google Play Store, Google account, FCM, Analytics or Play Integrity dependency; DCAM DPC, BFF and R2 authority boundaries remain unchanged. Firebase Crashlytics is optional and does not replace local-first diagnostics.
+
+Hoàng Ngọc Quyền
+
+2026-08-25
 
 [DCAM Android Device Owner & Kiosk Policy Design](/wiki/spaces/DVID/pages/49840280/DCAM+Android+Device+Owner+Kiosk+Policy+Design)
 
-0.9
+1.1
 
 Approved Pending Device POC
 
-Device Owner/Kiosk implementation direction và runtime guards; exact OEM/firmware feasibility, Device Owner component, restrictions/allowlist và install behavior Pending Device POC.
+Device Owner/Kiosk direction includes GMS-free maintenance/allowlist boundary; exact OEM/firmware/DPC/allowlist/Headwind package evidence remains Pending Device POC.
 
 Hoàng Ngọc Quyền
 
-2026-07-13
+2026-08-25
 
 [05 - Data, Storage & BDMA Architecture](/wiki/spaces/DVID/pages/47185950/05+-+Data+Storage+BDMA+Architecture)
 
@@ -735,27 +757,27 @@ Hoàng Ngọc Quyền
 
 [01 - Architecture Overview](/wiki/spaces/DVID/pages/47120395/01+-+Architecture+Overview)
 
-1.6
+2.0
 
 Approved
 
-High-level system context, component boundary và architecture overview; detailed decisions thuộc authoritative Architecture/ADR/Contract pages.
+High-level system context now names Spring Boot BFF + Thymeleaf Factory Portal and PostgreSQL ddmp; Hybrid authority and mandatory GMS-free Android runtime remain unchanged.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [02 - Architecture Principles](/wiki/spaces/DVID/pages/47120416/02+-+Architecture+Principles)
 
-1.8
+1.12
 
 Approved
 
-Project architecture principles và cross-cutting constraints; build applicability thuộc DCAM Release & Build Applicability Matrix.
+Cross-cutting Factory Portal provider baseline is Spring Boot BFF + Thymeleaf + PostgreSQL ddmp.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [03 - Media Management Requirements](/wiki/spaces/DVID/pages/47710534/03+-+Media+Management+Requirements)
 
@@ -771,27 +793,27 @@ Hoàng Ngọc Quyền
 
 [06 - Cloud Services, Update & Configuration Architecture](/wiki/spaces/DVID/pages/47120459/06+-+Cloud+Services+Update+Configuration+Architecture)
 
-3.3
+3.7
 
 Approved
 
-Cloud, update và configuration architecture boundaries; exact API/schema thuộc Contract, security values thuộc Security Design.
+Adds BFF-controlled Device PKI and per-device mTLS as Device API trust boundary; exact PKI/network values remain gated.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-26
 
 [07 - Logging, Diagnostics, Performance & Security](/wiki/spaces/DVID/pages/47185971/07+-+Logging+Diagnostics+Performance+Security)
 
-1.8
+1.9
 
 Approved
 
-Operational quality architecture boundaries cho logging, diagnostics, performance và security; detailed rules thuộc Requirements/Design/QA sources.
+Quality architecture includes mandatory GMS-free observability boundary; detailed rules remain in Requirements/Design/QA sources.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [08 - Security & Encryption Requirements](/wiki/spaces/DVID/pages/47710594/08+-+Security+Encryption+Requirements)
 
@@ -807,111 +829,111 @@ Hoàng Ngọc Quyền
 
 [09 - System Settings Requirements](/wiki/spaces/DVID/pages/47710614/09+-+System+Settings+Requirements)
 
-1.17
+1.20
 
 Approved
 
-System settings target requirements; build applicability thuộc Matrix, exact provider/payload/runtime implementation thuộc Design/Contract.
+System settings identity boundary uses BFF Factory Portal and PostgreSQL ddmp; feature scope remains unchanged.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [10 - Android Device Operation Requirements](/wiki/spaces/DVID/pages/48496661/10+-+Android+Device+Operation+Requirements)
-
-1.9
-
-Approved
-
-Android device-operation target requirements; active subset thuộc Matrix, hardware behavior phụ thuộc Device POC khi được nêu.
-
-Hoàng Ngọc Quyền
-
-2026-07-21
-
-[ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision](/wiki/spaces/DVID/pages/49774787/ADR+-+DCAM+Android+Dedicated+Device+Device+Owner+Lock+Task+Decision)
-
-1.0
-
-Approved Direction
-
-Dedicated-device, local Device Owner và Lock Task architecture direction; exact DPC component, OEM/firmware feasibility và policy evidence còn phụ thuộc Device POC/Security Review.
-
-Hoàng Ngọc Quyền
-
-2026-07-14
-
-[DCAM Android Development Standard](/wiki/spaces/DVID/pages/47120580/DCAM+Android+Development+Standard)
 
 1.11
 
 Approved
 
-Project-specific Android engineering standard; không thay đổi product scope, requirement hoặc approved architecture.
+Android operation requirements replace manual Play Store fallback with mandatory GMS-free runtime/update-source rejection guard.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
+
+[ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision](/wiki/spaces/DVID/pages/49774787/ADR+-+DCAM+Android+Dedicated+Device+Device+Owner+Lock+Task+Decision)
+
+1.1
+
+Approved Direction
+
+Dedicated-device, DCAM-only Device Owner/DPC và Lock Task architecture direction, bao gồm approved DDMP hybrid boundary; exact DPC component, OEM/firmware coexistence feasibility và policy evidence còn phụ thuộc Device POC/Security Review.
+
+Hoàng Ngọc Quyền
+
+2026-08-24
+
+[DCAM Android Development Standard](/wiki/spaces/DVID/pages/47120580/DCAM+Android+Development+Standard)
+
+1.13
+
+Approved
+
+Engineering standard aligns Factory Portal/device identity boundary to BFF while retaining the GMS-free dependency/manifest/source CI guard.
+
+Hoàng Ngọc Quyền
+
+2026-08-25
 
 [DCAM Android Training & Architecture Onboarding](/wiki/spaces/DVID/pages/46825510/DCAM+Android+Training+Architecture+Onboarding)
 
-1.6
+1.7
 
 Approved
 
-Developer onboarding và reading guidance; không thay thế Requirements, Architecture, Technical Design hoặc Build Applicability baseline.
+Developer onboarding includes mandatory GMS-free dependency/update-source awareness; does not replace Requirements, Architecture, Technical Design or Build Applicability baseline.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [DCAM Device Capability & Feature Eligibility Design](/wiki/spaces/DVID/pages/48758788/DCAM+Device+Capability+Feature+Eligibility+Design)
 
-0.8
+0.10
 
 Draft
 
-Draft capability/eligibility design; exact feature eligibility depends on approved Build Profile and Device POC evidence.
+Draft capability/eligibility design replaces Play Store capability with GMS-free compliance evidence; evaluator/persistence/POC evidence remain Draft.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-25
 
 [DCAM Device Provisioning Web Portal App Design](/wiki/spaces/DVID/pages/50692194/DCAM+Device+Provisioning+Web+Portal+App+Design)
 
-1.4
+1.6
 
-Approved
+Approved Direction
 
-Approved Phase 2 factory provisioning Login/Workspace UI baseline under DEC-P2-WEB-01; implementation/deployment/Security detail remains separately gated.
+Factory Portal UI is BFF-hosted Thymeleaf in ddmp-bff Docker; QR pairing is submitted as payload/scan reference and BFF creates pending enrollment only; browser has no direct PostgreSQL/certificate access.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 [DCAM Device Provisioning Web Portal Design](/wiki/spaces/DVID/pages/49315858/DCAM+Device+Provisioning+Web+Portal+Design)
 
-1.3
+1.5
 
-Approved
+Approved Direction
 
-Approved Phase 2 factory provisioning business-flow baseline under DEC-P2-WEB-01; not a Build 0.1, general portal, factory acceptance or release approval.
+Factory provisioning BFF flow creates/restores identity and short-lived pending enrollment from validated QR pairing; DCAM later proves Keystore key possession before certificate issue.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 [DCAM Device Provisioning Web Portal Implementation Design](/wiki/spaces/DVID/pages/51019802/DCAM+Device+Provisioning+Web+Portal+Implementation+Design)
 
-1.3
+1.5
 
-Approved
+Approved Direction
 
-Approved Phase 2 factory provisioning implementation direction under DEC-P2-WEB-01; not implementation evidence, Security Review pass, Build 0.1 or release approval.
+Spring MVC/Thymeleaf BFF module now maps pending enrollment, QR pairing validation and Device PKI proof continuation; ddmp is host-native Server B and implementation/security evidence remains pending.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 [DCAM DSetup Factory Tool Design](/wiki/spaces/DVID/pages/50626624/DCAM+DSetup+Factory+Tool+Design)
 
@@ -931,23 +953,23 @@ Hoàng Ngọc Quyền
 
 Approved
 
-Factory provisioning procedure and acceptance gates; DEC-P2-WEB-01 defines only the Phase 2 Web Portal minimum scope and does not itself activate device qualification, factory acceptance or shipment approval.
+Factory procedure aligns provisioning connectivity and cloud identity terminology to BFF/PostgreSQL ddmp; optional Crashlytics telemetry rule remains unchanged.
 
 Hoàng Ngọc Quyền
 
-2026-07-21
+2026-08-25
 
 [DCAM In-App Operation, Device Settings & Media Console Design](/wiki/spaces/DVID/pages/49840330/DCAM+In-App+Operation+Device+Settings+Media+Console+Design)
 
-1.2
+1.4
 
 Draft
 
-Draft in-app console/device-settings/media-console design only; không phải approved implementation hoặc release baseline.
+Draft console explicitly prohibits Play Store/Managed Google Play/Android Management API/Google-account update targets; only BFF-authorized R2/CDN or approved local/factory recovery is permitted.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [DCAM Realtime AI Detection Design](/wiki/spaces/DVID/pages/48595090/DCAM+Realtime+AI+Detection+Design)
 
@@ -963,15 +985,15 @@ Hoàng Ngọc Quyền
 
 [DCAM Self Update Design](/wiki/spaces/DVID/pages/48529439/DCAM+Self+Update+Design)
 
-1.1
+1.3
 
 Draft
 
-Draft self-update design only; không phải approved implementation, release hoặc Production baseline.
+Draft self-update design removes Play Store/account fallback; BFF/R2 primary and controlled local/factory package fallback only. Exact schema/install/rollout evidence remain Draft.
 
 Hoàng Ngọc Quyền
 
-2026-07-14
+2026-08-25
 
 [DCAM Sensor & Location Monitoring Design](/wiki/spaces/DVID/pages/48496794/DCAM+Sensor+Location+Monitoring+Design)
 
@@ -985,17 +1007,17 @@ Hoàng Ngọc Quyền
 
 2026-07-14
 
-[DCAM Web Portal & Device API Contract](/wiki/spaces/DVID/pages/49873154/DCAM+Web+Portal+Device+API+Contract)
+[DCAM Factory Provisioning Portal & BFF API Contract](/wiki/spaces/DVID/pages/49873154/DCAM+Factory+Provisioning+Portal+BFF+API+Contract)
 
-0.9
+1.1
 
-Approved
+Approved Direction
 
-Approved Phase 2 factory provisioning logical API/data-contract boundary under DEC-P2-WEB-01; deployment and Security enforcement remain pending approved gates.
+Administrative Factory route accepts QR payload/scan reference, creates pending enrollment and separates later Device API proof/certificate issue; BFF/ddmp remains sole data authority.
 
 Hoàng Ngọc Quyền
 
-2026-07-20
+2026-08-26
 
 ### 4.2 Current Hierarchy Index and Working Instruction Records
 
@@ -1097,7 +1119,7 @@ Hoàng Ngọc Quyền
 
 [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary)
 
-1.3
+1.5
 
 Draft
 
@@ -1105,31 +1127,43 @@ Working execution/evidence summary under DCAM Device POC & Hardware Validation R
 
 duchm & Việt Anh
 
-2026-08-07
+2026-08-21
+
+[DCAM-6: Working Recording Slice Integration & Evidence Summary (local working record; Confluence Page ID/URL pending)](/wiki/spaces/DVID/pages/66355221/DCAM-6+Working+Recording+Slice+Integration+Evidence+Summary)
+
+0.1
+
+Draft
+
+Build 0.1 WRS evidence summary: `Pass with recorded blocked cases` (`EV-DCAM-38-20260815-001`; DCAM-40: 20 Pass, 3 Blocked, 0 Fail). Review/Jira/QA handoff pending.
+
+Việt Anh
+
+2026-08-21
 
 [DCAM-9: Image Capture POC Results & Evidence Summary](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary)
 
-— (Version missing)
+0.1
 
-Review — non-taxonomy
+Draft
 
-Working evidence summary under DCAM Device POC & Hardware Validation Report. Missing Version, Approver, Parent Page, Related Jira and Dependencies / Blockers; no POC/Traceability/Jira/release uplift.
+Working evidence summary under DCAM Device POC & Hardware Validation Report. Các trường Version/Target Audience/Approver/Parent Page/Related Jira/Dependencies-Blockers đã được bổ sung; không có Status/evidence/POC/release uplift.
 
 phiha
 
-2026-08-04
+2026-08-21
 
 [DCAM-8: BDMA Sample Import & Evidence Summary](/wiki/spaces/DVID/pages/60030996/DCAM-8+BDMA+Sample+Import+Evidence+Summary)
 
-— (Version missing)
+0.1
 
-Review — non-taxonomy
+Draft
 
-Working evidence summary under DCAM Device POC & Hardware Validation Report. Missing Version, Approval Scope, Approver, Parent Page, Related Jira and Dependencies / Blockers; no POC/Traceability/Jira/release uplift.
+Working evidence summary under DCAM Device POC & Hardware Validation Report. Các trường Version/Target Audience/Approval Scope/Approver/Parent Page/Related Jira/Dependencies-Blockers đã được bổ sung; không có Status/evidence/POC/release uplift.
 
 phiha
 
-2026-08-04
+2026-08-21
 
 [4.4 - Architecture Decision Records (ADR)](/wiki/spaces/DVID/pages/55246907/4.4+-+Architecture+Decision+Records+ADR)
 
@@ -1215,3 +1249,11 @@ Draft Technical Designs không tự được nâng status bởi PM decision.
 [DucVietTech/dcam](https://github.com/DucVietTech/dcam) là PM-approved repository identity; nó không tự là PR/build/test evidence hoặc release evidence.
 
 Navigation pages không copy mutable version/status hoặc Build 0.1 decision tables.
+
+## 9. Controlled synchronization — Factory Portal BFF and device enrollment
+
+Factory Portal is an administrative Spring MVC/Thymeleaf module inside the ddmp-bff Docker service on Server A. It validates non-secret DCAM QR pairing data and creates/restores cloud identity plus short-lived PENDING_ENROLLMENT in host-native PostgreSQL ddmp on Server B.
+
+The Portal/Factory Worker never receives a device private key or Device API credential. DCAM later uses the separate Device API to prove Android Keystore key possession against BFF challenge before BFF Device PKI issues/binds a client certificate. IdP integration is a BFF security dependency; Firebase/BaaS/direct browser-data authority is not part of the provisioning line.
+
+This synchronization is Phase 2 / Build 0.2 minimum and does not change DCAM Build 0.1 applicability.

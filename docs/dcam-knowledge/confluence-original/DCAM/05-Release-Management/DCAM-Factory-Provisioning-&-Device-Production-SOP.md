@@ -1,7 +1,7 @@
 # DCAM Factory Provisioning & Device Production SOP
 
 **Page ID**: 49545629  
-**Version**: 17  
+**Version**: 20  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49545629
 
@@ -56,7 +56,7 @@ Factory Operator, Factory Worker, Factory Admin, QA, Android Developers, Tech Le
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ Không có
 
 Related Documents
 
-DCAM Project Home, DCAM Documentation Governance, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report, DCAM DSetup Factory Tool Design, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Device Provisioning Web Portal Implementation Design, DCAM Web Portal & Device API Contract, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, DCAM Security & Encryption Design, DCAM Android Operation Design, DCAM-BDMA Data Contract, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+DCAM Project Home, DCAM Documentation Governance, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report, DCAM DSetup Factory Tool Design, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Device Provisioning Web Portal Implementation Design, DCAM Web Portal & Device API Contract, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, DCAM Security & Encryption Design, DCAM Android Operation Design, DCAM-BDMA Data Contract, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id , ADR - DCAM GMS-free Android Runtime Baseline, [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
 
 ## 1. Purpose
 
@@ -95,9 +95,9 @@ Factory acceptance, production record và shipment decision thuộc Factory/QA p
 ## 2. Current Deployment Baseline
 
 No external EMM.
-No Android Management API.
-No Managed Google Play policy-driven update.
-Primary update path = DCAM Self Update / approved APK update.
+No Android Management API, Managed Google Play or Google Play Store update path.
+No Google account is used on production device.
+Primary update path = BFF-authorized DCAM Self Update / approved APK update; approved local/factory package is controlled fallback.
 Device Owner setup uses the approved factory ADB/DSetup flow when required and supported.
 DSetup resolves serial_number from SD Identity File or approved barcode/manual fallback.
 DSetup injects serial_number through the approved factory serial injection mechanism defined by DCAM DSetup Factory Tool Design.
@@ -146,7 +146,7 @@ Cloud Identity
 
 `dcam_cloud_device_id`
 
-Primary device id trên Cloud Firestore/WebServer.
+Primary device id trên PostgreSQL ddmp/BFF.
 
 Backend create/restore bằng `serial_number`.
 
@@ -562,7 +562,7 @@ DCAM syncs SD Identity File if applicable
     ↓
 DCAM configures factory Wi-Fi using credentials hardcoded in approved APK
     ↓
-Verify Wi-Fi / Firebase connectivity
+Verify Wi-Fi / BFF connectivity
     ↓
 DCAM displays provisioning QR
     ↓
@@ -741,7 +741,7 @@ DCAM configures/connects to factory Wi-Fi.
 
 Device connected.
 
-Verify network/Firebase connectivity.
+Verify network/BFF connectivity.
 
 Web provisioning backend reachable.
 
@@ -801,7 +801,7 @@ BDMA ADB/media discovery and import readiness
 User sync readiness if required
 Self Update capability and safe defer behavior
 Post-update kiosk/policy restore when update test is executed
-Optional Play Store fallback only when separately approved
+No Play Store fallback; only approved local/factory package support fallback.
 ### 10.13 Factory Acceptance
 
 Factory/QA reviews all required evidence and decides:
@@ -849,7 +849,7 @@ Approved APK contains current hardcoded factory Wi-Fi configuration
 
 Có
 
-Factory Wi-Fi/Firebase connectivity
+Factory Wi-Fi/BFF connectivity
 
 Có khi online provisioning required
 
@@ -1163,7 +1163,7 @@ DSetup ends when DCAM confirms imported_serial_number == expected serial_number.
 DSetup does not create the official production record.
 DSetup does not mark PASS, FAIL, QUARANTINED or READY_TO_SHIP.
 Exact serial injection mechanism belongs to DCAM DSetup Factory Tool Design.
-The current project decision keeps factory Wi-Fi SSID/password hardcoded in the approved DCAM APK.
+The current project decision keeps factory Wi-Fi SSID/password hardcoded in the approved DCAM APK. Factory acceptance must retain GMS-free dependency/manifest/source evidence and must not add a Play Store or Google-account procedure.
 The Wi-Fi password must never appear in logs, Crashlytics, production records or evidence.
 DCAM displays the provisioning QR after imported serial is available.
 Factory Worker uses the two-screen Web Portal: Login and Workspace.

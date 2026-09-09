@@ -2,31 +2,29 @@
 
 ## Current source position
 
-July 14 governance closes several old documentation gaps: Build 0.1 DEC-01-DEC-07 decisions exist, traceability exists as Approved Provisional Baseline, and two ADR pages cover dedicated-device/device-owner/lock-task direction and device identity. Remaining work is evidence and implementation validation, not recreating those documents.
+The 2026-08-26 refresh shows that the core requirements, architecture, release applicability, governance, and ADR set now exists. Remaining work is evidence, implementation validation, and explicitly gated detail—not recreating the source documents. New approved directions include GMS-free Android runtime, BFF/PostgreSQL factory provisioning, and per-device mTLS with Keystore proof-of-possession.
 
-## Highest-priority missing documents
+## Highest-priority open work
 
 | Priority | Document | Why it blocks or reduces rework |
 |---|---|---|
-| P1 | Expand initial Functional Requirements | Add workflows, exceptions, and acceptance criteria where traceability still lacks Jira/QA/evidence links |
-| P1 | Jira backlog from Requirements + MVP + Data Contract | Turns approved direction into traceable epics/stories/tasks and tests |
-| P2 | Non-functional Requirements completion/review | Sets measurable stability, performance, battery, storage, GPS, offline, and security constraints |
-| P2 | Storage Design correction/completion | Defines root/folders, filenames, temporary/final handling, DB/files, and ADB visibility |
-| P2 | Metadata Design | Defines fields, validation, state model, schema versioning, and BDMA mapping |
-| P2 | Security & Encryption Design correction/completion | Defines Phase 2 basic and Phase 3 advanced encryption and BDMA compatibility |
+| P1 | Jira/evidence traceability completion | Link implementation, QA Test IDs, Evidence IDs, and reviewed repository/build artifacts to the current matrix |
+| P1 | Device POC and GMS-free qualification | Prove the target firmware, resolved release dependencies, manifest/source flows, and production runtime guard on hardware |
+| P1 | mTLS/PKI Security Review | Validate Keystore support, enrollment, rotation, revocation, certificate profile, and BFF authorization evidence |
+| P2 | Storage/DB implementation review | Close physical roots, schema, concurrency, recovery, retention, and BDMA write-boundary details against the current contract |
+| P2 | Factory Portal/BFF implementation design | Close QR cryptography, replay/freshness, RBAC/session, PostgreSQL schema/migrations, deployment, and reconciliation details |
+| P2 | Release and deployment runbooks | Define artifact authorization, R2/CDN delivery, rollback, environment, and production operational evidence |
 | P3 | Streaming, PTT, GPS-route designs | Required before Phase 3 implementation |
-| P3 | Release Plan | Defines build/version/release/pilot process |
-| P3 | ADRs | Add evidence-driven ADRs for remaining unresolved implementation choices; two ADR pages already exist |
 
-The DCAM-BDMA Data Contract is current page version 13. The following are remaining design/requirement gaps around that baseline and the refreshed Technical Design set.
+The DCAM-BDMA Data Contract is current page version 17. The following are remaining design/requirement gaps around that baseline and the refreshed Technical Design set.
 
 ## Data and BDMA decisions
 
 - Exact Android storage root exposed through ADB.
 - Exact mapping from logical roots to physical paths on each supported BodyCamera/storage API.
-- Complete embedded metadata fields, encoding, validation, and media-format support; standalone media JSON is excluded by contract 1.6.
+- Complete embedded metadata fields, encoding, validation, and media-format support; standalone media JSON is excluded by contract 1.14.
 - Exact `dcam.db` schema and schema-version negotiation.
-- Stable local implementation of `dcam_cloud_device_id`, `android_id_hash`, app/contract metadata, and user/operator mapping.
+- Stable local implementation of `dcam_cloud_device_id`, `serial_number`, provider-neutral installation metadata, app/contract metadata, and user/operator mapping; `android_id_hash` is explicitly not used.
 - Source-state vocabulary; `recording`, `pending`, `completed`, `corrupted`, and `recovered` are only proposed directions.
 - Schema evolution and backward-compatibility rules.
 - MP4 MD5 performance evidence and exact sidecar/content implementation remain open; Build 0.1 applicability is decided: finalize first, checksum MP4, then expose affected item as `BDMA_READY`.
@@ -57,8 +55,8 @@ The DCAM-BDMA Data Contract is current page version 13. The following are remain
 
 ## Cloud, config, and update decisions
 
-- Which cloud capabilities are actually required and which provider(s) implement them.
-- Firebase SDK features that work on target devices and their GMS dependency.
+- Which later cloud capabilities are actually required and which provider(s) implement them behind the BFF boundary.
+- Exact BFF desired-state, remote-config schema, rollout, and provider outage behavior.
 - REST/API fallback and BDMA-desktop cloud responsibilities.
 - Remote-config schema, keys, validation, and safe rollout behavior.
 - Runtime override controls and config precedence. Device information may use internal `dcam_config.cson`; identity/provisioning mirror, remote-config cache, and operational settings belong in `dcam.db`.
@@ -69,7 +67,8 @@ The DCAM-BDMA Data Contract is current page version 13. The following are remain
 
 - AES-256 implementation details and exact media/metadata scope; `_enc` and `_IMP_enc` naming are already decided.
 - Key creation, secure storage, distribution, rotation, recovery, and BDMA decryption.
-- API/provider authentication and authorization.
+- API/provider authentication and authorization, including per-device mTLS enrollment, proof-of-possession, rotation, revocation, and BFF mapping.
+- Exact PKI algorithms, certificate validity/revocation mechanism, Keystore/StrongBox support, and production security evidence.
 - Update signature verification.
 - Sensitive metadata classification, log redaction, export, retention, and access control.
 - Integrity behavior outside the contracted optional MP4 MD5 flow.

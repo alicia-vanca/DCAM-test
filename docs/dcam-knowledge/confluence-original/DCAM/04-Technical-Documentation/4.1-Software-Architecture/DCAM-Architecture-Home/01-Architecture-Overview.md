@@ -1,7 +1,7 @@
 # 01 - Architecture Overview
 
 **Page ID**: 47120395  
-**Version**: 11  
+**Version**: 15  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120395
 
@@ -24,7 +24,7 @@ Software Architecture Document / Overview
 
 Version
 
-Approved 1.6
+Approved 2.0
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, QA
 
 Last Updated
 
-2026-07-14
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM Architecture Home, DCAM Project Home, DCAM Product Vision, DCAM Roadmap, DCAM MVP Scope, DCAM Documentation Governance, 05 - User & Device Operation Requirements, DCAM-BDMA Data Contract, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design
+DCAM Architecture Home, DCAM Project Home, DCAM Product Vision, DCAM Roadmap, DCAM MVP Scope, DCAM Documentation Governance, 05 - User & Device Operation Requirements, DCAM-BDMA Data Contract, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, ADR - DCAM GMS-free Android Runtime Baseline, DDMP Architecture Overview & Reading Guide
 
 ## 1. Purpose
 
@@ -92,19 +92,20 @@ DCAM hoạt động offline-first. User/operator data và operator session đư�
 
 BDMA Desktop là hệ thống ingest, index, xem lại, backup, export, quản lý dữ liệu và quản lý user/operator do DCAM tạo ra hoặc đồng bộ với DCAM.
 
-Cloud Services là lớp mở rộng tùy chọn. Cloud có thể được triển khai bằng Firebase, custom REST backend, private cloud hoặc provider khác. Cloud không phải điều kiện bắt buộc cho core recording/capture/storage/metadata/user authentication.
+Cloud Services là lớp mở rộng tùy chọn đối với core recording/capture/storage/metadata/user authentication. DCAM production Android runtime vẫn bắt buộc GMS-free; Factory Portal chạy Spring Boot BFF + Thymeleaf và PostgreSQL ddmp là server/web provisioning boundary, không phải Google Play services dependency trên device. BFF là provider factory/provisioning đã được phê duyệt trong phạm vi DCAM. Khi Hybrid profile được kích hoạt ở Phase 2+ sau POC, DDMP cung cấp control-plane: BFF là API/desired-state/audit boundary, Headwind Community là control-plane giới hạn, và Cloudflare R2/CDN là artifact plane. DCAM vẫn là Device Owner/DPC duy nhất; Headwind Client chỉ chạy Application mode.
 
 BodyCamera Android Device
         ↓
-DCAM Android Application
-        ↓
-Local Media / Metadata / User-Operator DB / Logs
-        ↓
-BDMA Desktop via ADB
-        ↓
-Ingest / Index / User Sync / View / Backup / Export / Report
-        ↓
-Optional Cloud Services / Future Operations
+DCAM Android Application / sole Device Owner-DPC
+        ├── Local Media / Metadata / User-Operator DB / Logs
+        │       ↓
+        │   BDMA Desktop via ADB → Ingest / Index / View / Backup / Export / Report
+        │
+        └── Phase 2+ Hybrid profile (POC-gated; Deferred for Build 0.1)
+                ↓ outbound sync / ACK
+            DDMP BFF → Headwind Community (limited control-plane)
+                ↓ verified update manifest / artifact
+            Cloudflare R2/CDN
 ## 3. Architecture Goals
 
 Goal
@@ -175,7 +176,7 @@ Các module cần đủ tách biệt để test và debug.
                      ↓
               BDMA Desktop via ADB
                      ↓
-     Import + User Sync + Optional Cloud / Analytics
+     Import + User Sync + Optional Cloud extension (no Android GMS/Analytics dependency)
 ## 5. Primary Responsibilities of DCAM
 
 Responsibility
@@ -228,7 +229,7 @@ Tạo log giúp debug và vận hành.
 
 Cloud Service Readiness
 
-Chuẩn bị abstraction để hỗ trợ Firebase/custom cloud/desktop-side cloud nếu cần.
+Spring Boot BFF + Thymeleaf Factory Portal and PostgreSQL ddmp provisioning boundary plus optional DDMP Hybrid profile: BFF management boundary, limited Headwind control-plane and R2 artifact plane; no change to offline core or GMS-free Android runtime.
 
 Advanced Communication Readiness
 
@@ -346,9 +347,9 @@ Cloud Service abstraction
 
 Decided direction
 
-Firebase as one possible provider
+Spring Boot BFF + Thymeleaf Factory Portal provider
 
-Proposed
+Approved in DCAM factory boundary; DDMP Hybrid control-plane is Phase 2+/POC-gated.
 
 Java-first
 
@@ -368,7 +369,7 @@ SQLite / `dcam.db`
 
 Update direction
 
-Play Store first; Self Update fallback defined
+In Hybrid profile, BFF-authorized DCAM Self Update from immutable R2/CDN artifact is the only remote production update path; approved local/factory APK is separately controlled support fallback. Google Play Store/Managed Google Play/Google-account update is not applicable.
 
 Streaming protocol
 
@@ -388,3 +389,4 @@ Overview định nghĩa architecture context.
 Runtime design documents định nghĩa implementation baseline.
 Data Contract định nghĩa BDMA-facing và user-sync behavior.
 Security Design định nghĩa auth/encryption constraints.
+DDMP documents define the optional Phase 2+ control-plane; DCAM remains the sole Android Device Owner/DPC.

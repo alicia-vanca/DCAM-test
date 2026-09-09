@@ -1,7 +1,7 @@
 # DCAM Architecture Home
 
 **Page ID**: 47185929  
-**Version**: 48  
+**Version**: 53  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47185929
 
@@ -24,7 +24,7 @@ Software Architecture Home
 
 Version
 
-Approved 1.37
+Approved 1.42
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Developers, QA, BDMA Team, Cloud/WebServer Team, Factory, Supp
 
 Last Updated
 
-2026-08-05
+2026-08-26
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-[DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix), DCAM Project Home, DCAM Documentation Governance, DCAM Release & Build Applicability Matrix, DCAM Requirements Home, DCAM Architecture Delivery Profile, DCAM Performance Budget & Resource Constraints, DCAM Logging & Diagnostics Design, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Web Portal & Device API Contract, DCAM Android Device Owner & Kiosk Policy Design, DCAM Security & Encryption Design, DCAM Android Operation Design, DCAM Storage Design, DCAM Recording & Capture Design
+[DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix), DCAM Project Home, DCAM Documentation Governance, DCAM Release & Build Applicability Matrix, DCAM Requirements Home, DCAM Architecture Delivery Profile, DCAM Performance Budget & Resource Constraints, DCAM Logging & Diagnostics Design, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Web Portal & Device API Contract, DCAM Android Device Owner & Kiosk Policy Design, DCAM Security & Encryption Design, DCAM Android Operation Design, DCAM Storage Design, DCAM Recording & Capture Design, ADR - DCAM GMS-free Android Runtime Baseline, [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline)
 
 ## 1. Purpose
 
@@ -74,7 +74,7 @@ Trang này không duy trì version/status table của từng Architecture hoặc
 
 ### 1.1 Physical Documentation Structure
 
-**Hierarchy snapshot:** 2026-08-05. Physical hierarchy dưới `04 Technical Documentation` có **43 current descendant page nodes**; đây là physical structure để đối chiếu exact title, parent–child và nested structure, khác với recommended reading order.
+**Hierarchy snapshot:** 2026-08-25. Physical hierarchy dưới `04 Technical Documentation` có **44 current descendant page nodes**; đây là physical structure để đối chiếu exact title, parent–child và nested structure, khác với recommended reading order.
 
 04 Technical Documentation
 ├── 4.1 - Software Architecture
@@ -118,7 +118,9 @@ Trang này không duy trì version/status table của từng Architecture hoặc
 │       └── DCAM-8: BDMA Sample Import & Evidence Summary
 ├── 4.4 - Architecture Decision Records (ADR)
 │   ├── ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision
-│   └── ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
+│   ├── ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
+│   ├── ADR – DCAM Device API Credential & mTLS Baseline
+│   └── ADR - DCAM GMS-free Android Runtime Baseline
 └── Build and Launch Process for DCAM Application with ADB and Gradle
 `4.1–4.4` là các page containers. `DCAM-2 — Device POC Results & Evidence Summary`, `DCAM-9: Image Capture POC Results & Evidence Summary` và `DCAM-8: BDMA Sample Import & Evidence Summary` đều là child của `DCAM Device POC & Hardware Validation Report` dưới `4.3 - Android Development`; chúng là các working execution/evidence summary, không phải architecture baseline, authoritative POC conclusion hoặc execution-evidence handoff. `Build and Launch Process for DCAM Application with ADB and Gradle` vẫn là direct child của `04 Technical Documentation`; page này là Draft Working Instruction / Engineering Runbook, không phải architecture baseline hoặc execution evidence. Cấu trúc trên chỉ đồng bộ navigation/hierarchy, không thay đổi technical baseline, Status hoặc Approval Scope.
 
@@ -176,27 +178,33 @@ System boundaries and decisions.
 
 ADRs
 
-Long-term decisions.
+Long-term decisions, including Device Owner, identity authority, Device API credential/mTLS and mandatory GMS-free Android runtime baseline.
 
 9
+
+DDMP 00 → 01 → 03 → 06 → 05
+
+Hybrid profile reading path; Phase 2+/POC-gated and deferred for Build 0.1.
+
+10
 
 Technical Designs
 
 Runtime implementation behavior.
 
-10
+11
 
 API/Data Contracts
 
 Interoperability and cloud/data boundaries.
 
-11
+12
 
 QA / Device POC / Factory SOP
 
 Verification and production execution.
 
-12
+13
 
 DCAM Document Status Registry
 
@@ -213,7 +221,7 @@ dcam_cloud_device_id = Cloud Identity
 serial_lookup/{serial_number} = create/restore path
 
 Web:
-Firebase Hosting + Authentication + Cloud Functions + Firestore
+Spring Boot BFF + Thymeleaf Factory Portal + PostgreSQL ddmp
 Factory Worker / Login + Workspace / QR-only read-only serial
 
 Logging:
@@ -222,9 +230,13 @@ Crash & Stability → Crashlytics
 BDMA diagnostics → Logs/logs.txt
 
 Dedicated device:
-No external EMM / Android Management API / Managed Google Play
-Preferred model = DCAM-as-DPC / local Device Owner
-Primary update = DCAM Self Update / approved APK update
+No external DPC/EMM, Android Management API or Managed Google Play owns privileged device policy
+DCAM = only Device Owner/DPC and privileged executor
+Headwind Client = Application mode only; no competing DPC
+BFF = desired-state, management API and audit boundary; Headwind = limited control-plane
+Primary update = BFF-authorized DCAM Self Update from immutable R2/CDN artifact
+Android runtime = GMS-free required; no Google Play services, Play Store, Google account, FCM, Analytics or Play Integrity dependency; Crashlytics optional and local diagnostics mandatory
+DDMP Hybrid integration = Phase 2+/POC-gated; Deferred for Build 0.1
 ## 4. Status and TBD Classification
 
 The authoritative taxonomy belongs to **DCAM Documentation Governance** and **DCAM Document Status Registry**.
@@ -273,7 +285,7 @@ Current Resolution
 
 Cloud/Web providers
 
-Firebase Hosting/Auth/Functions/Firestore approved.
+Spring Boot BFF + Thymeleaf Factory Portal + PostgreSQL ddmp approved.
 
 Performance telemetry
 
@@ -287,9 +299,9 @@ Logical provisioning endpoint
 
 `POST /v1/factory/provisioning/devices`.
 
-Firestore logical paths
+BFF-owned logical areas
 
-`workers`, `serial_lookup`, `devices`, `audit_events`.
+factory worker authorization, identity registry, idempotency and provisioning audit.
 
 Frontend write boundary
 
@@ -306,6 +318,10 @@ DCAM-as-DPC / local Device Owner.
 Factory Device Owner setup
 
 DSetup + ADB `dpm set-device-owner` baseline.
+
+DDMP Hybrid authority boundary
+
+DCAM-only Device Owner; Headwind Client Application mode; BFF boundary; Headwind limited control-plane; R2 artifact plane; must not reintroduce GMS/FCM/Play Store dependency.
 
 Storage thresholds
 
@@ -345,7 +361,7 @@ Approved Pending Security Review / Blocked
 
 Backend/Deployment
 
-Firebase Security Rules, physical Cloud Function mapping, retention and environment config.
+BFF identity/session/RBAC policy, PostgreSQL role/migration, retention and environment config.
 
 Approved Direction or Deployment Pending
 
@@ -360,6 +376,12 @@ Implementation
 Room/raw SQLite, exact table schemas, retry/backoff values, internal file paths.
 
 Approved Provisional Baseline / implementation TBD
+
+DDMP Hybrid POC
+
+Headwind Client coexistence, BFF desired-state/ACK, R2 update flow, security and scale evidence.
+
+Phase 2+/POC-gated; Deferred for Build 0.1
 
 Future Features
 
@@ -388,6 +410,10 @@ DCAM Release & Build Applicability Matrix
 Architecture ownership and status rules
 
 DCAM Documentation Governance
+
+Hybrid control-plane architecture and interface
+
+[DDMP](/wiki/spaces/DVID/pages/68747269/DDMP) → [00 Overview](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide) → 01/03/06/05
 
 Do not copy mutable versions into Architecture Home.
 Update Architecture Home only when technical ownership, reading order, architecture baseline or navigation changes.

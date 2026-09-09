@@ -2,7 +2,7 @@
 
 ## Status of requirements
 
-As of the 2026-07-15 refresh, `03 - Requirements` contains Data Contract page version 13, Android Device Operation Requirements page version 10, System Settings Requirements page version 19, Non-functional Requirements page version 14, functional requirements, and an Approved Provisional Baseline traceability matrix. Build 0.1 applicability is controlled by Release & Build Applicability Matrix and DEC-01-DEC-07 Decision Brief. Technical Design pages remain expected design intent until implementation and review correct/complete them.
+As of the 2026-08-26 refresh, `03 - Requirements` contains Data Contract page version 17 (approved contract 1.14), Android Device Operation Requirements page version 13, System Settings Requirements page version 23, Non-functional Requirements page version 16, functional requirements, and a current Approved Provisional Baseline traceability matrix. Build 0.1 applicability is controlled by Release & Build Applicability Matrix and DEC-01-DEC-07 Decision Brief. Technical Design pages remain expected design intent until implementation and review correct/complete them.
 
 The requirements below remain a consolidated orientation baseline from Product Vision, Charter, MVP Scope, Roadmap, Development Plan, Architecture, and the Data Contract. They do not replace detailed acceptance criteria, an approved Jira backlog, or the source Confluence pages.
 
@@ -13,7 +13,7 @@ The requirements below remain a consolidated orientation baseline from Product V
 - Identity exception: fixed `B01OPR` / `Build 0.1 Operator`, no login UI, persisted consistently where schema requires it.
 - Device status: battery level, internal free space, and GPS availability state only; GPS coordinates/routes do not belong to acceptance.
 - Important Media: parser/contract recognition stays, but Build 0.1 does not activate creation or marking workflow.
-- Deferred work cannot reject Build 0.1 unless applicability changes: cloud provisioning, full auth, full kiosk, Remote Config, Self Update, AI, streaming, PTT, production encryption/key management, and fleet/portal expansion.
+- Deferred work cannot reject Build 0.1 unless applicability changes: cloud provisioning, full auth, full kiosk, Remote Config, Self Update, AI, streaming, PTT, production encryption/key management, and fleet/portal expansion. The mandatory GMS-free Android runtime guard still applies to production artifacts without activating those deferred features.
 - Traceability matrix proves backlog readiness only. Release acceptance still requires Jira linkage, authoritative repository mapping, PR/build/test evidence, Technical Review, and Device POC evidence.
 
 ## Functional baseline
@@ -39,16 +39,16 @@ The requirements below remain a consolidated orientation baseline from Product V
 - Storage availability and free space are checked.
 - The app warns, prevents, or stops unsafe recording when capacity is insufficient; the threshold/policy is TBD.
 - In-progress/temporary data must be distinguishable from finalized/completed data.
-- Data Contract 1.6 fixes logical roots, folder names, filename family, app/contract metadata, import cleanup, BDMA permissions, identity/provisioning boundaries, and `dcam.db`/`dcam_config.cson` ownership direction. Exact physical Android paths, low-space thresholds, retention, and recovery behavior remain for detailed implementation and device validation.
+- Data Contract 1.14 fixes logical roots, folder names, filename family, app/contract metadata, import cleanup, BDMA permissions, BFF/PostgreSQL identity/provisioning boundaries, and `dcam.db`/`dcam_config.cson` ownership direction. Exact physical Android paths, low-space thresholds, retention, and recovery behavior remain for detailed implementation and device validation.
 
 ### Metadata
 
-Product/architecture sources still expect per-media identity, device/user/time, optional valid GPS, source state, and compatibility information. Data Contract 1.6 adds these binding constraints:
+Product/architecture sources still expect per-media identity, device/user/time, optional valid GPS, source state, and compatibility information. Data Contract 1.14 adds these binding constraints:
 
 | Concern | Current authority/direction |
 |---|---|
 | File association | Filename contains CameraID, fixed-six-character UserID, date, and time; exact collision/unique-ID policy remains TBD |
-| Media metadata | Embedded in the media file when supported; standalone per-media JSON is not part of contract 1.6 |
+| Media metadata | Embedded in the media file when supported; standalone per-media JSON is not part of contract 1.14 |
 | Important/encrypted state | Filename suffixes `_IMP`, `_enc`, or `_IMP_enc` |
 | GPS and source lifecycle | Still require exact embedded fields, validation, and persistence design |
 | App/contract compatibility | App package/version plus `dcam_data_contract_version`, `media_contract_version`, and `encoder_contract_version`; no `bdma_decoder_profile_id` |
@@ -60,7 +60,7 @@ The exact embedded metadata fields/encoding and SQLite table details remain impl
 ### Device status and capability
 
 - Report or record battery, storage, and GPS availability for MVP.
-- Detect camera, microphone, GPS, storage, network, GMS, battery, and potentially USB capabilities before enabling dependent features.
+- Detect camera, microphone, GPS, storage, network, GMS/runtime compliance, battery, and potentially USB capabilities before enabling dependent features. Production Android must satisfy the GMS-free guard.
 - Missing optional capability must degrade gracefully rather than crash the core flow.
 - Feature eligibility states should follow the Technical Design vocabulary when implemented: `ENABLED`, `DEGRADED`, `DISABLED_BY_POLICY`, `DISABLED_BY_PERMISSION`, `UNSUPPORTED_HARDWARE`, `UNSUPPORTED_PERFORMANCE`, `TEMPORARILY_UNAVAILABLE`, `PRUNED`, and `ERROR`.
 
@@ -71,6 +71,12 @@ The exact embedded metadata fields/encoding and SQLite table details remain impl
 - Do not log passwords, tokens, secrets, raw sensitive metadata, or media content.
 - Local logs must exist even when cloud diagnostics are unavailable.
 - Rotation/retention is required; the official policy is TBD.
+
+## Current Build 0.1 evidence signal
+
+Confluence working evidence pages DCAM-23 (page version 1), DCAM-30 (page version 2), and DCAM-6 (page version 5) report observed normal recording, interrupted-recording recovery, image capture, MP4/MD5 publication, Temp cleanup, low-space handling, and BDMA sample import. DCAM-6 summarizes the result as `Pass with recorded blocked cases`; DCAM-30 reports `Pass for DCAM-30 evidence scope`.
+
+These are evidence summaries only. They do not change the requirements, close Device POC/security/deployment gates, or grant production/release approval. Use the original pages for Evidence IDs and NAS artifact locations.
 
 ### BDMA integration
 
@@ -92,10 +98,10 @@ The exact embedded metadata fields/encoding and SQLite table details remain impl
 | Reliability | ≥99% record/capture success; no critical corruption or main-flow crash |
 | Integrity | MP4-only optional MD5/import outcomes are decided; DCAM finalize validation, persisted lifecycle, and recovery remain TBD |
 | Performance | No camera, file, database, or network work blocks the UI thread; recording has priority over diagnostics/cloud |
-| Compatibility | Capability-based operation across BodyCamera hardware/firmware and GMS/non-GMS environments |
+| Compatibility | Capability-based operation across BodyCamera hardware/firmware with a mandatory GMS-free production runtime |
 | Testability | Business flows depend on interfaces, allowing fake platform services |
 | Observability | Important actions emit start/result/error diagnostics sufficient for field support |
-| Security | Least-required permissions; no hardcoded/logged secrets; media/metadata/update security to be designed |
+| Security | Least-required permissions; no hardcoded/logged secrets; per-device mTLS/Keystore credential direction; exact PKI and production evidence remain gated |
 | Maintainability | Modular layers, vendor SDK isolation, schema versioning, and ADRs for major decisions |
 
 ## Acceptance baseline

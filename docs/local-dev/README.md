@@ -7,7 +7,7 @@ Repository-local implementation plans, code reality and test evidence. Approved 
 1. [MVP delivery plan](plans/mvp-delivery-plan.md) - canonical scope, status and execution checklist.
 2. [Sprint 0 POC test plan](plans/sprint-0-poc-test-plan.md) - hardware test procedure only.
 3. [Current repository state](current-repo/current-state.md) - implementation reality.
-4. [Confluence refresh gap report](evidence/confluence-refresh-gap-report-2026-07-15.md) - latest approved-document gaps.
+4. [Confluence refresh gap report](evidence/confluence-refresh-gap-report-2026-08-26.md) - latest approved-document gaps and local implementation implications.
 5. [Evidence index](evidence/README.md) - device runs, audits and verification records.
 
 ## Rules

@@ -1,7 +1,7 @@
 # Decision Brief – DCAM Phase 2 Web Portal Scope Precedence
 
 **Page ID**: 54296681  
-**Version**: 2  
+**Version**: 3  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/54296681
 
@@ -24,7 +24,7 @@ Decision Brief / Scope Precedence
 
 Version
 
-1.0
+1.1
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Product Owner, Tech Lead, Web/Backend Developers, QA, Security Reviewer, 
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -64,11 +64,11 @@ None
 
 Related Documents
 
-[DCAM Project Charter](/wiki/spaces/DVID/pages/41156610/DCAM+Project+Charter), [DCAM Roadmap](/wiki/spaces/DVID/pages/41615474/DCAM+Roadmap), [DCAM Release & Build Applicability Matrix](/wiki/spaces/DVID/pages/51020012/DCAM+Release+Build+Applicability+Matrix), [DCAM Device Provisioning Web Portal Design](/wiki/spaces/DVID/pages/49315858/DCAM+Device+Provisioning+Web+Portal+Design), [DCAM Device Provisioning Web Portal App Design](/wiki/spaces/DVID/pages/50692194/DCAM+Device+Provisioning+Web+Portal+App+Design), [DCAM Device Provisioning Web Portal Implementation Design](/wiki/spaces/DVID/pages/51019802/DCAM+Device+Provisioning+Web+Portal+Implementation+Design), [DCAM Web Portal & Device API Contract](/wiki/spaces/DVID/pages/49873154/DCAM+Web+Portal+Device+API+Contract), [DCAM QA Test Strategy & Test Matrix](/wiki/spaces/DVID/pages/49545345/DCAM+QA+Test+Strategy+Test+Matrix), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix)
+[DCAM Project Charter](/wiki/spaces/DVID/pages/41156610/DCAM+Project+Charter), [DCAM Roadmap](/wiki/spaces/DVID/pages/41615474/DCAM+Roadmap), [DCAM Release & Build Applicability Matrix](/wiki/spaces/DVID/pages/51020012/DCAM+Release+Build+Applicability+Matrix), [DCAM Device Provisioning Web Portal Design](/wiki/spaces/DVID/pages/49315858/DCAM+Device+Provisioning+Web+Portal+Design), [DCAM Device Provisioning Web Portal App Design](/wiki/spaces/DVID/pages/50692194/DCAM+Device+Provisioning+Web+Portal+App+Design), [DCAM Device Provisioning Web Portal Implementation Design](/wiki/spaces/DVID/pages/51019802/DCAM+Device+Provisioning+Web+Portal+Implementation+Design), [DCAM Web Portal & Device API Contract](/wiki/spaces/DVID/pages/49873154/DCAM+Factory+Provisioning+Portal+BFF+API+Contract), [DCAM QA Test Strategy & Test Matrix](/wiki/spaces/DVID/pages/49545345/DCAM+QA+Test+Strategy+Test+Matrix), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix)
 
 Dependencies / Blockers
 
-Firebase Security Rules, IAM, QR signature/replay policy, worker-account lifecycle, owner validation, retention/reconciliation, environment separation review and Build 0.2 implementation/test evidence remain pending.
+BFF identity/session/RBAC security, QR signature/replay policy, worker-account lifecycle, owner validation, retention/reconciliation, environment separation review and Build 0.2 implementation/test evidence remain pending.
 
 ## 1. Decision Summary
 
@@ -197,7 +197,7 @@ Customer/public portal, general administration or fleet-management portal.
 
 Cloud video management, video viewer, reporting or general user management.
 
-Frontend direct-write Firestore.
+Frontend direct database/data-store write.
 
 Manual serial entry.
 
@@ -215,7 +215,7 @@ This decision does not change the `DCAM MVP Internal Build 0.1 – Working Recor
 
 The following remain Pending and are not decided by DEC-P2-WEB-01:
 
-Firebase Security Rules, IAM and concrete deployment/environment configuration.
+BFF identity/session security, PostgreSQL roles/migrations and concrete deployment/environment configuration.
 
 QR signature, nonce, expiry and replay policy.
 

@@ -1,6 +1,6 @@
 # Engineering Evidence
 
-Source: [DCAM Engineering Evidence & NAS Artifact SOP](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/53608471), approved 1.0, Confluence page version 3, updated 2026-07-16.
+Source: [DCAM Engineering Evidence & NAS Artifact SOP](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/53608471), current Confluence page version 6, updated 2026-08-26.
 
 ## Purpose
 
@@ -53,3 +53,5 @@ Evidence ID format: `EV-DCAM-<Jira-key>-<YYYYMMDD>-<sequence>`.
 ## Current boundary
 
 The SOP does not approve NAS readiness, Device POC pass, Build 0.1 readiness, or production release. Repository status becomes operational only after IT confirms stable UNC path, access group, backup/retention, and Tech Lead access.
+
+Working summaries DCAM-23, DCAM-30, and DCAM-6 may report observed passes while preserving this boundary. Their results must remain linked to immutable NAS runs, Jira, QA/traceability records, and the parent Device POC/release decision.

@@ -94,21 +94,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Notify failure
-        if: failure()
-        shell: bash
-        env:
-          X_WEBHOOK_SECRET: ${{ secrets.X_WEBHOOK_SECRET }}
-          WEBHOOK_SENDER: ${{ github.actor }}
-          WEBHOOK_MESSAGE: "DCAM: ${{ github.workflow }} failed! (#${{ github.run_number }})"
-        run: |
-          jq -n \
-            --arg sender "$WEBHOOK_SENDER" \
-            --arg message "$WEBHOOK_MESSAGE" \
-            '{sender: $sender, message: $message}' |
-            curl --fail-with-body --silent --show-error \
-              -H "Content-Type: application/json" \
-              -H "X-Webhook-Secret: ${X_WEBHOOK_SECRET}" \
-              --data-binary @- \
-              "https://forward-to-snt.quyendt3k4.workers.dev"

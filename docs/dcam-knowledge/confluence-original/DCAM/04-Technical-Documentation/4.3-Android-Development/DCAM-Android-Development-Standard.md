@@ -1,7 +1,7 @@
 # DCAM Android Development Standard
 
 **Page ID**: 47120580  
-**Version**: 14  
+**Version**: 16  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120580
 
@@ -24,7 +24,7 @@ Project-specific Android Development Standard
 
 Version
 
-Approved 1.11
+Approved 1.13
 
 Status
 
@@ -56,7 +56,7 @@ Android Developers, Java Desktop Developers, Tech Lead, QA, Cloud/WebServer Team
 
 Last Updated
 
-2026-07-14
+2026-08-25
 
 Related Jira
 
@@ -67,6 +67,10 @@ Related Documents
 DCAM Architecture Home, DCAM Architecture Delivery Profile, DCAM Concurrency & Threading Model Design, 04 - Device Configuration Requirements, 05 - User & Device Operation Requirements, 09 - System Settings Requirements, 10 - Android Device Operation Requirements, 06 - Cloud Services, Update & Configuration Architecture, DCAM Android Device Owner & Kiosk Policy Design, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM State Machine Design, DCAM-BDMA Data Contract, DCAM Android Training & Architecture Onboarding, 04 - Application & Module Architecture, DCAM Documentation Governance
 
 ## 1. Purpose
+
+### GMS-free Engineering Guard
+
+Production Android code must not add direct or transitive `com.google.android.gms:*`, Play Store/`com.android.vending`, FCM, Analytics, Play Integrity, Google Sign-In, Maps SDK, Google-account maintenance or Android cloud-config SDK baseline. CI/release review must inspect the resolved `releaseRuntimeClasspath` and manifest/source flows. Firebase Crashlytics is optional bounded telemetry only; no other Firebase Android SDK is added without ADR/security review.
 
 Tài liệu này định nghĩa tiêu chuẩn phát triển Android riêng cho dự án DCAM.
 
@@ -200,7 +204,7 @@ Device identity and serial/config file behavior
 
 MVP minimal local serial/config only
 
-WebServer/Firebase identity and Web Portal provisioning provider boundary
+BFF device identity and Factory Portal provisioning boundary
 
 `CloudDeviceIdentityService`, `ProvisioningService`, `RemoteConfigProvider`
 
@@ -472,9 +476,9 @@ Phase 3+ / Future
 
 `UpdateService`
 
-Thực thi Play Store / Self Update.
+Thực thi BFF-authorized R2/CDN Self Update and approved local/factory package fallback only; no Play Store flow.
 
-Self Update Design
+Self Update Design + GMS-free ADR
 
 Phase 2+
 
@@ -1421,7 +1425,7 @@ Recommended
 
 ### 12.3 Feature-specific Checklist Rule
 
-Do not fail a Phase 1 recording/storage PR because it does not implement Self Update, Remote Config, Maintenance Mode, Play Store fallback, AI Detection or full Kiosk Policy.
+Do not fail a Phase 1 recording/storage PR because it does not implement Self Update, BFF configuration, Maintenance Mode, AI Detection or full Kiosk Policy. Do reject any PR that introduces a prohibited GMS/Play Store/Google-account dependency or flow.
 Fail it only if it violates MVP P0 rules, Concurrency & Threading Model rules, or creates a blocker for the working recording/storage/BDMA slice.
 ## 13. Practical Conclusion
 

@@ -1,7 +1,7 @@
 # 03 - Android Platform & Compatibility Strategy
 
 **Page ID**: 47120437  
-**Version**: 13  
+**Version**: 17  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120437
 
@@ -24,7 +24,7 @@ Software Architecture Document / Platform Compatibility Strategy
 
 Version
 
-Approved 1.7
+Approved 1.10
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Global platform strategy với Build 0.1 reference profile Pending Device POC
+Global platform strategy, including approved DDMP Hybrid coexistence boundary and mandatory GMS-free Android runtime baseline; Build 0.1 reference profile Pending Device POC.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, AI/ML Engineer, QA
 
 Last Updated
 
-2026-07-20
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM Architecture Home, 04 - Application & Module Architecture, 10 - Android Device Operation Requirements, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, DCAM Android Operation Design, DCAM Device Capability & Feature Eligibility Design, DCAM Non-functional Requirements, DCAM Device POC & Hardware Validation Report, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+ADR - DCAM GMS-free Android Runtime Baseline, DCAM Architecture Home, 04 - Application & Module Architecture, 10 - Android Device Operation Requirements, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, DCAM Android Operation Design, DCAM Device Capability & Feature Eligibility Design, DCAM Non-functional Requirements, DCAM Device POC & Hardware Validation Report, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 Dependencies / Blockers
 
@@ -74,16 +74,15 @@ Device POC: validate NCC-036V / Android 12 / API 31, Camera API capability and p
 
 Trang này mô tả chiến lược tương thích Android và BodyCamera platform cho DCAM.
 
-DCAM phải chạy trên nhiều model BodyCamera khác nhau, bao gồm thiết bị mới, thiết bị cũ, thiết bị GMS/non-GMS, thiết bị có phần cứng hạn chế hoặc hiệu năng thấp, và thiết bị có khác biệt OEM/firmware trong Device Owner / Lock Task / User Restrictions / dedicated-device kiosk behavior.
+DCAM phải chạy trên nhiều model BodyCamera khác nhau, bao gồm thiết bị mới, thiết bị cũ, thiết bị không có Google Play services/Play Store, thiết bị có phần cứng hạn chế hoặc hiệu năng thấp, và thiết bị có khác biệt OEM/firmware trong Device Owner / Lock Task / User Restrictions / dedicated-device kiosk behavior.
 
 Current baseline:
 
-No external EMM.
-No Android Management API.
-No Managed Google Play policy-driven update.
+No external DPC/EMM, Android Management API or Managed Google Play owns privileged device policy.
+Headwind Client may run only as an ordinary Application-mode app; it has no Device Owner/DPC authority.
 DCAM-as-DPC / local Device Owner is preferred if target firmware supports it.
-Primary update path = DCAM Self Update / APK update.
-Manual Google Play Store update = optional controlled maintenance fallback only if GMS/Play Store exists and approved process allows it.
+Primary update path = BFF-authorized DCAM Self Update from immutable Cloudflare R2/CDN artifact.
+No Google Play Store/Managed Google Play update or maintenance fallback is permitted. Production update uses BFF-authorized DCAM Self Update from immutable R2/CDN artifact; approved local/factory APK is the separately controlled fallback.
 ## 2. Compatibility Principles
 
 Principle
@@ -122,15 +121,15 @@ Current device baseline không giả định external EMM, Android Management AP
 
 Approved Direction
 
-GMS / non-GMS Compatible
+GMS-free Required
 
-Core DCAM không được phụ thuộc cứng vào GMS-only capability.
+Production DCAM runtime must not contain or require Google Play services, Play Store, Google account, FCM, Analytics, Play Integrity or any GMS-only capability.
 
-Approved
+Approved Direction
 
 Adapter-based Platform Access
 
-Camera, sensor, GPS, storage, AI, cloud/update, DPC/kiosk policy và Play Store fallback phải đi qua adapter/interface.
+Camera, sensor, GPS, storage, AI, cloud/update và DPC/kiosk policy phải đi qua adapter/interface. No Play Store fallback adapter exists in the production profile.
 
 Approved
 
@@ -150,7 +149,7 @@ Build Device Capability Profile
         ↓
 Build Device Policy Capability Profile if production profile requires it
         ↓
-Detect update capability including Self Update install capability and optional GMS/Play Store availability
+Detect update capability including approved Self Update install capability, package-installer constraints and policy-safe maintenance window
         ↓
 Evaluate Feature Eligibility
         ↓
@@ -234,11 +233,11 @@ Detect whether approved APK update/install path works under DCAM policy constrai
 
 Ảnh hưởng Self Update and maintenance/update window.
 
-GMS / Play Store
+GMS-free compliance
 
-Detect whether Google Play Services and Play Store are available.
+Verify Google Play services/Play Store are not a runtime requirement and prohibited dependency/flow scan passes.
 
-Ảnh hưởng optional manual Play Store fallback only; core app must not depend on this.
+Mandatory production release gate.
 
 ## 4. Dedicated-device / Kiosk Compatibility Matrix
 
@@ -322,11 +321,11 @@ Validate Self Update can preserve policy and return to kiosk.
 
 Use approved maintenance/update window or defer update.
 
-Optional Play Store fallback
+GMS-free release gate
 
-Validate only if GMS/Play Store exists and Product/Security approve.
+Validate target firmware and APK operate without Google Play services/Play Store, including DPC, recording, local diagnostics, BFF sync and R2 update deferral.
 
-If unavailable or uncontrollable, fallback is disabled.
+Required before production interpretation.
 
 OEM crash/reboot recovery
 
@@ -400,13 +399,13 @@ Package install path/validation/runtime guard chưa đạt.
 
 Defer/block update and report reason.
 
-Play Store fallback enabled
+GMS-free release gate
 
-GMS/Play Store unavailable or process not approved.
+Prohibited dependency/flow, target firmware non-compliance or missing required evidence.
 
-Hide/disable fallback.
+Block production profile claim and report reason.
 
-## 6. GMS / non-GMS Direction
+## 6. GMS-free Required Direction
 
 Area
 
@@ -426,15 +425,15 @@ Phải hoạt động without GMS/cloud.
 
 Approved
 
-Remote Config
+Device configuration
 
-Firebase có thể là provider, nhưng local/default config phải hoạt động without Firebase.
+BFF desired-state/config plus validated local defaults; Android remote-config SDK is not in the approved production baseline.
 
-Approved
+Approved Direction
 
 Update
 
-Primary update path is DCAM Self Update / APK update. Play Store is optional manual fallback only if GMS/Play Store exists and approved maintenance process allows it.
+BFF-authorized DCAM Self Update from immutable R2/CDN artifact is the only remote production update path; approved local/factory APK is separately controlled support fallback.
 
 Approved Direction
 
@@ -449,6 +448,42 @@ Future WebServer
 Là optional capability, phải adapter-based.
 
 Future / Approved Direction
+
+## DDMP Hybrid Compatibility Boundary
+
+Hybrid capability is an additive, Phase 2+/POC-gated compatibility dimension. It must not change local DPC authority or make core recording dependent on server availability.
+
+Compatibility item
+
+Validation direction
+
+Failure impact
+
+Headwind Client coexistence
+
+Verify Application mode does not take HOME/launcher ownership, disturb boot recovery, Lock Task, restrictions or DCAM auto-start.
+
+Block Hybrid profile; DCAM local baseline remains safe.
+
+BFF device sync
+
+Verify outbound desired-state fetch, duplicate/idempotent handling, offline recovery and DCAM ACK without direct Headwind API/database access.
+
+Defer command/update; never bypass local runtime guards.
+
+R2 update path
+
+Verify BFF authorization, immutable manifest/APK, checksum/signer/package/version compatibility and kiosk recovery.
+
+Defer update; preserve controlled runtime.
+
+Device identity mapping
+
+Verify `platformDeviceId = dcam_cloud_device_id`; `serial_number` remains recovery key; Headwind reference is mapping-only.
+
+Block Hybrid enrollment/mapping, not local identity.
+
+Authoritative DDMP sources: [DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2).
 
 ## 7. POC / Validation Direction
 
@@ -488,20 +523,20 @@ Self Update path
 
 APK validation/install behavior under Device Owner/Lock Task policy.
 
-Optional Play Store fallback
+GMS-free production profile
 
-GMS/Play Store presence, approved account/process and ability to prevent unapproved app install.
+No Google Play services/Play Store/Google account/GMS-only SDK dependency; dependency, manifest/source and target-device evidence must pass ADR release gates.
 
 ## 8. Practical Conclusion
 
-Android platform compatibility không chỉ là Android version support. Nó còn bao gồm hardware, sensor, storage, compute, permission capability, local Device Owner/DPC feasibility, Lock Task behavior, User Restrictions, update install behavior and optional GMS/Play Store fallback availability.
+Android platform compatibility không chỉ là Android version support. Nó còn bao gồm hardware, sensor, storage, compute, permission capability, local Device Owner/DPC feasibility, Lock Task behavior, User Restrictions, update install behavior and mandatory GMS-free runtime compliance.
 
 Detect capability early
 Detect device policy state early
 Do not assume external EMM / Android Management API / Managed Google Play
 Prefer DCAM-as-DPC / local Device Owner if target firmware supports it
 Use Self Update / APK update as primary update path
-Treat Play Store as optional controlled fallback only
+Do not provide or invoke a Play Store fallback in the production profile
 Do not initialize unsupported modules
 Do not enter unrestricted production mode when required kiosk policy is missing
 Degrade only when approved

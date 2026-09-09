@@ -1,7 +1,7 @@
 # DCAM In-App Operation, Device Settings & Media Console Design
 
 **Page ID**: 49840330  
-**Version**: 13  
+**Version**: 16  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49840330
 
@@ -24,7 +24,7 @@ Technical Design / In-App Console Design
 
 Version
 
-Draft 1.2
+Draft 1.4
 
 Status
 
@@ -32,7 +32,7 @@ Draft
 
 Approval Scope
 
-Draft in-app console/device-settings/media-console design only; không phải approved implementation hoặc release baseline.
+Draft in-app console/device-settings/media-console design only, including corrected GMS-free update and maintenance boundary; không phải approved implementation hoặc release baseline.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, QA, Support, Security Reviewer, BDMA Team
 
 Last Updated
 
-2026-07-14
+2026-08-25
 
 Related Jira
 
@@ -80,7 +80,7 @@ File / Storage Manager / Media Viewer
 Login Settings
 User Settings (Admin only)
 Admin / Maintenance with Maintenance Password Gate
-Controlled Google Play Store update target if GMS/Play Store is available
+No Google Play Store/Managed Google Play/Google-account update target
 DCAM Self Update as primary non-EMM update path
 Emergency Settings
 Server Connection / Live Stream / PTT / AI Mode placeholders
@@ -102,9 +102,9 @@ Current device baseline: No external EMM / No Android Management API / No Manage
 Update decision for current baseline:
 
 Primary update path = DCAM Self Update / APK update.
-Optional fallback = Manual Google Play Store update trong Controlled Maintenance Mode nếu device có GMS/Play Store và approved maintenance/factory account.
+Google Play Store/Managed Google Play/Google-account update is not a supported maintenance flow.
 Not supported = Managed Google Play / Android Management API policy-driven update cho current baseline.
-Not supported = Personal Google account cho production maintenance.
+No Google account is used or stored for production maintenance.
 ## 3. Scope
 
 ### 3.1 In Scope
@@ -155,7 +155,7 @@ Primary update path cho non-EMM current device baseline.
 
 Google Play Store manual update target
 
-Optional controlled maintenance fallback chỉ khi GMS/Play Store available và approved maintenance/factory account tồn tại.
+Not Applicable; prohibited by GMS-free production baseline.
 
 Emergency Settings
 
@@ -195,9 +195,9 @@ Managed Google Play / Android Management API policy-driven update
 
 Not applicable (per ADR).
 
-Personal Google account usage for maintenance
+Google account usage for maintenance
 
-Không được hỗ trợ; chỉ dùng approved maintenance/factory account nếu Play Store fallback required.
+Not Applicable; no Google account is used or stored on production device.
 
 General Play Store browsing/installing unapproved apps
 
@@ -251,7 +251,7 @@ Maintenance Mode
 
 Factory/support/admin workflow.
 
-Controlled temporary access chỉ tới approved apps/settings screens, optional Google Play Store manual update flow nếu enabled, Wi-Fi/USB/system setup, update/recovery, diagnostics, logs, hardware checks và approved support-level recovery. Entry yêu cầu Maintenance Password Gate.
+Controlled temporary access chỉ tới approved apps/settings screens, Wi-Fi/USB/system setup, BFF/R2 or approved local/factory update/recovery, diagnostics, logs, hardware checks và approved support-level recovery. Entry yêu cầu Maintenance Password Gate.
 
 System Mode
 
@@ -303,7 +303,7 @@ Exit Kiosk temporarily không được trở thành full Android unrestricted mo
 
 CONSOLE-ACCESS-010
 
-Google Play Store access, nếu enabled, phải giới hạn cho approved manual update purpose.
+Google Play Store access/navigation/install và Google-account entry bị cấm; Console không được expose package, target hoặc fallback nào cho Play Store manual update.
 
 CONSOLE-ACCESS-011
 
@@ -335,7 +335,7 @@ DCAM Runtime Navigation
         ├── Enter Maintenance Mode / Exit Kiosk temporarily
         │   └── Maintenance Password Gate
         ├── DCAM Self Update / APK update
-        └── Optional approved Google Play Store manual update if enabled
+        └── Approved DCAM Self Update or local/factory recovery action
 ### 5.2 Back Button Behavior
 
 Trong kiosk mode, Android Back phải được DCAM navigation kiểm soát. Back không được exit DCAM hoặc làm lộ Android launcher/system UI.
@@ -446,11 +446,11 @@ Navigate to `Admin / Maintenance` hoặc `Setting` theo UX decision.
 
 Back phải cancel entry; không được bypass gate.
 
-`Google Play Store manual update target`
+`Approved update/recovery target`
 
-Return to DCAM maintenance flow khi update action completed/cancelled.
+Return to DCAM maintenance flow when action completes/cancels.
 
-Không được cho phép unrestricted Play Store browsing/install.
+Must never provide Play Store browsing or Google-account entry.
 
 Rules:
 
@@ -496,7 +496,7 @@ Back không được bypass Maintenance Password Gate.
 
 CONSOLE-NAV-010
 
-Play Store manual update target phải quay lại approved maintenance flow và không được trở thành free navigation.
+Không có Play Store manual-update target. Mọi request/navigation tới Play Store hoặc Google-account flow phải bị reject và quay lại controlled DCAM maintenance flow.
 
 ## 6. App Operation Settings
 
@@ -1305,15 +1305,15 @@ Free browsing toàn bộ Android Settings nếu không approved.
 
 Apps
 
-Chỉ approved maintenance/support/DPC/system apps được temporarily allowlisted. Google Play Store chỉ có thể allowlisted cho approved manual DCAM/approved app update flow nếu GMS/Play Store available.
+Chỉ approved maintenance/support/DPC/system apps được temporarily allowlisted; no Play Store package is allowlisted.
 
-General app drawer, games, browser, personal apps, unapproved apps hoặc unrestricted Play Store browsing/install.
+General app drawer, games, browser, personal apps, unapproved apps, Play Store browsing/install hoặc Google-account entry.
 
 Google account / Play Store account
 
-Chỉ approved maintenance/factory Google account nếu login required cho Play Store update.
+Not Applicable.
 
-Personal Google account usage hoặc để personal account signed in sau maintenance.
+Any Google-account sign-in, persistence or maintenance procedure.
 
 User Restrictions
 
@@ -1465,25 +1465,9 @@ Run DCAM Self Update / APK update
 
 Yes nếu launched từ Maintenance; runtime guard required.
 
-Phải safe; package validation required.
+Phải safe; BFF/R2 authorization or approved local/factory package validation required.
 
 Primary Current Baseline
-
-Open Google Play Store for approved manual app update
-
-Yes
-
-Phải safe, policy-approved và giới hạn trong approved app update target.
-
-Optional Fallback / Device GMS Required
-
-Sign in approved maintenance/factory Google account for manual Play Store update
-
-Yes
-
-Phải policy-approved; account handling/removal policy TBD.
-
-Optional / TBD
 
 Temporarily relax selected User Restrictions
 
@@ -1517,7 +1501,7 @@ Luôn phải attempted.
 
 Approved Direction
 
-### 11.5 App Update Rules for No-EMM Baseline
+### 11.5 App Update Rules for GMS-free Baseline
 
 Rule
 
@@ -1529,35 +1513,31 @@ Update applicability tuân theo ADR và Release & Build Applicability Matrix; co
 
 CONSOLE-UPD-002
 
-Primary update path là DCAM Self Update / APK update như định nghĩa trong DCAM Self Update Design.
+Primary remote update path là BFF-authorized DCAM Self Update / immutable R2/CDN APK như định nghĩa trong DCAM Self Update Design.
 
 CONSOLE-UPD-003
 
-Manual Google Play Store update chỉ là optional fallback nếu device có GMS/Play Store và approved maintenance/factory Google account.
+Google Play Store, Managed Google Play, Android Management API và Google-account update flow không có maintenance target trong DCAM production profile.
 
 CONSOLE-UPD-004
 
-Play Store access phải gi��i hạn cho việc update DCAM app hoặc approved dependency/support apps.
+Approved local/factory APK package là support fallback duy nhất khi được authorize, validate và audit; nếu không có, DCAM safely defers update.
 
 CONSOLE-UPD-005
 
-Play Store không được dùng cho general app browsing, personal app install, games, browser install hoặc unapproved app install.
+Console phải không expose GMS/Play Store capability, target, navigation hoặc account entry.
 
 CONSOLE-UPD-006
 
-Personal Google account không được dùng cho production maintenance update.
+Sau update, DCAM phải verify app version/signature/update result nếu applicable và restore kiosk policy.
 
 CONSOLE-UPD-007
 
-Sau update, DCAM phải verify app version/signature/update result nếu applicable và restore kiosk policy.
+App update không được chạy trong lúc recording, emergency, finalization, storage recovery, DB recovery, update/install unsafe state hoặc policy recovery.
 
 CONSOLE-UPD-008
 
-App update không được chạy trong lúc recording, emergency, finalization, storage recovery, DB recovery, update/install unsafe state hoặc policy recovery.
-
-CONSOLE-UPD-009
-
-Account sign-in/sign-out hoặc account persistence behavior là Security/Product TBD và phải auditable nếu thực hiện.
+Dependency/manifest/source compliance và target-device GMS-free evidence phải pass theo ADR trước production claim.
 
 ### 11.6 Maintenance Password and Controlled Mode Rules
 
@@ -1830,23 +1810,19 @@ Install/update only through approved update path
 Verify update result where applicable
     ↓
 Restore kiosk policy
-Optional Play Store fallback guard:
+GMS-free update-source guard:
 
-Manual Google Play Store update fallback
+Play Store / Managed Google Play / Android Management API /
+Google-account update request
     ↓
-Validate device has GMS/Play Store support
+Reject; do not expose an account, package, target or fallback
     ↓
-Validate Play Store is approved maintenance target
+Use only BFF-authorized R2/CDN Self Update
+or separately approved local/factory package recovery
     ↓
-Validate approved maintenance/factory Google account if sign-in is required
+DCAM validates artifact and safe-state
     ↓
-Update only DCAM / approved apps
-    ↓
-Return to DCAM
-    ↓
-Verify update result where applicable
-    ↓
-Restore kiosk policy
+Install/defer, record result and restore kiosk policy
 ## 15. Persistence Direction
 
 Data Type
@@ -1911,7 +1887,7 @@ This document + Kiosk Policy + Security
 
 Approved maintenance target list
 
-`dcam.db` hoặc config cache có thể lưu approved app package/screen identifiers bao gồm Play Store manual update target nếu enabled; không có unrestricted wildcard target.
+`dcam.db` hoặc config cache chỉ lưu approved DCAM/support/DPC/system package hoặc screen identifiers. Play Store, Managed Google Play, Android Management API và Google-account targets không được lưu/allowlist; không có unrestricted wildcard target.
 
 This document + Kiosk Policy + Security
 
@@ -1921,9 +1897,9 @@ DCAM Self Update audit
 
 This document + Self Update + Security
 
-Play Store manual update audit
+Prohibited external-store request audit
 
-`dcam.db` non-sensitive audit metadata: actor, target package, old/new version nếu available, result, reason code. Không lưu Google account secret values.
+`dcam.db` non-sensitive audit metadata: actor/source, prohibited request class, rejection result và reason code. Không lưu Google account/token values.
 
 This document + Security + Self Update
 
@@ -2165,25 +2141,25 @@ P0
 
 QA-CONSOLE-027
 
-Admin mở Google Play Store manual update fallback nếu enabled.
+Admin performs approved BFF/R2 or local/factory update action.
 
-Chỉ approved update target reachable; update completes hoặc fails safely; kiosk policy restored.
+Source validation, safe failure/defer and kiosk policy restore are verified.
 
 P1
 
 QA-CONSOLE-028
 
-Admin thử browse/install unapproved Play Store app trong maintenance.
+Admin attempts to launch Play Store or Google-account maintenance flow.
 
-Action bị blocked bởi policy/allowlist hoặc test ghi nhận non-compliance; device không được remain unrestricted.
+No target/navigation exists; action is rejected and device remains controlled.
 
 P1
 
 QA-CONSOLE-029
 
-Managed Google Play / policy-driven update được reference trên no-EMM device.
+Google Play Store/Managed Google Play/Android Management API update is requested.
 
-Flow marked not applicable; system dùng Self Update hoặc manual fallback thay thế.
+Flow is rejected; system uses Self Update or approved local/factory fallback only.
 
 P0
 
@@ -2265,21 +2241,9 @@ Exact approved maintenance/support app package list
 
 TBD / Kiosk Policy + Security + Product
 
-Whether Google Play Store is available on selected BodyCamera firmware
+GMS-free dependency/manifest/source and target-device evidence
 
-TBD / Device POC
-
-Whether manual Google Play Store fallback is allowed at all
-
-TBD / Security + Product
-
-Exact Google account type for manual Play Store maintenance update
-
-TBD / Security + Product
-
-Whether approved Google account is removed after update or kept as maintenance device account
-
-TBD / Security + Product
+Required / ADR release gate
 
 Exact DCAM Self Update transport: WebServer/R2/local package/BDMA-assisted
 

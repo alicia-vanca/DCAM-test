@@ -1,87 +1,41 @@
 # DCAM Logging & Diagnostics Design
 
-**Page ID**: 51019937  
-**Version**: 10  
-**Type**: page  
-**URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51019937
+# DCAM Logging & Diagnostics Design
+
+| Item | Information |
+| --- | --- |
+| Project | DCAM (Android BodyCamera Application) |
+| Document Type | Technical Design / Logging & Diagnostics |
+| Version | Approved 1.0 |
+| Status | Approved |
+| Approval Scope | Build 0.1 operational logging plus DDMP Hybrid observability boundary; does not change Security Profile or approve production telemetry/SLO targets. |
+| Owner | Hoàng Ngọc Quyền |
+| Technical Reviewer | Tech Lead / Android Lead / Backend Lead / QA Lead / Security Reviewer / Support Lead / BDMA Lead |
+| Approver | Hoàng Ngọc Quyền |
+| Parent Folder | 4.2 - Technical Design |
+| Target Audience | Tech Lead, Android Developers, Backend Developers, QA, Security Reviewer, Support, BDMA Team |
+| Last Updated | 2026-08-26 |
+| Related Jira | None |
+| Related Documents | 07 - Logging, Diagnostics, Performance & Security, 07 - Logging & Diagnostics Requirements, DCAM-BDMA Data Contract, DCAM Security & Encryption Design, DCAM Performance Budget & Resource Constraints, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Self Update Design, DCAM Android Device Owner & Kiosk Policy Design, DCAM Web Portal & Device API Contract, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report, DCAM Documentation Governance, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice |
 
 ---
 
-
-# DCAM Logging & Diagnostics Design
-
-Item
-
-Information
-
-Project
-
-DCAM (Android BodyCamera Application)
-
-Document Type
-
-Technical Design / Logging & Diagnostics
-
-Version
-
-Approved 0.6
-
-Status
-
-Approved
-
-Approval Scope
-
-Build 0.1 operational logging cho approved decisions; không thay Security Profile
-
-Owner
-
-Hoàng Ngọc Quyền
-
-Technical Reviewer
-
-Tech Lead / Android Lead / Backend Lead / QA Lead / Security Reviewer / Support Lead / BDMA Lead
-
-Approver
-
-Hoàng Ngọc Quyền
-
-Parent Folder
-
-4.2 - Technical Design
-
-Target Audience
-
-Tech Lead, Android Developers, Backend Developers, QA, Security Reviewer, Support, BDMA Team
-
-Last Updated
-
-2026-07-16
-
-Related Jira
-
-None
-
-Related Documents
-
-07 - Logging, Diagnostics, Performance & Security, 07 - Logging & Diagnostics Requirements, DCAM-BDMA Data Contract, DCAM Security & Encryption Design, DCAM Performance Budget & Resource Constraints, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Self Update Design, DCAM Android Device Owner & Kiosk Policy Design, DCAM Web Portal & Device API Contract, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report, DCAM Documentation Governance, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
-
 ## 1. Purpose
+
+GMS-free observability guard: Crashlytics is optional and currently does not require Google Play services, but DCAM must not add FCM, Analytics, Play Integrity or any GMS dependency for diagnostics. Resolved dependency/manifest/source evidence and local-first provider-outage behavior are mandatory before production profile claim; ADR - DCAM GMS-free Android Runtime Baseline is authoritative.
 
 Tài liệu này là source of truth cho implementation design của logging và diagnostics trong DCAM.
 
 Provider ownership và cross-project logging baseline được reference từ:
 
-DCAM Project Home / DCAM Architecture Home.
-
-07 - Logging, Diagnostics, Performance & Security.
-
-07 - Logging & Diagnostics Requirements.
-
-DCAM-BDMA Data Contract.
+- DCAM Project Home / DCAM Architecture Home.
+- 07 - Logging, Diagnostics, Performance & Security.
+- 07 - Logging & Diagnostics Requirements.
+- DCAM-BDMA Data Contract.
 
 Trang này không restate full provider baseline. Local implementation scope:
 
+```text
 Logging abstraction and ownership
 Operational event schema
 Log category and level rules
@@ -95,160 +49,58 @@ Correlation context
 Provider failure behavior
 Performance/reliability constraints
 QA acceptance direction
+```
+
+---
+
 ## 2. Authoritative References
 
-Topic
+| Topic | Authoritative Document | Local Usage |
+| --- | --- | --- |
+| Provider ownership | 07 - Logging, Diagnostics, Performance & Security | Tài liệu này implement mô hình hai channel đã được architecture approve. |
+| Required behavior/events | 07 - Logging & Diagnostics Requirements | Tài liệu này không giảm requirement coverage. |
+| BDMA-facing log artifact | DCAM-BDMA Data Contract | `Logs/logs.txt` location, encoding/record boundary và read-only access phải tuân theo Data Contract. |
+| Security | DCAM Security & Encryption Design | Forbidden fields, credential protection và provider-secret rules. |
+| Performance metrics | DCAM Performance Budget & Resource Constraints | `[PERF]` events hỗ trợ measurement mà không ảnh hưởng critical path. |
+| Runtime and recovery | DCAM Android Operation Design | Startup/session/service/recovery events. |
+| Recording/evidence | DCAM Recording & Capture Design | Logging không block recording/finalization hoặc làm mất evidence. |
+| Storage | DCAM Storage Design | Internal files/queue/rotation tuân theo storage safety. |
+| SQLite | DCAM SQLite Database Design | Không network/file-heavy logging trong DB transaction. |
+| Backend Relay API | DCAM Web Portal & Device API Contract | Relay path/schema/auth nếu implemented. |
+| Release validation | DCAM QA Test Strategy & Test Matrix | End-to-end test coverage. |
 
-Authoritative Document
-
-Local Usage
-
-Provider ownership
-
-07 - Logging, Diagnostics, Performance & Security
-
-Tài liệu này implement mô hình hai channel đã được architecture approve.
-
-Required behavior/events
-
-07 - Logging & Diagnostics Requirements
-
-Tài liệu này không giảm requirement coverage.
-
-BDMA-facing log artifact
-
-DCAM-BDMA Data Contract
-
-`Logs/logs.txt` location, encoding/record boundary và read-only access phải tuân theo Data Contract.
-
-Security
-
-DCAM Security & Encryption Design
-
-Forbidden fields, credential protection và provider-secret rules.
-
-Performance metrics
-
-DCAM Performance Budget & Resource Constraints
-
-`[PERF]` events hỗ trợ measurement mà không ảnh hưởng critical path.
-
-Runtime and recovery
-
-DCAM Android Operation Design
-
-Startup/session/service/recovery events.
-
-Recording/evidence
-
-DCAM Recording & Capture Design
-
-Logging không block recording/finalization hoặc làm mất evidence.
-
-Storage
-
-DCAM Storage Design
-
-Internal files/queue/rotation tuân theo storage safety.
-
-SQLite
-
-DCAM SQLite Database Design
-
-Không network/file-heavy logging trong DB transaction.
-
-Backend Relay API
-
-DCAM Web Portal & Device API Contract
-
-Relay path/schema/auth nếu implemented.
-
-Release validation
-
-DCAM QA Test Strategy & Test Matrix
-
-End-to-end test coverage.
+---
 
 ## 3. Core Decisions
 
-Decision
+| Decision | Status |
+| --- | --- |
+| Hai logical channels: `Operational Logging` và `Crash & Stability Monitoring`. | Approved |
+| Operational Logging là kênh vận hành chính. | Approved |
+| Loggly là centralized Operational Logging provider. | Approved |
+| Firebase Crashlytics là crash/stability provider. | Approved |
+| Crashlytics custom logs/keys chỉ là bounded error context. | Approved |
+| Operational Logging phải local-first và hoạt động khi offline/GMS-free/provider unavailable. | Approved |
+| Android production app không nhúng static Loggly customer token. | Approved Direction |
+| Preferred route: local queue → authenticated Backend Relay → Loggly. | Approved Direction |
+| Domain modules không gọi Loggly/Crashlytics trực tiếp. | Approved |
+| `Logs/logs.txt` là stable sanitized BDMA-facing artifact. | Approved Contract |
+| Internal active/rotated files và upload queue không phải BDMA contract artifacts. | Approved Contract |
+| Logging không block recording, emergency, finalization, MainThread hoặc DB transaction. | Approved |
+| Exact retention, rotation count/size, batching và relay endpoint còn TBD. | TBD |
 
-Status
-
-Hai logical channels: `Operational Logging` và `Crash & Stability Monitoring`.
-
-Approved
-
-Operational Logging là kênh vận hành chính.
-
-Approved
-
-Loggly là centralized Operational Logging provider.
-
-Approved
-
-Firebase Crashlytics là crash/stability provider.
-
-Approved
-
-Crashlytics custom logs/keys chỉ là bounded error context.
-
-Approved
-
-Operational Logging phải local-first và hoạt động khi offline/non-GMS/provider unavailable.
-
-Approved
-
-Android production app không nhúng static Loggly customer token.
-
-Approved Direction
-
-Preferred route: local queue → authenticated Backend Relay → Loggly.
-
-Approved Direction
-
-Domain modules không gọi Loggly/Crashlytics trực tiếp.
-
-Approved
-
-`Logs/logs.txt` là stable sanitized BDMA-facing artifact.
-
-Approved Contract
-
-Internal active/rotated files và upload queue không phải BDMA contract artifacts.
-
-Approved Contract
-
-Logging không block recording, emergency, finalization, MainThread hoặc DB transaction.
-
-Approved
-
-Exact retention, rotation count/size, batching và relay endpoint còn TBD.
-
-TBD
+---
 
 ## 4. Logging Model
 
-Logging Type
-
-Provider
-
-Responsibility
-
-Operational Logging
-
-Loggly through Backend Relay
-
-Lifecycle, state, business/runtime events, expected failures, recovery, performance và support diagnostics.
-
-Crash & Stability Monitoring
-
-Firebase Crashlytics
-
-Fatal crash, ANR, unexpected non-fatal exception, release stability và bounded context.
+| Logging Type | Provider | Responsibility |
+| --- | --- | --- |
+| Operational Logging | Loggly through Backend Relay | Lifecycle, state, business/runtime events, expected failures, recovery, performance và support diagnostics. |
+| Crash & Stability Monitoring | Firebase Crashlytics | Fatal crash, ANR, unexpected non-fatal exception, release stability và bounded context. |
 
 Classification boundary:
 
+```text
 Expected event / expected failure / state transition / metric
     → Operational Logging
 
@@ -259,8 +111,13 @@ Unhandled fatal crash / ANR / unexpected exception
 Crashlytics breadcrumb/custom key
     → bounded context only
     → not complete operational stream
+```
+
+---
+
 ## 5. High-level Architecture
 
+```text
 DCAM Modules
 Recording / Storage / Identity / Auth / Policy / Update / Config / BDMA / Performance
                                   ↓
@@ -277,13 +134,18 @@ Internal Local Log Writer
 Active / Rotated Structured Logs
           ├──────────────→ BdmaLogArtifactWriter → Logs/logs.txt
           ↓
-Persistent Upload Queue
+Persistent Diagnostics Outbox
           ↓
-Authenticated Backend Relay
+BFF Diagnostics Ingestion API
           ↓
-Loggly
+BFF Provider Adapter
+          ↓
+Loggly (current operational sink; replaceable without Android change)
+```
+
 Failure behavior:
 
+```text
 Provider/network unavailable
     ↓
 Internal local logging continues
@@ -291,64 +153,36 @@ Internal local logging continues
 Logs/logs.txt remains maintainable/readable
     ↓
 Upload retries asynchronously when safe
+```
+
+---
+
 ## 6. Component Responsibilities
 
-Component
+| Component | Responsibility |
+| --- | --- |
+| `OperationalLogger` | API chính để ghi structured operational event. |
+| `StabilityReporter` | Report fatal/non-fatal context qua provider abstraction. |
+| `DiagnosticContextProvider` | Cung cấp safe app/device/session/runtime context. |
+| `SensitiveDataSanitizer` | Redact/drop forbidden fields before every sink. |
+| `LocalLogWriter` | Ghi local-first asynchronous event. |
+| `LogRotationManager` | Enforce size/time/file-count/retention. |
+| `BdmaLogArtifactWriter` | Maintain hoặc atomically regenerate sanitized `Logs/logs.txt` artifact. |
+| `DiagnosticsOutbox` | Persist sanitized operational events and crash summaries with pending/acknowledged/retry state. |
+| `DiagnosticsUploader` | Upload idempotent bounded batches to BFF when network/runtime safe. |
+| `CrashSummaryWriter` | Create a bounded local crash/ANR summary before optional external reporting. |
+| `BffDiagnosticsIngestionService` | BFF authenticates, validates, deduplicates, acknowledges, rate-limits and routes batches. |
+| `DiagnosticsProviderAdapter` | Server-side adapter to current Loggly operational sink or a future approved provider; Android does not change when sink changes. |
+| `CrashlyticsAdapter` | Optional Firebase SDK wrapper; external best-effort duplicate only, isolated from core operation. |
+| `DiagnosticsExporter` | Future support package export; không thay thế `logs.txt` contract. |
 
-Responsibility
-
-`OperationalLogger`
-
-API chính để ghi structured operational event.
-
-`StabilityReporter`
-
-Report fatal/non-fatal context qua provider abstraction.
-
-`DiagnosticContextProvider`
-
-Cung cấp safe app/device/session/runtime context.
-
-`SensitiveDataSanitizer`
-
-Redact/drop forbidden fields before every sink.
-
-`LocalLogWriter`
-
-Ghi local-first asynchronous event.
-
-`LogRotationManager`
-
-Enforce size/time/file-count/retention.
-
-`BdmaLogArtifactWriter`
-
-Maintain hoặc atomically regenerate sanitized `Logs/logs.txt` artifact.
-
-`OperationalLogQueue`
-
-Persist pending/uploaded/retry state.
-
-`OperationalLogUploader`
-
-Upload bounded batch khi network/runtime safe.
-
-`LogglyRelayService`
-
-Backend auth, validate, sanitize, rate-limit và forward tới Loggly.
-
-`CrashlyticsAdapter`
-
-Wrap Firebase SDK và isolate provider failure.
-
-`DiagnosticsExporter`
-
-Future support package export; không thay thế `logs.txt` contract.
+---
 
 ## 7. Logging Facade Contract
 
 Recommended direction:
 
+```java
 interface OperationalLogger {
     void debug(String category, String eventName, DiagnosticFields fields);
     void info(String category, String eventName, DiagnosticFields fields);
@@ -362,36 +196,25 @@ interface StabilityReporter {
     void addBreadcrumb(String message);
     void recordNonFatal(Throwable throwable, DiagnosticFields safeContext);
 }
+```
+
 Rules:
 
-Rule
+| Rule | Description |
+| --- | --- |
+| LOG-API-001 | Domain module chỉ phụ thuộc abstraction. |
+| LOG-API-002 | Provider SDK/API nằm trong infrastructure adapter. |
+| LOG-API-003 | Logging call không throw ngược vào business flow. |
+| LOG-API-004 | Logging failure không làm operation chính fail. |
+| LOG-API-005 | Throwable/context phải sanitize trước mọi sink. |
 
-Description
-
-LOG-API-001
-
-Domain module chỉ phụ thuộc abstraction.
-
-LOG-API-002
-
-Provider SDK/API nằm trong infrastructure adapter.
-
-LOG-API-003
-
-Logging call không throw ngược vào business flow.
-
-LOG-API-004
-
-Logging failure không làm operation chính fail.
-
-LOG-API-005
-
-Throwable/context phải sanitize trước mọi sink.
+---
 
 ## 8. Operational Event Schema
 
 Logical schema direction:
 
+```json
 {
   "schema_version": 1,
   "timestamp_utc": "2026-07-10T08:30:00.000Z",
@@ -413,44 +236,27 @@ Logical schema direction:
     "latency_ms": 1250
   }
 }
+```
+
 Rules:
 
-Rule
+| Rule | Description |
+| --- | --- |
+| LOG-SCHEMA-001 | Required: schema version, timestamp, level, category, event name. |
+| LOG-SCHEMA-002 | Warn/error/rejection dùng stable safe reason code. |
+| LOG-SCHEMA-003 | Machine analysis dựa vào structured fields, không dựa vào free-text-only message. |
+| LOG-SCHEMA-004 | Dynamic fields qua allowlist/sanitizer. |
+| LOG-SCHEMA-005 | Raw serial không log mặc định; masked representation chỉ khi approved. |
+| LOG-SCHEMA-006 | Schema changes phải versioned/backward-compatible. |
+| LOG-SCHEMA-007 | Event phải serialize thành one logical record cho `logs.txt`; multi-line content phải escape/normalize. |
 
-Description
-
-LOG-SCHEMA-001
-
-Required: schema version, timestamp, level, category, event name.
-
-LOG-SCHEMA-002
-
-Warn/error/rejection dùng stable safe reason code.
-
-LOG-SCHEMA-003
-
-Machine analysis dựa vào structured fields, không dựa vào free-text-only message.
-
-LOG-SCHEMA-004
-
-Dynamic fields qua allowlist/sanitizer.
-
-LOG-SCHEMA-005
-
-Raw serial không log mặc định; masked representation chỉ khi approved.
-
-LOG-SCHEMA-006
-
-Schema changes phải versioned/backward-compatible.
-
-LOG-SCHEMA-007
-
-Event phải serialize thành one logical record cho `logs.txt`; multi-line content phải escape/normalize.
+---
 
 ## 9. Categories and Levels
 
 Categories:
 
+```text
 APP
 IDENTITY
 AUTH
@@ -472,40 +278,32 @@ PERF
 NETWORK
 FACTORY
 SECURITY
+```
+
 Levels:
 
-Level
-
-Usage
-
-`DEBUG`
-
-Development diagnostics; production may filter/sample.
-
-`INFO`
-
-Important successful state/operation.
-
-`WARN`
-
-Degraded state, expected rejection, retryable failure, near-threshold.
-
-`ERROR`
-
-Operation failure requiring recovery/support while app may continue safely.
-
-`FATAL`
-
-Crash marker only; Crashlytics owns fatal crash reporting.
+| Level | Usage |
+| --- | --- |
+| `DEBUG` | Development diagnostics; production may filter/sample. |
+| `INFO` | Important successful state/operation. |
+| `WARN` | Degraded state, expected rejection, retryable failure, near-threshold. |
+| `ERROR` | Operation failure requiring recovery/support while app may continue safely. |
+| `FATAL` | Crash marker only; Crashlytics owns fatal crash reporting. |
 
 Rules:
 
+```text
 Do not send every ERROR to Crashlytics.
 Do not use ERROR for normal expected branch when WARN + reason_code is sufficient.
 DEBUG must still obey sensitive-data rules.
 High-frequency events must be sampled/aggregated/rate-limited.
+```
+
+---
+
 ## 10. Operational Logging Flow
 
+```text
 Module creates event
     ↓
 Facade validates category/event/level
@@ -518,205 +316,149 @@ Rotation manager enforces limits
     ↓
 BdmaLogArtifactWriter updates safe Logs/logs.txt representation
     ↓
-Upload queue marks event/batch pending
+DiagnosticsOutbox marks event/batch pending
     ↓
-Uploader sends authenticated bounded batch when safe
+DiagnosticsUploader sends idempotent authenticated bounded batch to BFF when safe
     ↓
-Backend validates/authenticates/sanitizes/rate-limits
+BFF validates/authenticates/sanitizes/deduplicates/rate-limits and returns ACK or retry hint
     ↓
-Backend forwards to Loggly
+BFF Provider Adapter forwards operational diagnostics to current Loggly sink or a future approved sink
     ↓
-Queue marks uploaded or schedules retry
+Outbox marks acknowledged or schedules retry
+```
+
 Runtime guards:
 
+```text
 No network on MainThread.
 No upload inside DB transaction.
 No heavy serialization/file work on critical camera/finalization path.
 Defer batch work during recording stress, storage recovery or low-resource state.
+```
+
+---
+
+### 10.1 Offline-first delivery contract
+
+Every remotely synchronizable diagnostic record must have a stable `event_id`, event timestamp, severity/priority, sanitized correlation context and an explicit local delivery state: `PENDING`, `IN_FLIGHT`, `ACKNOWLEDGED`, `RETRY_SCHEDULED`, `EXPIRED` or `DROPPED_BY_POLICY`.
+
+```text
+Write locally first
+    → opportunistic network check
+    → bounded batch to BFF
+    → BFF ACK by event_id
+    → mark ACKNOWLEDGED only after BFF ACK
+```
+
+The device may be offline for long periods. A late event is valid diagnostics data, not a real-time signal. Retry uses exponential backoff plus full jitter; BFF may apply `Retry-After`/rate-limit guidance. Reconnect must not create a fleet-wide upload storm.
+
+Crash handling follows two paths: a sanitized local crash summary enters the same outbox where practical; Firebase Crashlytics remains an optional direct external report and cannot be used as delivery acknowledgement for DCAM diagnostics.
+
+---
+
 ## 11. Local-first Internal Storage
 
-Area
-
-Direction
-
-Internal format
-
-Structured JSON Lines preferred; exact implementation may use equivalent single-record format.
-
-Internal location
-
-App-private/internal path; exact path TBD and not part of BDMA contract.
-
-Write model
-
-Append-oriented, asynchronous, bounded.
-
-Rotation
-
-Required by size/time/file-count; exact values TBD.
-
-Retention
-
-Bounded; exact duration/count TBD.
-
-Queue persistence
-
-Survive process restart/reboot where practical.
-
-Retry
-
-Exponential backoff + jitter or approved equivalent.
-
-Batch
-
-Bounded size/count; no large memory spike.
-
-Drop policy
-
-Drop oldest low-priority events first; emit `log_drop_summary` if possible.
-
-Priority
-
-Security/crash/recovery/recording failures > errors/warnings > important info > routine info > debug.
+| Area | Direction |
+| --- | --- |
+| Internal format | Structured JSON Lines preferred; exact implementation may use equivalent single-record format. |
+| Internal location | App-private/internal path; exact path TBD and not part of BDMA contract. |
+| Write model | Append-oriented, asynchronous, bounded. |
+| Rotation | Required by size/time/file-count; exact values TBD. |
+| Retention | Bounded; exact duration/count TBD. |
+| Queue persistence | Survive process restart/reboot where practical. |
+| Retry | Exponential backoff + jitter or approved equivalent. |
+| Batch | Bounded size/count; no large memory spike. |
+| Drop policy | Drop oldest low-priority events first; emit `log_drop_summary` if possible. |
+| Priority | Security/crash/recovery/recording failures \> errors/warnings \> important info \> routine info \> debug. |
 
 Internal active/rotated log files remain implementation-private unless a future Data Contract version explicitly exposes them.
+
+---
 
 ## 12. BDMA-facing `logs.txt` Artifact
 
 Path fixed by Data Contract:
 
-```
+```text
 Internal DCAM Storage Root/Logs/logs.txt
 ```
 
 Contract:
 
-Property
-
-Implementation Direction
-
-Encoding
-
-UTF-8.
-
-Records
-
-Newline-delimited; one complete sanitized event per line.
-
-Structured format
-
-JSON Lines or equivalent structured single-line export.
-
-Write mode
-
-Append-safe or atomically regenerated/replaced.
-
-Availability
-
-Stable logical name must remain available except short atomic replace window.
-
-Reader
-
-BDMA read-only; should copy/read a safe snapshot.
-
-Sensitive data
-
-Sanitized before export.
+| Property | Implementation Direction |
+| --- | --- |
+| Encoding | UTF-8. |
+| Records | Newline-delimited; one complete sanitized event per line. |
+| Structured format | JSON Lines or equivalent structured single-line export. |
+| Write mode | Append-safe or atomically regenerated/replaced. |
+| Availability | Stable logical name must remain available except short atomic replace window. |
+| Reader | BDMA read-only; should copy/read a safe snapshot. |
+| Sensitive data | Sanitized before export. |
 
 Relationship:
 
+```text
 Internal active/rotated logs
         ↓ export/sanitize/normalize
 Logs/logs.txt
         ↓ ADB read-only
 BDMA
+```
+
 Rules:
 
-Rule
+| Rule | Description |
+| --- | --- |
+| BDMA-LOG-001 | `logs.txt` is stable BDMA-facing name independent of internal rotation implementation. |
+| BDMA-LOG-002 | BDMA does not depend on internal rotated file names/paths. |
+| BDMA-LOG-003 | Upload queue and retry metadata are not exported. |
+| BDMA-LOG-004 | Crashlytics report/cache is not exported. |
+| BDMA-LOG-005 | Provider outage must not make `logs.txt` unavailable when local logging works. |
+| BDMA-LOG-006 | Rotation/export failure must not leave a long-lived partial/corrupt artifact. |
+| BDMA-LOG-007 | BDMA cannot modify, truncate, rename or delete the artifact. |
 
-Description
-
-BDMA-LOG-001
-
-`logs.txt` is stable BDMA-facing name independent of internal rotation implementation.
-
-BDMA-LOG-002
-
-BDMA does not depend on internal rotated file names/paths.
-
-BDMA-LOG-003
-
-Upload queue and retry metadata are not exported.
-
-BDMA-LOG-004
-
-Crashlytics report/cache is not exported.
-
-BDMA-LOG-005
-
-Provider outage must not make `logs.txt` unavailable when local logging works.
-
-BDMA-LOG-006
-
-Rotation/export failure must not leave a long-lived partial/corrupt artifact.
-
-BDMA-LOG-007
-
-BDMA cannot modify, truncate, rename or delete the artifact.
+---
 
 ## 13. Loggly Integration Boundary
 
 Production route:
 
+```text
 DCAM Android
     → authenticated Backend Relay
     → Loggly HTTP ingestion
+```
+
 Rules:
 
-Rule
+| Rule | Description |
+| --- | --- |
+| LOGGLY-001 | No hardcoded Loggly token in Android APK. |
+| LOGGLY-002 | No direct production Android → Loggly delivery without separate Security Review/ADR. |
+| LOGGLY-003 | Backend owns token, environment routing, rate limiting and provider retry. |
+| LOGGLY-004 | Backend validates schema and sanitizes again. |
+| LOGGLY-005 | Dev/staging/prod use distinct source/tags/environment. |
+| LOGGLY-006 | Provider outage does not fail Android operation. |
+| LOGGLY-007 | Exact endpoint/auth/schema belongs to API Contract. |
 
-Description
-
-LOGGLY-001
-
-No hardcoded Loggly token in Android APK.
-
-LOGGLY-002
-
-No direct production Android → Loggly delivery without separate Security Review/ADR.
-
-LOGGLY-003
-
-Backend owns token, environment routing, rate limiting and provider retry.
-
-LOGGLY-004
-
-Backend validates schema and sanitizes again.
-
-LOGGLY-005
-
-Dev/staging/prod use distinct source/tags/environment.
-
-LOGGLY-006
-
-Provider outage does not fail Android operation.
-
-LOGGLY-007
-
-Exact endpoint/auth/schema belongs to API Contract.
+---
 
 ## 14. Crashlytics Boundary
 
 Use Crashlytics for:
 
+```text
 Unhandled fatal crash
 ANR
 Unexpected non-fatal exception
 Unexpected invariant violation
 Repeated unexpected SDK/framework exception requiring stability analysis
 Bounded breadcrumbs/custom keys directly related to an error
+```
+
 Do not use Crashlytics for:
 
+```text
 Routine lifecycle
 Every recording start/stop
 Expected validation failure
@@ -725,102 +467,43 @@ Normal storage warning
 Full performance stream
 Full operational event upload
 Factory production record
+```
+
 Rules:
 
-Rule
+| Rule | Description |
+| --- | --- |
+| CRASH-001 | Crashlytics does not replace OperationalLogger. |
+| CRASH-002 | `recordNonFatal` only for unexpected/actionable exception. |
+| CRASH-003 | Custom keys/breadcrumbs are bounded and sanitized. |
+| CRASH-004 | No credential/token/raw identifier/sensitive payload. |
+| CRASH-005 | Provider unavailable, offline delivery or delayed report fails silently and never blocks core operation. |
+| CRASH-006 | A sanitized local crash summary is retained in the bounded DiagnosticsOutbox where practical; Crashlytics receipt is not the authoritative delivery acknowledgement. |
+| CRASH-007 | GMS-free target-device compatibility and dependency/source gate require Device POC/release evidence; local diagnostics remain mandatory. |
 
-Description
-
-CRASH-001
-
-Crashlytics does not replace OperationalLogger.
-
-CRASH-002
-
-`recordNonFatal` only for unexpected/actionable exception.
-
-CRASH-003
-
-Custom keys/breadcrumbs are bounded and sanitized.
-
-CRASH-004
-
-No credential/token/raw identifier/sensitive payload.
-
-CRASH-005
-
-Provider unavailable fails silently.
-
-CRASH-006
-
-Non-GMS/target compatibility requires Device POC; local diagnostics remain mandatory.
+---
 
 ## 15. Error Classification
 
-Error Class
+| Error Class | Operational Logging | Crashlytics |
+| --- | --- | --- |
+| Expected validation rejection | `WARN` + reason code | No |
+| Expected offline/timeout | `WARN`/sampled `INFO` + retry context | No |
+| Storage near full | `WARN` | No |
+| Known recording SDK failure | `ERROR` + reason code | Only if exception unexpected/actionable |
+| Handled unexpected exception | `ERROR` + sanitized summary | Non-fatal if actionable |
+| Unhandled exception | Best-effort crash marker | Fatal/provider automatic |
+| ANR | Optional local watchdog marker | Stability monitoring |
+| Provider delivery failure | Sampled `WARN` + queue state | No |
+| Security validation failure | `WARN/ERROR` + safe reason | Only for unexpected exception |
 
-Operational Logging
-
-Crashlytics
-
-Expected validation rejection
-
-`WARN` + reason code
-
-No
-
-Expected offline/timeout
-
-`WARN`/sampled `INFO` + retry context
-
-No
-
-Storage near full
-
-`WARN`
-
-No
-
-Known recording SDK failure
-
-`ERROR` + reason code
-
-Only if exception unexpected/actionable
-
-Handled unexpected exception
-
-`ERROR` + sanitized summary
-
-Non-fatal if actionable
-
-Unhandled exception
-
-Best-effort crash marker
-
-Fatal/provider automatic
-
-ANR
-
-Optional local watchdog marker
-
-Stability monitoring
-
-Provider delivery failure
-
-Sampled `WARN` + queue state
-
-No
-
-Security validation failure
-
-`WARN/ERROR` + safe reason
-
-Only for unexpected exception
+---
 
 ## 16. Sensitive Data and Sanitization
 
 Forbidden in all sinks:
 
+```text
 raw media/pre-record content
 raw sensor/location/AI/biometric payload
 password/pattern/maintenance credential
@@ -835,18 +518,43 @@ android_id_hash
 raw Android system identifier
 full sensitive config payload
 stack trace fragments containing credential input
+```
+
 Sanitization sequence:
 
+```text
 sanitize before internal persistence
 sanitize before Logs/logs.txt export
 sanitize again before Backend Relay upload
 sanitize before Crashlytics keys/logs/non-fatal report
+```
+
 If sanitizer fails, drop unsafe field/event rather than persist raw data.
+
+---
+
+## DDMP Hybrid Observability Boundary
+
+Hybrid observability is additive and Phase 2+/POC-gated. DCAM logging remains local-first and must not directly expose or depend on Headwind control-plane internals.
+
+| Event family | Safe DCAM observation | Boundary |
+| --- | --- | --- |
+| Desired-state handling | received, accepted, deferred, rejected, executed and ACKed outcome; bounded reason code and revision/correlation reference. | BFF is the sole device-facing management endpoint; no direct Headwind API/database telemetry. |
+| Release/update | authorization decision reference, manifest/artifact validation result, install/health/rollback outcome. | Never log release credential, R2 write credential, raw signed URL, private signing material or token. |
+| Coexistence/policy | Headwind Application-mode coexistence result, DCAM policy/Lock Task recovery result and safe failure reason. | Event cannot alter Android authority; DCAM remains sole DPC executor. |
+| Provider failure | BFF/Headwind/R2 unavailable or retry/defer reason. | Must not block recording/finalization; no high-frequency retry storm. |
+
+Allowed correlation additions, subject to sanitizer and exact contract review: `management_correlation_id`, `desired_state_revision`, `release_id`, `command_outcome`, `artifact_version`, `platform_device_ref`. They are bounded references, never credentials, raw provider tokens or a third root identity.
+
+Authoritative DDMP counterparts: [DDMP 07 Security, RBAC & Audit](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/68747311/07+Security+RBAC+Audit), [DDMP 08 Operations, SLO & Runbooks](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/68812869/08+Operations+SLO+Runbooks) and [DDMP 03 BFF](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 05 R2 Release](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2), [DDMP 06 Device Integration Contracts](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts).
+
+---
 
 ## 17. Correlation Context
 
 Allowed safe context when applicable:
 
+```text
 correlation_id
 request_id
 session_id
@@ -860,276 +568,152 @@ storage_mode
 last_safe_reason_code
 feature_eligibility state
 provider mode
+management_correlation_id
+desired_state_revision
+release_id
+command_outcome
+artifact_version
+```
+
 Rules:
 
+```text
 IDs are bounded and validated.
 Context lookup does not perform blocking I/O for every log call.
 Missing context does not fail logging.
-Context does not contain credential or raw personal data.
+Context does not contain credential, raw provider token, signed artifact URL or raw personal data.
+```
+
+---
+
 ## 18. Performance and Reliability Constraints
 
-Constraint
+| Constraint | Direction |
+| --- | --- |
+| MainThread | No file/network/heavy serialization. |
+| Recording priority | Logging/upload must not compete with camera/encoder/finalization. |
+| Memory | Buffers/batches bounded. |
+| Storage | Rotation/retention required; low-storage drops low priority first. |
+| Network | Async, bounded timeout, retry/backoff. |
+| DB | No network or large serialization in transaction. |
+| Failure isolation | Sink/provider/file failure does not crash app or main operation. |
+| Recursion guard | Internal logging failure cannot create infinite loop. |
+| Sampling | High-frequency events/metrics sampled or aggregated. |
 
-Direction
-
-MainThread
-
-No file/network/heavy serialization.
-
-Recording priority
-
-Logging/upload must not compete with camera/encoder/finalization.
-
-Memory
-
-Buffers/batches bounded.
-
-Storage
-
-Rotation/retention required; low-storage drops low priority first.
-
-Network
-
-Async, bounded timeout, retry/backoff.
-
-DB
-
-No network or large serialization in transaction.
-
-Failure isolation
-
-Sink/provider/file failure does not crash app or main operation.
-
-Recursion guard
-
-Internal logging failure cannot create infinite loop.
-
-Sampling
-
-High-frequency events/metrics sampled or aggregated.
+---
 
 ## 19. Provider Failure Behavior
 
-Scenario
+| Scenario | Expected Behavior |
+| --- | --- |
+| Loggly unavailable | Backend/Android retry bounded; core operation continues. |
+| Backend Relay unavailable | Events remain queued within capacity. |
+| Network unavailable / prolonged offline | No upload; local logs, `logs.txt` and bounded DiagnosticsOutbox continue. Late delivery is expected when connectivity returns. |
+| BFF Diagnostics Ingestion unavailable or rate-limits | Retain/retry with bounded backoff+jitter and server retry hint; never bypass BFF to provider. |
+| Crashlytics unavailable/offline/delayed | Ignore provider safely; local crash summary and operational context remain. |
+| Internal log write fail | Best-effort fallback marker/health warning; no business-flow crash. |
+| `logs.txt` export fail | Preserve internal source; retry export; do not expose partial artifact. |
+| Queue corrupted | Rebuild/drop queue safely; preserve internal logs when possible. |
+| Storage critically low | Drop low-priority logs; preserve recording/evidence and critical markers. |
+| Sanitizer failure | Drop unsafe data. |
 
-Expected Behavior
+---
 
-Loggly unavailable
+## DDMP Hybrid Provider Failure Behavior
 
-Backend/Android retry bounded; core operation continues.
+| Scenario | Expected behavior |
+| --- | --- |
+| BFF unavailable or auth rejected | Queue/retry within bounded policy; emit safe local marker; DCAM recording, kiosk and recovery continue. |
+| Headwind unavailable | BFF/control-plane may report degradation; DCAM does not retry direct Headwind access or change local policy. |
+| R2/CDN unavailable or artifact invalid | Defer/reject update, preserve existing controlled version and emit sanitized release outcome. |
+| Duplicate/stale desired-state | Treat idempotently; no repeated execution; ACK deterministic outcome where contract permits. |
+| Sanitizer blocks management context | Drop unsafe field/event; retain only safe reason code/health marker. |
 
-Backend Relay unavailable
+Exact retry/backoff, retention and transport schema remain Design/Contract/Operations work; no production SLO is approved by this page.
 
-Events remain queued within capacity.
-
-Network unavailable
-
-No upload; local logging and `logs.txt` continue.
-
-Crashlytics unavailable
-
-Ignore provider safely; local operational context remains.
-
-Internal log write fail
-
-Best-effort fallback marker/health warning; no business-flow crash.
-
-`logs.txt` export fail
-
-Preserve internal source; retry export; do not expose partial artifact.
-
-Queue corrupted
-
-Rebuild/drop queue safely; preserve internal logs when possible.
-
-Storage critically low
-
-Drop low-priority logs; preserve recording/evidence and critical markers.
-
-Sanitizer failure
-
-Drop unsafe data.
+---
 
 ## 20. QA / Acceptance Checklist
 
-Test Case
-
-Expected Result
-
-Operational event
-
-Persisted local before/independent of upload.
-
-Offline device
-
-Local logs and `logs.txt` continue; queue remains bounded.
-
-Network restored
-
-Pending batch retries when safe.
-
-Relay/Loggly unavailable
-
-Recording/login/runtime not blocked.
-
-Crashlytics unavailable
-
-App remains stable; Operational Logging works.
-
-Expected timeout
-
-Operational warn/retry event only; no Crashlytics spam.
-
-Unexpected handled exception
-
-Operational error + approved non-fatal.
-
-Fatal crash
-
-Crashlytics report when available + best-effort local marker.
-
-Sensitive injection
-
-Removed from internal log, `logs.txt`, relay and Crashlytics.
-
-High-frequency event
-
-Sampling/rate limit prevents log storm.
-
-Low storage
-
-Low-priority logs reduced before critical evidence path.
-
-Rotation
-
-Internal files and queue remain bounded.
-
-`logs.txt` contract
-
-UTF-8, one logical record per line, stable path and BDMA read-only.
-
-Internal archive isolation
-
-BDMA does not depend on internal rotated files/queue.
-
-MainThread
-
-No file/network blocking from logging.
-
-Relay auth failure
-
-No Loggly forward; safe handling/retry policy.
+| Test Case | Expected Result |
+| --- | --- |
+| Operational event | Persisted local before/independent of upload. |
+| Offline device | Local logs and `logs.txt` continue; queue remains bounded. |
+| Network restored after prolonged offline | Pending batches resume with jitter, idempotency and BFF ACK; no upload storm. |
+| BFF/provider unavailable or rate-limited | Recording/login/runtime not blocked; queue remains bounded and emits safe health/drop summary when possible. |
+| Crashlytics unavailable or delayed | App remains stable; local crash summary and Operational Logging work independently. |
+| Expected timeout | Operational warn/retry event only; no Crashlytics spam. |
+| Unexpected handled exception | Operational error + approved non-fatal. |
+| Fatal crash | Crashlytics report when available + best-effort local marker. |
+| Sensitive injection | Removed from internal log, `logs.txt`, relay and Crashlytics. |
+| High-frequency event | Sampling/rate limit prevents log storm. |
+| Low storage | Low-priority logs reduced before critical evidence path. |
+| Rotation | Internal files and queue remain bounded. |
+| `logs.txt` contract | UTF-8, one logical record per line, stable path and BDMA read-only. |
+| Internal archive isolation | BDMA does not depend on internal rotated files/queue. |
+| MainThread | No file/network blocking from logging. |
+| Relay auth failure | No Loggly forward; safe handling/retry policy. |
 
 Detailed test IDs belong to **DCAM QA Test Strategy & Test Matrix**.
 
+---
+
 ## 21. Open Questions / TBD
 
-Item
+| Item | Status |
+| --- | --- |
+| Exact internal app-private active/rotated log path | TBD / Storage Design |
+| Exact internal rotation size/time/file-count | TBD / Device POC + Support |
+| Retention duration | TBD / Product + Support + Security |
+| Queue persistence implementation | TBD / Android Design |
+| Batch size and upload interval | TBD / Device POC + Backend |
+| Backend Relay endpoint/schema/auth | TBD / API Contract + Security |
+| Loggly tags/source convention | TBD / Backend + Support |
+| Production sampling/rate-limit values | TBD |
+| `logs.txt` append vs atomic regeneration strategy | TBD / Android + BDMA testing |
+| Maximum `logs.txt` size/snapshot window | TBD / BDMA + Support + Storage |
+| Diagnostics package format/encryption | TBD / Security + BDMA |
+| Crashlytics enablement by build/environment | TBD / Product + Security |
+| Crashlytics compatibility per target firmware | TBD / Device POC |
+| Whether masked serial is allowed in centralized logs | TBD / Security |
 
-Status
-
-Exact internal app-private active/rotated log path
-
-TBD / Storage Design
-
-Exact internal rotation size/time/file-count
-
-TBD / Device POC + Support
-
-Retention duration
-
-TBD / Product + Support + Security
-
-Queue persistence implementation
-
-TBD / Android Design
-
-Batch size and upload interval
-
-TBD / Device POC + Backend
-
-Backend Relay endpoint/schema/auth
-
-TBD / API Contract + Security
-
-Loggly tags/source convention
-
-TBD / Backend + Support
-
-Production sampling/rate-limit values
-
-TBD
-
-`logs.txt` append vs atomic regeneration strategy
-
-TBD / Android + BDMA testing
-
-Maximum `logs.txt` size/snapshot window
-
-TBD / BDMA + Support + Storage
-
-Diagnostics package format/encryption
-
-TBD / Security + BDMA
-
-Crashlytics enablement by build/environment
-
-TBD / Product + Security
-
-Crashlytics compatibility per target firmware
-
-TBD / Device POC
-
-Whether masked serial is allowed in centralized logs
-
-TBD / Security
+---
 
 ## 22. Practical Conclusion
 
 DCAM Logging & Diagnostics Design sở hữu implementation detail, không sở hữu lại cross-project provider decision.
 
-Trang này định nghĩa logging abstraction, event schema, local file/rotation, persistent queue, Backend Relay integration và Crashlytics adapter boundary.
+- Trang này định nghĩa logging abstraction, event schema, local file/rotation, persistent queue, Backend Relay integration và Crashlytics adapter boundary.
+- Internal active/rotated log và upload queue là implementation-private.
+- `Logs/logs.txt` là sanitized BDMA-facing artifact theo DCAM-BDMA Data Contract.
+- Mỗi sink phải sanitize độc lập; logging/provider failure không được block critical DCAM operation.
+- Provider ownership hoặc baseline thay đổi được cập nhật tại Architecture Home/Logging Architecture trước; trang này chỉ cập nhật local integration impact.
 
-Internal active/rotated log và upload queue là implementation-private.
-
-`Logs/logs.txt` là sanitized BDMA-facing artifact theo DCAM-BDMA Data Contract.
-
-Mỗi sink phải sanitize độc lập; logging/provider failure không được block critical DCAM operation.
-
-Provider ownership hoặc baseline thay đổi được cập nhật tại Architecture Home/Logging Architecture trước; trang này chỉ cập nhật local integration impact.
+---
 
 ## 23. Build 0.1 Decision Event Mapping
 
-Event Group
-
-Required Context
-
-Storage Pre-check
-
-Internal free storage, result và non-start reason
-
-Storage Runtime Failure
-
-Failure reason, safe-stop result và finalization result
-
-MP4 MD5
-
-Start, success, pending, failed, missing hoặc mismatch
-
-BDMA Readiness
-
-Readiness transition hoặc blocked reason
-
-Operator
-
-B01OPR / Build 0.1 Operator tại nơi schema yêu cầu; technical traceability only
-
-Device Status
-
-Battery level, Internal free storage, GPS Available/Unavailable/Unsupported
-
-POC Evidence
-
-Reference model, OS/API, firmware và physical device identifier
+| Event Group | Required Context |
+| --- | --- |
+| Storage Pre-check | Internal free storage, result và non-start reason |
+| Storage Runtime Failure | Failure reason, safe-stop result và finalization result |
+| MP4 MD5 | Start, success, pending, failed, missing hoặc mismatch |
+| BDMA Readiness | Readiness transition hoặc blocked reason |
+| Operator | B01OPR / Build 0.1 Operator tại nơi schema yêu cầu; technical traceability only |
+| Device Status | Battery level, Internal free storage, GPS Available/Unavailable/Unsupported |
+| POC Evidence | Reference model, OS/API, firmware và physical device identifier |
 
 Không log credential, token, coordinates hoặc route. MD5 không được mô tả như encryption, authentication hoặc security signature.
+
+## BFF monitoring boundary
+
+DDMP BFF monitoring is owned by DDMP 08 Operations, SLO & Runbooks and does not create a direct Android telemetry path. DCAM continues local-first diagnostics and sends sanitized, authenticated batches only to BFF.
+
+| DCAM event/result | BFF observability treatment |
+| --- | --- |
+| Accepted diagnostics batch / delivery ACK | BFF operational metric/log and bounded audit; downstream provider receipt is not the DCAM acknowledgement. |
+| Expected device validation, mTLS denial or certificate revoke | BFF security metric/audit with safe reason code; not a crash/exception report. |
+| Unexpected BFF 5xx or adapter/database failure | BFF error capture/tracing according to DDMP monitoring baseline; Android retry remains bounded/local-first. |
+| BFF telemetry sink unavailable | BFF/DCAM core handling continues; no device receives Loggly/Sentry/OTel credential. |
+
+No DCAM module may add Sentry/OTel/Prometheus client delivery as a replacement for the approved local queue → BFF Relay boundary.

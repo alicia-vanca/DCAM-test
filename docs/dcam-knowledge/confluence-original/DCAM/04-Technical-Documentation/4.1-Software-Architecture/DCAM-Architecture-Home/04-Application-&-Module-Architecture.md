@@ -1,7 +1,7 @@
 # 04 - Application & Module Architecture
 
 **Page ID**: 47218698  
-**Version**: 16  
+**Version**: 20  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47218698
 
@@ -24,7 +24,7 @@ Software Architecture Document / Application Architecture
 
 Version
 
-Approved 1.11
+Approved 1.15
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Module boundaries với approved Build 0.1 reference/camera/checksum constraints
+Module boundaries with approved Build 0.1 reference/camera/checksum constraints, approved DDMP integration direction and mandatory GMS-free Android runtime baseline; DDMP implementation remains Phase 2+/POC-gated.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, AI/ML Engineer, QA
 
 Last Updated
 
-2026-07-13
+2026-08-26
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM Architecture Home, DCAM Architecture Delivery Profile, 05 - User & Device Operation Requirements, 03 - Android Platform & Compatibility Strategy, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, 05 - Data, Storage & BDMA Architecture, 06 - Cloud Services, Update & Configuration Architecture, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM State Machine Design, DCAM Device Capability & Feature Eligibility Design, DCAM Sensor & Location Monitoring Design, DCAM Realtime AI Detection Design, DCAM Android Development Standard, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+DCAM Architecture Home, DCAM Architecture Delivery Profile, 05 - User & Device Operation Requirements, 03 - Android Platform & Compatibility Strategy, DCAM Android Device Owner & Kiosk Policy Design, DCAM In-App Operation, Device Settings & Media Console Design, DCAM Self Update Design, 05 - Data, Storage & BDMA Architecture, 06 - Cloud Services, Update & Configuration Architecture, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM State Machine Design, DCAM Device Capability & Feature Eligibility Design, DCAM Sensor & Location Monitoring Design, DCAM Realtime AI Detection Design, DCAM Android Development Standard, DCAM Device Owner ADR, DCAM Device Identity ADR, DDMP 01 Hybrid System Architecture, DDMP 03 Management API / BFF, DDMP 06 Device Integration Contracts, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 ## 1. Purpose
 
@@ -74,12 +74,12 @@ DCAM dùng kiến trúc layered/module-based để các capability như recordin
 
 Current baseline:
 
-No external EMM.
-No Android Management API.
-No Managed Google Play policy-driven update.
-DCAM-as-DPC / local Device Owner is preferred if target firmware supports it.
-Primary update path = DCAM Self Update / APK update.
-Manual Google Play Store update = optional controlled maintenance fallback only if approved and available.
+No external DPC/EMM, Android Management API or Managed Google Play owns Android privileged policy.
+DCAM = the only local Device Owner / DPC if target firmware supports it.
+Headwind Client = Application mode only; it does not own DPC, HOME/launcher, Lock Task or privileged update policy.
+BFF = desired-state/API boundary; Headwind Community = limited fleet control-plane.
+Primary update path = BFF-authorized DCAM Self Update from Cloudflare R2/CDN.
+No Google Play Store/Managed Google Play update or maintenance fallback is permitted in the production profile.
 Trang này là **target architecture-level map**. Nó không được hiểu là danh sách bắt buộc phải implement toàn bộ trong MVP.
 
 Implementation phải tuân theo **DCAM Architecture Delivery Profile**:
@@ -252,6 +252,14 @@ Not required
 Fetch/cache
 
 Validate/apply policy
+
+ddmp-device-management-sync
+
+Not required
+
+BFF enrollment/sync/desired-state/ACK; Headwind coexistence POC
+
+Hardened reconnect, reconciliation and release rollout
 
 self-update
 
@@ -510,21 +518,27 @@ Phase 2+ / MVP safe logging and basic data protection only
 
 `self-update`
 
-Primary no-EMM update path: manifest, APK download, validation, install, result verify and kiosk policy restore.
+Primary update path: BFF release desired-state, immutable R2/CDN manifest/APK download, validation, DCAM DPC install, result ACK and kiosk policy restore.
 
 Phase 2+
 
 `play-store-fallback`
 
-Optional controlled maintenance fallback only if GMS/Play Store exists and approved process allows it.
+Not part of the approved production module graph; prohibited by ADR - DCAM GMS-free Android Runtime Baseline.
 
-Conditional / Phase 2+ POC
+Not Applicable
 
 `cloud-config`
 
 Remote config provider, validation và apply flow, including kiosk requested-policy settings.
 
 Phase 2+ / no MVP apply
+
+`ddmp-device-management-sync`
+
+BFF enrollment, outbound sync, desired-state/release retrieval, ACK and local cache. Does not call Headwind REST API directly.
+
+Phase 2+ / POC-gated; not required for Build 0.1
 
 `webserver-integration`
 
@@ -609,6 +623,8 @@ FeatureEligibilityEvaluator
 ConsoleModuleRegistry + RuntimeModuleRegistry
         ↓
 Initialize eligible modules only
+        ↓
+Schedule non-blocking DDMP DeviceManagementSyncCoordinator when the DDMP profile is enabled
         ↓
 Operator login gate controls recording/capture evidence commands
         ↓
@@ -742,9 +758,33 @@ Phase 2+
 
 DEP-019
 
-Manual Play Store fallback must go through Controlled Maintenance and approved target controller.
+No module may launch, browse or update through Google Play Store/Managed Google Play, or require Google account maintenance.
 
-Phase 2+ / Conditional
+Mandatory production guard
+
+DEP-020
+
+DDMP device sync must use BFF only; DCAM domain/runtime modules must not call Headwind REST API, Headwind database or use Headwind JWT.
+
+Phase 2+ / POC-gated
+
+DEP-021
+
+`platformDeviceId` in DDMP sync is the resolved `dcam_cloud_device_id`; `dcamInstallationId` is local correlation and `headwindDeviceRef` is mapping-only.
+
+Phase 2+ / POC-gated
+
+DEP-022
+
+Desired-state is validated and executed only by DCAM’s local policy/update adapters; it cannot bypass Device Owner, capability, safe-state or recording guards.
+
+Phase 2+ / POC-gated
+
+DEP-023
+
+DDMP sync, retry, telemetry and Headwind coexistence must not block startup-to-recording-ready, recording, finalization, DB transaction or MainThread work.
+
+Phase 2+ / POC-gated
 
 ## 7. Platform Adapter Examples
 
@@ -832,7 +872,7 @@ Device Capability
 
 `DeviceCapabilityService`
 
-Android hardware/platform/GMS/Play Store/policy detector.
+Android hardware/platform/policy and GMS-free compliance detector; no Play Store capability is exposed.
 
 Phase 2+ / MVP simple checks
 
@@ -924,13 +964,21 @@ Room / SQLite wrapper.
 
 MVP minimal / Phase 2 full
 
-Remote Config
+Configuration
 
-`RemoteConfigProvider`
+`DeviceConfigurationService`
 
-Firebase / REST / Local.
+BFF desired-state/config + validated local defaults; no cloud-config SDK may change the GMS-free baseline.
 
 Phase 2+
+
+DDMP Device Management
+
+`DeviceManagementSyncService`
+
+BFF HTTPS client for enrollment/sync/desired-state/ACK, local cache and backoff. No direct Headwind adapter in DCAM.
+
+Phase 2+ / POC-gated
 
 Self Update
 
@@ -942,11 +990,9 @@ Phase 2+
 
 Play Store Fallback
 
-`PlayStoreFallbackService`
+No service is present in the approved production module graph.
 
-Optional controlled target launcher if GMS/Play Store available.
-
-Conditional / Phase 2+ POC
+Not Applicable
 
 BDMA
 
@@ -995,7 +1041,7 @@ Verify Lock Task allowlist and User Restrictions when policy authority exists
     ↓
 Load validated settings from dcam.db
     ↓
-Detect Device Capability including update and Play Store fallback capability
+Detect Device Capability including self-update install constraints, policy-safe maintenance window and GMS-free compliance
     ↓
 Evaluate Feature Eligibility
     ↓
@@ -1006,6 +1052,8 @@ Initialize system modules that do not require login
 Prepare console modules and approved maintenance targets
     ↓
 Enter/recover Lock Task Mode when lifecycle is safe
+    ↓
+Schedule DDMP BFF sync asynchronously when enabled; it must not delay recording-ready, login or local recovery
     ↓
 Restore same-boot operator session or show login screen
     ↓
@@ -1046,13 +1094,13 @@ ApprovedMaintenanceTargetController opens only approved targets
 PolicyAuditLogger emits safe reason codes
 ### 8.5 Self Update Flow
 
-Update requested / scheduled
+Update requested / scheduled through BFF release desired-state
     ↓
 SelfUpdateCoordinator
     ↓
 Check System Settings preconditions and State Machine guard
     ↓
-Load manifest and download APK from approved artifact provider
+Load immutable manifest and download APK from Cloudflare R2/CDN
     ↓
 Validate package identity, checksum, signature, version and compatibility
     ↓
@@ -1084,6 +1132,14 @@ DCAM In-App Operation, Device Settings & Media Console Design
 Self Update / APK update
 
 DCAM Self Update Design
+
+DDMP BFF ↔ DCAM shared contract
+
+DDMP 06 Device Integration Contracts
+
+DDMP hybrid boundary and BFF role
+
+DDMP 01 Hybrid System Architecture + DDMP 03 Management API / BFF
 
 Runtime startup/module registry/session lifecycle
 
@@ -1129,7 +1185,7 @@ Target architecture direction:
 
 Do not assume external EMM / Android Management API / Managed Google Play
 Detect policy state first when production profile requires kiosk
-Detect capability early including update/GMS/Play Store capability
+Detect capability early including update install/policy constraints and GMS-free compliance
 Evaluate feature eligibility
 Prune unsupported runtime modules and auth methods
 Degrade only where approved
@@ -1137,7 +1193,9 @@ Use KioskPolicyManager for Device Owner / Lock Task / User Restrictions
 Use ConsoleModuleRegistry and ConsoleSettingCoordinator for in-app console modules
 Use MaintenanceAccessController for Maintenance Password Gate
 Use ApprovedMaintenanceTargetController for controlled maintenance targets
-Use SelfUpdateCoordinator for primary APK update path
+Use DeviceManagementSyncCoordinator for non-blocking BFF enrollment/sync/desired-state/ACK when the DDMP profile is enabled
+Use SelfUpdateCoordinator for BFF-authorized R2/CDN APK update path
+Do not let Headwind Client/API own Android policy, privileged execution or direct DCAM domain integration
 Use optional PlayStoreFallbackService only when approved and available
 Use OperatorSessionManager for active session
 Use RecordingController for recording behavior
@@ -1167,4 +1225,42 @@ SQLite/CSON/log adapters phải sử dụng static Build 0.1 operator tại nơi
 
 Device Status integration chỉ gồm battery level, Internal free storage và GPS availability state.
 
+DDMP device-management sync, Headwind Client coexistence, R2 update flow and BFF integration are not Build 0.1 implementation requirements; they remain Phase 2+/POC-gated.
+
 Exact Camera API generation, physical path và schema placement không được suy diễn tại module level.
+
+## Device credential lifecycle module
+
+The DCAM module graph includes a logical device-credential lifecycle component, governed by [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline).
+
+Component
+
+Responsibility
+
+Forbidden behaviour
+
+DeviceCredentialManager
+
+Generate/use Keystore-backed asymmetric key, select active certificate and expose lifecycle state.
+
+Export/copy private key or store it in SQLite/config/SD.
+
+DeviceEnrollmentCoordinator
+
+Coordinate pending enrollment, proof-of-possession, certificate receipt and re-enrolment state.
+
+Treat serial_number or platformDeviceId as authentication.
+
+DeviceApiClient
+
+Use mTLS for device routes, requestId/eventId and safe retry.
+
+Call Factory Portal/admin routes or use worker/Headwind credentials.
+
+CredentialStateRepository
+
+Persist non-secret lifecycle metadata/reason/correlation only.
+
+Persist private key, raw token or certificate secret material.
+
+Exact TLS stack and certificate storage API are implementation details subject to Android/Device POC and Security Review.

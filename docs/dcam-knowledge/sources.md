@@ -1,8 +1,44 @@
 # Confluence source inventory
 
-Authenticated Confluence API snapshot initially read on **2026-07-03**, broadly refreshed on **2026-07-08**, and selectively refreshed on **2026-07-09** (Asia/Saigon). Credentials came from the gitignored local application properties and are not stored here.
+Authenticated Confluence API snapshot refreshed on **2026-08-26** (Asia/Saigon) through `node download-confluence.js`. Credentials came from the gitignored local application properties and are not stored here. Earlier July sections below are retained as historical refresh notes.
 
 Confluence remains the source of truth. This file records what was checked locally and how to interpret the local digest.
+
+## August 26 full refresh
+
+| Check | Result |
+|---|---:|
+| DVID space pages scanned | 172 |
+| DCAM pages downloaded | 84 |
+| Credential-bearing pages blocked | 0 |
+| DCAM page paths changed from repository baseline | 51 |
+
+The current original-page index is [`confluence-original/INDEX.md`](confluence-original/INDEX.md). Each downloaded page stores its Confluence page ID and current page version in its header. The downloader does not persist API update timestamps, so this inventory uses the current Confluence page versions and the refresh timestamp rather than inventing last-update times.
+
+The six added current paths are the Factory Provisioning Portal/BFF API Contract, DCAM-23, DCAM-30, DCAM-6, the GMS-free Android Runtime ADR, and the Device API Credential/mTLS ADR. Page ID `49873154` was renamed from the former Web Portal/API contract title; the obsolete local filename was removed.
+
+### Current implementation checkpoints
+
+| Page | Page version | Current local summary |
+|---|---:|---|
+| [DCAM Project Home](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/41648280) | 79 | [`README.md`](README.md), product/scope summaries |
+| [DCAM Document Status Registry](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51085647) | 63 | [`06-refresh-2026-08-26.md`](confluence-summary/06-refresh-2026-08-26.md) |
+| [DCAM Release & Build Applicability Matrix](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51020012) | 11 | MVP and feature summaries |
+| [DCAM-BDMA Data Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47743153) | 17 | `01-requirements/data-contract.md` |
+| [10 - Android Device Operation Requirements](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496661) | 13 | `01-requirements/android-device-operation.md` |
+| [DCAM Architecture Home](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47185929) | 53 | `02-architecture/system-architecture.md` |
+| [06 - Cloud Services, Update & Configuration Architecture](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120459) | 33 | `02-architecture/cloud-quality-security.md` |
+| [DCAM Android Development Standard](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120580) | 16 | `03-development/android-standard.md` |
+| [DCAM Security & Encryption Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496720) | 22 | `05-technical-design/README.md` |
+| [DCAM Logging & Diagnostics Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51019937) | 14 | `05-technical-design/README.md` |
+| [DCAM Factory Provisioning Portal & BFF API Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49873154) | 13 | `02-architecture/cloud-quality-security.md` |
+| [ADR - DCAM GMS-free Android Runtime Baseline](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/69730306) | 1 | `03-development/android-standard.md`, `05-technical-design/README.md` |
+| [ADR – DCAM Device API Credential & mTLS Baseline](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/70287362) | 1 | `06-refresh-2026-08-26.md` |
+| [DCAM-23 Recording & Recovery Evidence](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/63078416) | 1 | `01-requirements/mvp-baseline.md` |
+| [DCAM-30 Camera/Import Evidence](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/67436575) | 2 | `01-requirements/mvp-baseline.md` |
+| [DCAM-6 Working Recording Slice Evidence](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/66355221) | 5 | `01-requirements/mvp-baseline.md` |
+
+The Registry page itself currently contains a top-level `81/81` approval-scope statement and a §4 `80/80` data-cutoff statement. This source-side discrepancy remains visible in the refresh digest and must not be used to infer release readiness.
 
 ## July 17 targeted refresh
 

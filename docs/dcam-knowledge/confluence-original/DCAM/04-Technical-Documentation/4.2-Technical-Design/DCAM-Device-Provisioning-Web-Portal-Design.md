@@ -1,7 +1,7 @@
 # DCAM Device Provisioning Web Portal Design
 
 **Page ID**: 49315858  
-**Version**: 13  
+**Version**: 16  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49315858
 
@@ -10,413 +10,140 @@
 
 # DCAM Device Provisioning Web Portal Design
 
-Item
+Metadata
 
-Information
-
-Project
-
-DCAM (Android BodyCamera Application)
+Value
 
 Document Type
 
-Technical Design / Business Flow Design
+Architecture / Business Flow
+
+Status
+
+Approved Direction
 
 Version
 
-Approved 1.3
-
-Status
-
-Approved
-
-Approval Scope
-
-Approved Phase 2 factory provisioning business-flow baseline under DEC-P2-WEB-01; UI behavior thuộc App Design, implementation thuộc Implementation Design, API/schema thuộc API Contract; not a Build 0.1 or release approval.
-
-Owner
-
-Hoàng Ngọc Quyền
-
-Technical Reviewer
-
-Tech Lead / Cloud Lead / Security Reviewer / Android Lead / Backend Lead / Web Portal Lead / Factory Lead
-
-Approver
-
-Hoàng Ngọc Quyền
-
-Parent Folder
-
-4.2 - Technical Design
-
-Target Audience
-
-PM/BA, Tech Lead, Android Developers, Web Developers, Backend Team, QA, Factory Worker, Factory Lead
+1.5
 
 Last Updated
 
-2026-07-20
+2026-08-26
 
-Related Jira
+Scope
 
-None
+Factory provisioning only; Secure Platform MVP Build 0.2 minimum
 
-Related Documents
+## 1. Purpose and decision
 
-DCAM Device Provisioning Web Portal App Design, DCAM Device Provisioning Web Portal Implementation Design, DCAM Web Portal & Device API Contract, DCAM Factory Provisioning & Device Production SOP, DCAM DSetup Factory Tool Design, DCAM Android Operation Design, DCAM Security & Encryption Design, ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+Factory provisioning is provided by the **Factory Portal**, a server-rendered Thymeleaf application hosted by the Spring Boot BFF. The BFF owns the factory-facing API boundary, authorization, validation, transaction and audit. PostgreSQL ddmp is the authoritative store.
 
-## 1. Purpose
+No Firebase/BaaS, hosted data provider or direct browser data write is part of this provisioning or device-management line. An approved external or self-hosted OIDC/SSO Identity Provider may be used only as a BFF-integrated security dependency; it is not a Portal data authority.
 
-Trang này là source of truth cho Web Portal business provisioning flow.
+This page is limited to factory business provisioning. It does not authorize a customer portal, fleet-management portal, Device Owner hand-off, manual serial entry, remote management, Self Update or changing the DCAM/DDMP authority baseline.
 
-User-facing account = Factory Worker
-Screens = Login and Workspace
-Serial source = provisioning QR displayed by DCAM
-serial_number = read-only
-Backend create/restore = serial_lookup/{serial_number}
-App UI behavior thuộc **DCAM Device Provisioning Web Portal App Design**. Firebase/frontend/backend implementation thuộc **Implementation Design**. Request/response/schema/path thuộc **API Contract**.
+## 2. Authority and boundaries
 
-### 1.1 DEC-P2-WEB-01 Applicability
-
-[Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence) governs this business flow only for Phase 2 / `Secure Platform MVP Build 0.2` onward. Local scope is Factory Worker Login/Workspace, DCAM QR-derived read-only `serial_number`, approved owner/date input, backend create/restore and audit. It does not activate Build 0.1, a general/customer/fleet portal, Device Owner, Android serial injection, factory acceptance or shipment.
-
-## 2. Approved Business Flow
-
-DSetup verifies DCAM imported expected serial_number
-    ↓
-DCAM displays provisioning QR
-    ↓
-Factory Worker logs in
-    ↓
-Workspace opens
-    ↓
-Worker scans QR displayed by DCAM
-    ↓
-Workspace validates QR and shows serial_number read-only
-    ↓
-Worker enters/selects owner_name and manufacture_date
-    ↓
-Worker reviews and submits inside Workspace
-    ↓
-Backend validates worker and request
-    ↓
-Backend checks serial_lookup/{serial_number}
-    ↓
-Create new dcam_cloud_device_id OR restore existing identity
-    ↓
-Workspace shows `CREATED` / `RESTORED` / `REJECTED` / `FAILED` / `SUPPORT_REQUIRED`
-Web Portal does not:
-
-set Device Owner
-inject serial_number into Android
-accept manual serial_number
-scan serial barcode directly
-allow worker override of duplicate/rebind/conflict
-mark PASS / FAIL / QUARANTINED / READY_TO_SHIP
-## 3. Actors
-
-Actor
+Actor / component
 
 Responsibility
 
-DCAM App
-
-Hiển thị QR và apply/restore cloud identity after provisioning.
-
-DSetup
-
-Dừng sau imported serial verification.
-
 Factory Worker
 
-Login, scan QR, review device data, enter business information và submit.
+Authenticated factory actor; scans DCAM-generated QR, selects permitted workspace and submits provisioning request.
 
-Web Frontend
+Factory Portal
 
-Login/Workspace UI, QR parsing, field validation và safe result display.
+BFF-hosted Thymeleaf UI inside the ddmp-bff Docker service on Server A; renders workflow and sends same-origin requests only to the BFF.
 
-Cloud Functions / Backend
+Spring Boot BFF
 
-Authentication, authorization, validation, create/restore, conflict policy và audit.
+Authentication/session integration, RBAC, QR-derived pairing validation, identity create/restore, pending enrollment, conflict policy, append-oriented audit and device-facing API boundary. It is an independent Docker service with embedded Tomcat; it never shares Headwind Tomcat.
 
-Cloud Firestore
+PostgreSQL ddmp
 
-Worker profile, serial lookup, device record và audit data.
+Authoritative factory worker, device identity, provisioning, pending enrollment and audit records. It is hosted natively on Server B; writes occur only through BFF services.
 
-## 4. Screen Model
+DCAM
 
-Screen
+Remains the sole Android Device Owner/DPC and privileged executor. It receives/persists identity through the approved device-facing BFF contract.
 
-Purpose
+Headwind Community
 
-Login
+Limited application-mode control-plane only; no factory identity or provisioning authority.
 
-Xác thực Factory Worker.
+The browser never connects directly to PostgreSQL. A Factory Worker credential/session is never issued to, stored by or reused by a device.
 
-Workspace
+## 3. Core business flow
 
-Chứa QR scan, device review, form, inline review, submit, result và error states.
+Worker signs in to Factory Portal. The BFF obtains an authenticated subject from the approved IdP/session integration and resolves its factory role and permitted workspace.
 
-Workspace panels không phải screen/route riêng. Không có separate Confirmation, Success hoặc Failed screen.
+Worker scans a QR generated by DCAM. The QR contains non-secret pairing data: serial_number, public-key fingerprint and fresh pairing nonce/correlation. The UI displays serial_number read-only only; every QR field is untrusted until BFF validation.
 
-## 5. QR Contract Baseline
+Worker supplies only permitted operational attributes such as workspace or production context. The browser submits the QR payload, or an approved server-side scan reference, rather than a manually editable serial/fingerprint/nonce field.
 
-QR schema không còn là `TBD` toàn bộ. Minimum logical payload đã được định nghĩa trong **DCAM Web Portal & Device API Contract**.
+The portal posts to the BFF administrative endpoint. BFF authorizes the worker, validates QR signature/freshness and extracts pairing values server-side; it resolves the serial and executes create-or-restore atomically in ddmp.
 
-Minimum fields:
+In the same controlled transaction/outbox boundary, BFF creates a short-lived PENDING_ENROLLMENT bound to serial_number, public-key fingerprint, pairing nonce/correlation, platformDeviceId and expiry. It writes the provisioning audit result.
 
-payload_type = DCAM_DEVICE_PROVISIONING
-payload_version
-serial_number
-app_package_name
-app_version_name
-app_version_code
-device_model
-firmware_version
-Optional contract/security context:
+The Portal returns only safe provisioning/enrollment state, correlation ID and reason code. It never receives a device certificate, challenge private material or DCAM private key.
 
-serial_source
-generated_at
-expires_at
-provisioning_nonce
-signature
-dcam_data_contract_version
-media_contract_version
-encoder_contract_version
-Rules:
+DCAM later connects outbound to the Device API, proves possession of the Android Keystore private key against a BFF challenge, then receives a certificate chain according to Device PKI design. The canonical logical ID is dcam_cloud_device_id, named platformDeviceId in BFF↔DCAM contracts.
+
+## 4. Identity and conflict rules
 
 Rule
 
-Description
+Decision
 
-QR-001
+Hardware/recovery key
 
-QR phải do DCAM hiển thị và có supported type/version.
+serial_number; QR-originated and read-only in Factory Portal.
 
-QR-002
+Cloud identity
 
-QR phải có `serial_number`.
+dcam_cloud_device_id / platformDeviceId; generated or restored only by BFF authority.
 
-QR-003
+Existing serial
 
-`serial_number` luôn read-only.
+BFF returns an explicit restore/conflict outcome; it does not silently create a second cloud identity.
 
-QR-004
+Device credential
 
-QR không chứa credential, factory Wi-Fi password, maintenance secret hoặc Android system identifier.
-
-QR-005
-
-Camera stream/image không được lưu hoặc upload.
-
-QR-006
-
-Invalid/unsupported QR bị reject.
-
-Exact serialization format, signature algorithm, nonce, expiration và replay policy vẫn thuộc API Contract + Security Review.
-
-## 6. Device Information
-
-Field
-
-Source
-
-Behavior
-
-`serial_number`
-
-QR
-
-Required, read-only.
-
-`device_model`
-
-QR
-
-Read-only nếu có.
-
-`firmware_version`
-
-QR
-
-Read-only nếu có.
-
-App version
-
-QR
-
-Read-only.
-
-`owner_name`
-
-Factory Worker
-
-Required theo approved validation policy.
-
-`manufacture_date`
-
-Factory Worker / factory local date
-
-Required, `YYYY-MM-DD`.
-
-`dcam_cloud_device_id`
-
-Backend result
-
-Hiển thị sau Created/Restored.
-
-## 7. Logical Backend Contract
-
-Logical endpoint đã được chốt:
-
-```
-POST /v1/factory/provisioning/devices
-```
-
-Concrete Firebase Cloud Function deployment name và hosting rewrite/path mapping vẫn là implementation detail.
-
-Backend behavior:
-
-verify Firebase identity token
-verify active Factory Worker profile
-validate request and QR-derived serial
-check serial_lookup/{serial_number}
-create or restore devices/{dcam_cloud_device_id}
-write audit event
-return stable result and safe reason code
-Frontend không được direct-write production provisioning collections.
-
-## 8. Error Handling
-
-Case
-
-Expected Handling
-
-Login/session failure
-
-Giữ ở Login hoặc yêu cầu login lại.
-
-Invalid QR
-
-Reject và rescan.
-
-Missing serial
-
-Reject; không mở manual serial input.
-
-Existing restorable serial
-
-Restore same cloud identity.
-
-Duplicate/rebind conflict
-
-Support Required; worker không override.
-
-Backend unavailable/timeout
-
-Không assume success; retry/reconciliation theo API Contract.
-
-Restricted device state
-
-Show safe state and support instruction.
-
-## 9. Security and Audit
-
-Area
-
-Requirement
-
-Authentication
-
-Firebase Authentication.
-
-Authorization
-
-Backend verifies active Factory Worker profile.
-
-Backend authority
-
-Cloud Functions owns create/restore/audit.
-
-Serial integrity
-
-QR-derived and read-only.
-
-Camera privacy
-
-No frame/image storage or upload.
-
-Sensitive data
-
-No password/token/secret/internal stack trace in UI/logs.
+Factory provisioning creates a pending enrollment only. DCAM must later prove possession of its Keystore private key before BFF binds/issues a client certificate; it must not use Factory Worker session material.
 
 Audit
 
-Worker, request id, serial, cloud id, timestamp, result, safe reason and changed fields.
+All create, restore, conflict and denial outcomes retain actor, timestamp, request/correlation ID, serial, device identity (when known), workspace and reason code.
 
-## 10. Resolved and Remaining Decisions
+## 5. Security baseline
 
-Item
+Factory routes are BFF administrative routes, for example POST /admin/v1/factory/provisioning/devices.
 
-Status
+IdP provider/protocol, session lifetime, MFA policy, CSRF implementation, QR signature/nonce/freshness parameters, Device PKI profile and exact database DDL remain security/deployment details pending their dedicated design and review.
 
-User-facing actor
+Authorization is enforced server-side for every request; template visibility is never an authorization control.
 
-Approved: Factory Worker
+QR contains only non-secret pairing data. No private key, certificate private material, Wi-Fi password or long-lived device credential appears in QR payload, portal page, URL, browser storage or audit event.
 
-Screen model
+BFF performs all database mutations; PostgreSQL credentials are never exposed to a browser.
 
-Approved: Login + Workspace
+## 6. Applicability and acceptance
 
-Serial source
+This direction is Phase 2 / Build 0.2 minimum and does not activate Build 0.1. A production rollout requires an approved IdP/security design, QR pairing validation specification, pending-enrollment/Device PKI contract, ddmp schema/migrations, audit-retention policy, restore/conflict/re-enrollment test matrix and offline/retry behavior for DCAM identity restore.
 
-Approved: QR displayed by DCAM
+## 7. Related documents
 
-QR minimum logical fields
+DCAM Factory Provisioning Portal & BFF API Contract
 
-Approved in API Contract
+DCAM Device Provisioning Web Portal App Design
 
-Logical provisioning endpoint
+DCAM Device Provisioning Web Portal Implementation Design
 
-Approved: `POST /v1/factory/provisioning/devices`
+06 - Cloud Services, Update & Configuration Architecture
 
-Backend stack
+ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
 
-Approved: Firebase Cloud Functions + Firestore
+[03 Management API / BFF Architecture Baseline](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline)
 
-Firebase Security Rules / IAM / environment separation
-
-Pending / Backend + Security + Operations
-
-QR serialization/signature/nonce/expiration/replay
-
-TBD / API Contract + Security
-
-Owner source and exact validation
-
-TBD / Product + Factory
-
-Worker account model
-
-TBD / Factory + Security
-
-Duplicate/rebind support process
-
-TBD / Product + Support + Backend
-
-Exact audit retention
-
-TBD / Security + Backend
-
-Supported browser/factory station profile
-
-TBD / Implementation + Factory
-
-## 11. Practical Conclusion
-
-The Web Portal business flow is no longer ambiguous about actor, screens, serial source, QR minimum data or logical endpoint.
-Factory Worker uses Login and Workspace only.
-serial_number comes from the QR displayed by DCAM and remains read-only.
-Cloud Functions/backend owns create/restore and audit.
-Only QR security encoding, account/process policy and deployment-specific details remain TBD.
+[DDMP BFF Implementation Foundation & Bootstrap Design](/wiki/spaces/DVID/pages/70254713/DDMP+BFF+Implementation+Foundation+Bootstrap+Design)

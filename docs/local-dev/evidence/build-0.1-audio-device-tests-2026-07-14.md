@@ -34,16 +34,6 @@ Confluence applicability note: removable/AUTO results below are useful hardware 
 ## Remaining action
 
 Completed on 2026-07-15. Exact staged AAC remained non-zero after boot, recovery reported `recovered=1`, final file existed under `Media/Audio/yyyy-MM-dd`, and `Temp` was empty.
-## App-private staging retest
-
-- Candidate installed at `2026-07-14 16:42:48` moved active AAC to `/data/user/0/com.dvid.dcam/files/DurableAudioTemp` and stored a synced `.target` marker for the AUTO SD final path.
-- Before battery removal, `DCAM_KF5KW2124062200167_000000_20260714_164353.aac` grew from `296,050` to `345,650` bytes with `RecordingForegroundService` foreground; no new AAC appeared in removable `Temp`.
-- After physical battery removal and boot, the private staged AAC remained non-zero at `558,775` bytes. Byte durability therefore passed for this storage location.
-- Tested APK entered a repeated startup crash loop: `NoSuchMethodError` for `java.nio.file.Files.readString` from `DcamStorage.validatedMarkedTarget`.
-- Compatibility fix replaced `Files.readString` with `new String(Files.readAllBytes(...), UTF_8)`. `gradlew test assembleDebug` passed.
-- Reinstalled fixed APK recovered exact `558,775` byte artifact into AUTO SD `Media/Audio/yyyy-MM-dd`; private staging became empty and log reported `recovered=1, preserved=2, duplicates=0`.
-- Result: durability mechanism promising, tested power-cut run not end-to-end PASS because original post-boot APK crashed. Fresh physical cut on fixed APK remains required. Product approval is also required because app-private staging hides active AAC from external `Temp`.
-
 ## External Temp power-loss retest - 2026-07-15
 
 - Updated APK stages audio in configured removable storage:

@@ -1,7 +1,7 @@
 # DCAM Device Provisioning Web Portal App Design
 
 **Page ID**: 50692194  
-**Version**: 6  
+**Version**: 9  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50692194
 
@@ -10,403 +10,154 @@
 
 # DCAM Device Provisioning Web Portal App Design
 
-Item
+Metadata
 
-Information
-
-Project
-
-DCAM Android BodyCamera Application
+Value
 
 Document Type
 
-Web App Design
+Application Design
+
+Status
+
+Approved Direction
 
 Version
 
-Approved 1.4
-
-Status
-
-Approved
-
-Approval Scope
-
-Approved Phase 2 factory provisioning application flow/UI baseline under DEC-P2-WEB-01; implementation/deployment details thuộc Implementation Design và approved Security/API contracts; not a Build 0.1 or release approval.
-
-Owner
-
-Hoàng Ngọc Quyền
-
-Technical Reviewer
-
-Tech Lead / Web Portal Lead / Backend Lead / Android Lead / Security Reviewer / Factory Lead
-
-Approver
-
-Hoàng Ngọc Quyền
-
-Parent Page
-
-DCAM Device Provisioning Web Portal Design
-
-Target Audience
-
-Web Developers, Backend Developers, Android Developers, Factory Worker, Factory Lead, QA, Security Reviewer
+1.6
 
 Last Updated
 
-2026-07-20
+2026-08-26
 
-Related Jira
+Scope
 
-None
-
-Related Documents
-
-DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal Implementation Design, DCAM Web Portal & Device API Contract, DCAM Security & Encryption Design, DCAM Factory Provisioning & Device Production SOP , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+Factory Portal UI only; Secure Platform MVP Build 0.2 minimum
 
 ## 1. Purpose
 
-Web Portal App là single-purpose factory application với hai screen:
+The Factory Portal is a **server-rendered Thymeleaf UI inside the Spring Boot BFF**. It runs inside the ddmp-bff Docker container on Server A; it is not a separate Portal container or a WAR in Headwind Tomcat. It supports authorized factory workers to scan a DCAM-generated QR and request device identity creation or restoration. PostgreSQL ddmp remains behind the BFF; the browser has no direct database access.
 
-Login
-Workspace
-Sau login, mọi QR scan, device review, form, inline review, submit, result và error state nằm trong `Workspace`.
+The portal is not a customer portal, a DDMP fleet portal or an Android management client. It never becomes Device Owner and does not bypass DCAM.
 
-### 1.1 DEC-P2-WEB-01 Applicability
+## 2. Runtime composition
 
-[Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence) limits this app to Phase 2 / `Secure Platform MVP Build 0.2` factory provisioning. The app supports only Factory Worker, Login/Workspace, DCAM QR-derived read-only serial, owner/date input and safe backend results. It does not activate Build 0.1, manual serial entry, frontend direct writes, a general/customer/fleet portal, Device Owner, Android serial injection or factory acceptance/shipment.
+Layer
 
-## 2. Approved App Baseline
+Design
 
-User-facing account = Factory Worker only
-Authentication = Firebase Authentication
-Frontend hosting = Firebase Hosting
-Backend = Firebase Cloud Functions
-Storage = Firebase Cloud Firestore
-Serial source = QR displayed by DCAM
-serial_number = read-only
-Logical endpoint = POST /v1/factory/provisioning/devices
-Không có manual serial entry, direct serial barcode scan, separate Confirmation screen hoặc worker override.
+Browser
 
-## 3. Screen Model
+Minimal HTML/JS for UX and QR scanning; no business authority, database SDK or device credential persistence.
 
-Screen
+Presentation
 
-Responsibility
+Thymeleaf templates rendered by Spring MVC in the BFF ddmp-bff Docker service.
 
-Login
+Application
 
-Xác thực Factory Worker và hiển thị safe authentication error.
-
-Workspace
-
-Chứa toàn bộ provisioning operation.
-
-Workspace areas:
-
-Area
-
-Responsibility
-
-Session Header
-
-Worker/session/environment/logout.
-
-QR Scanner Panel
-
-Scan QR displayed by DCAM.
-
-Device Review Panel
-
-Hiển thị device context và serial read-only.
-
-Device Information Panel
-
-Nhập/chọn owner và manufacture date.
-
-Inline Review / Submit
-
-Review và submit trong cùng screen.
-
-Result / Error Panel
-
-`CREATED`, `RESTORED`, `REJECTED`, `FAILED` hoặc `SUPPORT_REQUIRED`.
-
-## 4. Workspace State Model
-
-IDLE
-SCANNING_QR
-VALIDATING_QR
-DEVICE_REVIEW_READY
-EDITING_DEVICE_INFO
-REVIEW_READY
-SUBMITTING
-SUCCEEDED_CREATED
-SUCCEEDED_RESTORED
-FAILED
-SUPPORT_REQUIRED
-SESSION_EXPIRED
-State transition không tạo route/screen mới.
-
-## 5. QR Payload Baseline
-
-Minimum logical schema đã được chốt trong API Contract:
-
-payload_type
-payload_version
-serial_number
-app_package_name
-app_version_name
-app_version_code
-device_model
-firmware_version
-Optional fields:
-
-serial_source
-generated_at
-expires_at
-provisioning_nonce
-signature
-dcam_data_contract_version
-media_contract_version
-encoder_contract_version
-Exact JSON/URI/JWS serialization và signature/nonce/expiration/replay policy vẫn TBD.
-
-Rules:
-
-Rule
-
-Description
-
-APP-QR-001
-
-Chỉ accept supported DCAM provisioning payload.
-
-APP-QR-002
-
-Missing serial bị reject.
-
-APP-QR-003
-
-Serial không editable.
-
-APP-QR-004
-
-Camera stream/frame không lưu hoặc upload.
-
-APP-QR-005
-
-QR không chứa long-lived secret hoặc factory Wi-Fi credential.
-
-## 6. Form and Validation
-
-Field
-
-Direction
-
-`serial_number`
-
-Required, read-only, source từ QR.
-
-`owner_name`
-
-Required; exact source/length/charset TBD.
-
-`manufacture_date`
-
-Required, default factory local date, format `YYYY-MM-DD`; correction policy TBD.
-
-Device/app metadata
-
-Read-only nếu QR cung cấp.
-
-Submit chỉ enabled khi QR valid, session valid và required fields hợp lệ.
-
-## 7. API Integration
-
-Logical endpoint:
-
-```
-POST /v1/factory/provisioning/devices
-```
-
-Concrete Cloud Function deployment name, Firebase Hosting rewrite và physical URL mapping là implementation/deployment detail còn TBD.
-
-Request source:
+Factory controller, authorization/session adapter, provisioning and pending-enrollment service, QR pairing validation/conflict policy and audit service.
 
 Data
 
-Source
+BFF repositories access PostgreSQL ddmp hosted natively on Server B in server-side transactions only.
 
-Worker identity
+No Firebase/BaaS, hosted data provider or direct browser data platform is used by this application. An approved external or self-hosted IdP may be integrated by BFF only for authentication/session security.
 
-Verified Firebase Authentication context.
+## 3. Screens and interaction
 
-`serial_number`
+Screen
 
-QR payload.
+Behaviour
 
-`owner_name`
+Sign-in/session entry
 
-Workspace form.
+Delegates sign-in/session establishment to the BFF-approved identity integration. Shows no account-existence detail.
 
-`manufacture_date`
+Workspace selection
 
-Workspace form.
+Displays only workspaces the server authorizes for the current actor.
 
-Device/app metadata
+QR scan / review
 
-QR payload if accepted by API Contract.
+Requests camera permission only while scanning. The UI displays extracted serial_number read-only; public-key fingerprint and pairing nonce are not editable/displayed as identity inputs. BFF receives raw QR payload or approved scan reference and validates/extracts all pairing values server-side.
 
-Frontend không direct-write `serial_lookup`, `devices` hoặc `audit_events`.
+Provision result
 
-## 8. Security and Privacy
+Shows outcome, canonical cloud identity when allowed, pending-enrollment state, correlation ID and safe reason code. It never shows certificate/challenge/private-key material.
 
-Area
+Error / retry
 
-Rule
+Shows actionable but non-sensitive errors; no stack trace, database detail or authorization configuration.
 
-Authentication
+The server re-validates every form/QR field; client-side checks are usability only.
 
-Firebase Authentication.
+## 4. Request model
 
-Authorization
+The portal submits same-origin form or XHR requests to BFF administrative endpoints. The canonical action is:
 
-Backend validates active Factory Worker profile.
+```
+POST /admin/v1/factory/provisioning/devices
+```
 
-Browser storage
+Required logical input is a raw QR pairing payload, or an approved server-side scan reference, plus authorized factory context. BFF extracts and validates serial_number, public-key fingerprint and pairing nonce/correlation; the browser must not submit these as separately editable authority fields. dcam_cloud_device_id/platformDeviceId is BFF-generated/restored output, not manually editable input. The administrative transaction creates PENDING_ENROLLMENT only; DCAM later proves Keystore key possession through the separate Device API before a certificate is issued. Exact payload field names and QR cryptographic fields are owned by the API/QR/Device PKI contract.
 
-Không lưu password, identity token, raw QR payload hoặc factory Wi-Fi password.
+## 5. UI security rules
 
-Camera
+Use BFF session/authentication integration and server-side RBAC for every page and action.
 
-Không persist/upload scan frame.
+Protect state-changing requests with the approved CSRF/session mechanism.
 
-Error
+Do not put secrets, credentials, Wi-Fi password, raw token, device certificate/private-key material or long-lived identity in HTML, URL, local storage or logs.
 
-Không expose raw Firebase/backend stack trace.
+Do not expose administrative pages to device clients; device identity restore uses a distinct device-facing BFF contract.
 
-Conflict
+Accessibility, error localization and camera fallback UX are implementation concerns, provided they preserve QR-only / read-only serial policy.
 
-Worker không override duplicate/rebind/restricted state.
+## 6. Deferred decisions
 
-Logout/session expiry
+The IdP provider/protocol, MFA requirement, concrete session implementation, CSRF library, camera scanning library, QR pairing format and UI visual standard remain TBD and must be selected without changing this authority model. Runtime placement is approved: Thymeleaf runs inside ddmp-bff Docker on Server A; ddmp is host-native PostgreSQL on Server B.
 
-Clear current Workspace provisioning state.
+## 7. Acceptance criteria
 
-## 9. Error Behavior
+An unauthorized actor cannot render or submit a provisioning action.
 
-Case
+A worker cannot alter serial_number or submit a manual serial.
 
-Behavior
+Every result is produced by BFF validation and results in a correlated provisioning/pending-enrollment audit outcome.
 
-Camera permission denied
+The browser cannot access ddmp directly.
 
-Hướng dẫn cấp quyền.
+The page and dependency tree contain no Firebase/BaaS/direct-data SDK for provisioning; any IdP integration stays server-side in the BFF security boundary.
 
-Invalid/unsupported QR
+## 8. BFF implementation mapping
 
-Reject and rescan.
+Factory design boundary
 
-Session expired
+DDMP BFF Bootstrap location
 
-Return/re-authenticate at Login.
+factory-portal-web
 
-Validation error
+portal and api.admin presentation boundary
 
-Inline field error.
+factory-authz
 
-Backend timeout
+security and identity-provider adapter
 
-Unknown outcome; reconciliation/idempotency policy.
+factory-provisioning-service
 
-Duplicate/rebind
+application.registry and application.enrollment
 
-Support Required.
+pending enrollment / QR pairing
 
-Backend unavailable
+application.enrollment plus DevicePkiGateway port
 
-Safe retry; do not assume success.
+factory-audit-service
 
-## 10. Resolved and Remaining Decisions
+application.audit and observability correlation
 
-Item
+ddmp-repositories
 
-Status
+infrastructure.persistence-ddmp
 
-Web stack
-
-Approved: Hosting/Auth/Functions/Firestore
-
-Firebase Security Rules / IAM / environment separation
-
-Pending / Backend + Security + Operations
-
-Screens
-
-Approved: Login + Workspace
-
-User role
-
-Approved: Factory Worker
-
-Serial source
-
-Approved: DCAM QR only
-
-QR minimum logical schema
-
-Approved in API Contract
-
-Logical provisioning endpoint
-
-Approved: `POST /v1/factory/provisioning/devices`
-
-Concrete Cloud Function name/URL mapping
-
-TBD / Deployment
-
-QR serialization and cryptographic policy
-
-TBD / API + Security
-
-Supported browser/station profile
-
-TBD / Factory + Implementation
-
-Worker account model/lifecycle
-
-TBD / Factory + Security
-
-Owner source and exact validation
-
-TBD / Product + Factory
-
-Duplicate/rebind support process
-
-TBD / Support + Backend
-
-Printable/downloadable receipt
-
-TBD / Product
-
-Offline queue
-
-Not planned; future decision if factory network requires it
-
-## 11. QA Acceptance
-
-Only Login and Workspace exist.
-Valid worker can open Workspace.
-QR serial is read-only.
-No manual/barcode serial flow exists.
-Invalid QR does not enable submit.
-Created/Restored result shows dcam_cloud_device_id.
-Conflict shows Support Required without override.
-Session/camera/secret data is not persisted in browser storage.
-## 12. Practical Conclusion
-
-The app design is implementation-ready for UI structure, Firebase stack, QR minimum data and logical endpoint.
-Only cryptographic QR details, deployment mapping, factory account policy and business master-data rules remain TBD.
+This mapping is logical. It preserves the approved Bootstrap dependency direction and does not freeze a Java package name.

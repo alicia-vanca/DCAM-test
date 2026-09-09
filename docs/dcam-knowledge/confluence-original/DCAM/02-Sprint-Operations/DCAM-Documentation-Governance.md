@@ -1,7 +1,7 @@
 # DCAM Documentation Governance
 
 **Page ID**: 47120620  
-**Version**: 21  
+**Version**: 23  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120620
 
@@ -24,7 +24,7 @@ Documentation Governance
 
 Version
 
-Approved 1.18
+Approved 1.20
 
 Status
 
@@ -52,7 +52,7 @@ Parent Folder
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -60,7 +60,7 @@ None
 
 Related Documents
 
-[DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP), DCAM Document Status Registry, DCAM Requirement–Design–Test Traceability Matrix, DCAM Release & Build Applicability Matrix, DCAM Project Home, DCAM Architecture Home, DCAM Requirements Home
+[DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP), DCAM Document Status Registry, DCAM Requirement–Design–Test Traceability Matrix, DCAM Release & Build Applicability Matrix, DCAM Project Home, DCAM Architecture Home, DCAM Requirements Home, [ADR – DCAM GMS-free Android Runtime Baseline](/wiki/spaces/DVID/pages/69730306/ADR+-+DCAM+GMS-free+Android+Runtime+Baseline)
 
 Target Audience
 
@@ -88,6 +88,8 @@ This document only defines <local implementation impact>.
 Technical Design pages must not copy the complete Device Identity, Operational Logging/Crashlytics or Device Owner/EMM/Kiosk baseline. Local fields, states, guards, schemas, test conditions and implementation rules remain in the Technical Design page when required to implement that domain.
 
 When a baseline changes, update the authoritative document first. Dependent pages should require only reference validation and local-impact review.
+
+For **GMS-free Android runtime**, [ADR – DCAM GMS-free Android Runtime Baseline](/wiki/spaces/DVID/pages/69730306/ADR+-+DCAM+GMS-free+Android+Runtime+Baseline) is authoritative. Every device-facing, update, Headwind Client or observability page must reference it and state only its local impact; adding a GMS/FCM/Play Store/Google-account/Play Integrity/GMS-only flow requires an explicit replacement ADR and controlled dependent-page review.
 
 ## 2. Rule Ownership Matrix
 
@@ -139,6 +141,10 @@ Device identity
 
 Device Identity ADR + 04 - Device Configuration Requirements
 
+GMS-free Android runtime
+
+ADR – DCAM GMS-free Android Runtime Baseline
+
 Web Portal business flow
 
 DCAM Device Provisioning Web Portal Design
@@ -147,7 +153,7 @@ Web Portal Login/Workspace behavior
 
 DCAM Device Provisioning Web Portal App Design
 
-Web Portal Firebase implementation
+Factory Portal BFF + Thymeleaf implementation
 
 DCAM Device Provisioning Web Portal Implementation Design
 
@@ -267,7 +273,7 @@ An isolated Jira task must not promote a feature from `Deferred` to `Required` w
 
 Business Flow → Web Portal Design
 Login/Workspace behavior → App Design
-Firebase modules → Implementation Design
+Factory Portal BFF/Thymeleaf modules → Implementation Design
 API/schema → API Contract
 Security constraints → Security Design
 Current user-facing baseline:

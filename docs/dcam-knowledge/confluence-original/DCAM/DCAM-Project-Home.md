@@ -1,7 +1,7 @@
 # DCAM Project Home
 
 **Page ID**: 41648280  
-**Version**: 72  
+**Version**: 79  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/41648280
 
@@ -24,7 +24,7 @@ Project Home / Chỉ mục tài liệu
 
 Version
 
-Approved 3.41
+Approved 3.44
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Project navigation, physical hierarchy và current-summary only; §4 synchronized to the 2026-08-05 live hierarchy; không sở hữu mutable version/status hoặc requirement/design baseline.
+Project navigation, physical hierarchy và current-summary only; không sở hữu mutable version/status hoặc requirement/design baseline.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Developers, BDMA Team, Cloud/WebServer Team, QA, Factory, Supp
 
 Last Updated
 
-2026-08-05
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-[DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix), DCAM Release & Build Applicability Matrix, DCAM Documentation Governance, DCAM Requirements Home, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Factory Provisioning & Device Production SOP, DCAM-BDMA Data Contract , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+[DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry), [DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix), DCAM Release & Build Applicability Matrix, DCAM Documentation Governance, DCAM Requirements Home, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Factory Provisioning & Device Production SOP, DCAM-BDMA Data Contract, ADR - DCAM GMS-free Android Runtime Baseline, [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
 
 ## 1. Purpose
 
@@ -77,7 +77,7 @@ Trang này không duy trì danh sách version/status của từng tài liệu. T
 Active Build = DCAM MVP Internal Build 0.1
 Active Gate = Working Recording Slice
 Required = recording, capture, storage, minimal DB/CSON/logs, BDMA sample import
-Deferred = Web provisioning, full auth, full kiosk, Remote Config, Self Update, AI, Live/PTT
+Deferred = Web provisioning, full auth, full kiosk, Remote Config, Self Update, DDMP Hybrid integration, AI, Live/PTT
 Source of truth: **DCAM Release & Build Applicability Matrix**.
 
 ## 3. Current Project Baselines
@@ -97,7 +97,7 @@ serial_number is read-only
 Backend-authorized create/restore/audit; frontend does not direct-write provisioning collections
 No customer/public/general administration/fleet portal
 Build 0.1 remains Deferred and non-blocking
-Firebase Hosting/Auth/Functions/Firestore
+Spring Boot BFF + Thymeleaf Factory Portal + PostgreSQL ddmp
 
 DSetup:
 exactly one ADB device
@@ -111,19 +111,24 @@ Crash & Stability → Firebase Crashlytics
 BDMA diagnostics → Logs/logs.txt
 
 Dedicated Device:
-No external EMM / Android Management API / Managed Google Play
-Preferred model = DCAM-as-DPC / local Device Owner
+No external DPC/EMM, Android Management API or Managed Google Play owns privileged device policy
+DCAM = only Device Owner/DPC and privileged executor
+Headwind Client = Application mode only; no competing DPC
+BFF = desired-state, management API and audit boundary; Headwind = limited control-plane
+Primary update = BFF-authorized DCAM Self Update from immutable R2/CDN artifact
+Android runtime = GMS-free required; no Google Play services, Play Store, Google account, FCM, Analytics or Play Integrity dependency
+Crashlytics = optional crash/stability telemetry; local diagnostics and operational logging remain mandatory
+DDMP Hybrid integration = Phase 2+/POC-gated; Deferred for Build 0.1
 Maintenance = authorized actor + Maintenance Password Gate + Controlled Mode
-Primary update = DCAM Self Update / approved APK update
 
 Factory Wi-Fi:
 Current project decision remains hardcoded in approved APK
 Value must not appear in logs, QR, API, records or evidence
 ## 4. Documentation Structure
 
-**Hierarchy snapshot:** 2026-08-05.
+**Hierarchy snapshot:** 2026-08-25.
 
-**Physical node types:** Live descendants contain `78` current page nodes and `0` folder nodes. Section containers below are navigation/index pages; they do not own product baseline, mutable Version/Status or release conclusion.
+**Physical node types:** Live descendants contain `80` current page nodes and `0` folder nodes. Section containers below are navigation/index pages; they do not own product baseline, mutable Version/Status or release conclusion.
 
 DCAM
 ├── DCAM Project Home
@@ -142,7 +147,7 @@ DCAM
 │   └── Decision Brief – DCAM Phase 2 Web Portal Scope Precedence
 ├── 03 Requirements
 │   ├── DCAM-BDMA Data Contract
-│   ├── DCAM Requirements Home
+│   ├��─ DCAM Requirements Home
 │   │   ├── 01 - Recording & Capture Requirements
 │   │   ├── 02 - Media Storage Requirements
 │   │   ├── 03 - Media Management Requirements
@@ -194,19 +199,21 @@ DCAM
 │   │   └── DCAM Device POC & Hardware Validation Report
 │   │       ├── DCAM-2 — Device POC Results & Evidence Summary
 │   │       ├── DCAM-9: Image Capture POC Results & Evidence Summary
-│   │       └── DCAM-8: BDMA Sample Import & Evidence Summary
+│   │       ├── DCAM-8: BDMA Sample Import & Evidence Summary
+│   │       └── DCAM-6: Working Recording Slice Integration & Evidence Summary
 │   ├── 4.4 - Architecture Decision Records (ADR)
 │   │   ├── ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision
-│   │   └── ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
+│   ├── ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
+│   └── ADR - DCAM GMS-free Android Runtime Baseline
 │   └── Build and Launch Process for DCAM Application with ADB and Gradle
 ├── 05 Release Management
 │   ├── DCAM QA Test Strategy & Test Matrix
 │   └── DCAM Factory Provisioning & Device Production SOP
 │       └── DCAM DSetup Factory Tool Design
 └── 06 Incident Log
-Project Home chỉ mô tả navigation hierarchy. Reading order chi tiết thuộc [DCAM Requirements Home](/wiki/spaces/DVID/pages/47710513/DCAM+Requirements+Home) và [DCAM Architecture Home](/wiki/spaces/DVID/pages/47185929/DCAM+Architecture+Home); version/status tập trung thuộc [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry).
+Project Home chỉ mô tả navigation hierarchy. Reading order chi tiết thuộc [DCAM Requirements Home](/wiki/spaces/DVID/pages/47710513/DCAM+Requirements+Home) và [DCAM Architecture Home](/wiki/spaces/DVID/pages/47185929/DCAM+Architecture+Home); version/status tập trung thuộc [DCAM Document Status Registry](/wiki/spaces/DVID/pages/51085647/DCAM+Document+Status+Registry). [DDMP](/wiki/spaces/DVID/pages/68747269/DDMP) là peer root cùng cấp DCAM cho Hybrid control-plane; không phải child của DCAM.
 
-Hierarchy validation ngày 2026-08-05 xác nhận live descendants có 78 entries gồm 78 named current page entries và 0 folder nodes. Không có untitled hoặc Dangling entry; page ID `49774716` không xuất hiện. Tất cả section containers hiện là current page nodes có Registry coverage. [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary), [DCAM-9: Image Capture POC Results & Evidence Summary](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary) và [DCAM-8: BDMA Sample Import & Evidence Summary](/wiki/spaces/DVID/pages/60030996/DCAM-8+BDMA+Sample+Import+Evidence+Summary) đều là child trực tiếp của [DCAM Device POC & Hardware Validation Report](/wiki/spaces/DVID/pages/49545399/DCAM+Device+POC+Hardware+Validation+Report) dưới `4.3 - Android Development`. Đây là các working execution/evidence summary; hierarchy này không thay thế POC conclusion authoritative, Traceability, Jira workflow hoặc release conclusion. [Build and Launch Process for DCAM Application with ADB and Gradle](/wiki/spaces/DVID/pages/54394925/Build+and+Launch+Process+for+DCAM+Application+with+ADB+and+Gradle) vẫn là Working Instruction / Engineering Runbook Draft trực tiếp dưới `04 Technical Documentation`; page này không xác nhận approved baseline, execution evidence hoặc build pass.
+Hierarchy validation ngày 2026-08-25 xác nhận live descendants có 80 entries gồm 80 named current page entries và 0 folder nodes. Không có untitled hoặc dangling entry; page ID `49774716` không xuất hiện. Tất cả section containers hiện là current page nodes. [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary), [DCAM-9: Image Capture POC Results & Evidence Summary](/wiki/spaces/DVID/pages/59473994/DCAM-9+Image+Capture+POC+Results+Evidence+Summary), [DCAM-8: BDMA Sample Import & Evidence Summary](/wiki/spaces/DVID/pages/60030996/DCAM-8+BDMA+Sample+Import+Evidence+Summary) và [DCAM-6: Working Recording Slice Integration & Evidence Summary](/wiki/spaces/DVID/pages/66355221/DCAM-6+Working+Recording+Slice+Integration+Evidence+Summary) đều là child trực tiếp của [DCAM Device POC & Hardware Validation Report](/wiki/spaces/DVID/pages/49545399/DCAM+Device+POC+Hardware+Validation+Report) dưới `4.3 - Android Development`. Đây là các working execution/evidence summary; hierarchy này không thay thế POC conclusion authoritative, Traceability, Jira workflow hoặc release conclusion. [Build and Launch Process for DCAM Application with ADB and Gradle](/wiki/spaces/DVID/pages/54394925/Build+and+Launch+Process+for+DCAM+Application+with+ADB+and+Gradle) vẫn là Working Instruction / Engineering Runbook Draft trực tiếp dưới `04 Technical Documentation`; page này không xác nhận approved baseline, execution evidence hoặc build pass.
 
 ## 5. Status and TBD Governance
 
@@ -247,6 +254,10 @@ Approved for Build `<profile>`
 
 Approved only for the named build profile.
 
+GMS-free Android Runtime
+
+Mandatory production runtime baseline; authority belongs to ADR - DCAM GMS-free Android Runtime Baseline.
+
 Production Approved
 
 Production evidence and approval gates completed.
@@ -259,7 +270,7 @@ Resolution
 
 Web stack
 
-Firebase Hosting/Auth/Functions/Firestore.
+Spring Boot BFF + Thymeleaf Factory Portal + PostgreSQL ddmp.
 
 Provisioning endpoint
 
@@ -269,9 +280,9 @@ QR minimum payload
 
 Defined in API Contract.
 
-Firestore paths
+BFF data areas
 
-`workers`, `serial_lookup`, `devices`, `audit_events`.
+factory worker authorization, device identity registry, idempotency and provisioning audit.
 
 Frontend write model
 
@@ -342,13 +353,16 @@ Security:
 encryption/key management, QR cryptographic policy, exact maintenance values
 
 Backend/Deployment:
-Firebase Security Rules, physical function mapping, retention/environment settings
+BFF identity/session/RBAC policy, PostgreSQL role/migration, retention/environment settings
 
 Product/Factory:
 worker account model, owner master data, duplicate/rebind process
 
 Implementation:
 Room/raw SQLite, exact schemas, retry/backoff, internal file paths
+
+DDMP Hybrid (Phase 2+/POC-gated):
+Headwind Client coexistence, BFF desired-state/ACK, R2 update flow, security and capacity gates
 
 Future:
 Live Streaming, PTT, advanced AI, full GPS route

@@ -1,7 +1,7 @@
 # DCAM Security & Encryption Design
 
 **Page ID**: 48496720  
-**Version**: 18  
+**Version**: 22  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496720
 
@@ -24,7 +24,7 @@ Technical Design
 
 Version
 
-1.7
+1.11
 
 Status
 
@@ -32,7 +32,7 @@ Approved Pending Security Review
 
 Approval Scope
 
-Authentication, authorization, credential-protection direction, maintenance-entry model and sensitive-data constraints are approved; exact cryptographic and policy values remain open.
+Authentication, authorization, credential-protection, DDMP Hybrid trust boundary and sensitive-data constraints are approved directions; exact cryptographic and policy values remain open.
 
 Owner
 
@@ -56,7 +56,7 @@ Tech Lead, Developers, QA, Security Reviewer, Factory, Support
 
 Last Updated
 
-2026-07-20
+2026-08-26
 
 Related Jira
 
@@ -71,6 +71,15 @@ Dependencies / Blockers
 Security Review: approve exact cryptographic algorithm, key-management, QR/maintenance policy values and security-test evidence; no Production security claim before closure.
 
 ## 1. Current Security Baselines
+
+### 1.1 GMS-free Android Runtime Security Guard
+
+**ADR - DCAM GMS-free Android Runtime Baseline** is authoritative.
+
+Prohibited: com.google.android.gms:*, Google Play Store/com.android.vending,
+Google account device maintenance, FCM, Firebase Analytics, Play Integrity,
+Google Sign-In, Google Maps Android SDK and Android Firebase Remote Config baseline.
+Security/release evidence must inspect resolved release runtime dependencies, manifest/source flows and target-device POC. Crashlytics is permitted only as optional bounded crash/stability telemetry; it is not an authentication, integrity or production-control dependency.
 
 Project-wide Device Identity, Web Portal và Device Owner/Kiosk baseline không được copy lại tại trang này.
 
@@ -145,7 +154,7 @@ Baseline
 
 Authentication
 
-Firebase Authentication.
+BFF session/identity integration.
 
 Authorization
 
@@ -153,7 +162,7 @@ Backend validates active Factory Worker profile.
 
 Backend authority
 
-Cloud Functions owns provisioning writes and audit.
+Spring Boot BFF owns provisioning writes and audit.
 
 Serial
 
@@ -245,6 +254,40 @@ TBD / Data Contract + Security
 
 Encrypted-media naming does not approve a cryptographic algorithm.
 No requirement, design, QA or release document may claim AES-256 or another algorithm is production-approved until Security Review closes this section.
+## DDMP Hybrid Security Boundary
+
+Hybrid security preserves the approved authority model: DCAM is the sole Device Owner/DPC and privileged executor; Headwind Client is Application mode only; BFF is the device-facing management and audit boundary.
+
+Boundary
+
+Approved security direction
+
+Device to BFF
+
+Device authenticates only to BFF using a protected device credential/certificate representation. Exact protocol, issuance, rotation and revocation values require Security Review.
+
+BFF to Headwind
+
+BFF holds a least-privilege internal Headwind service credential. Device, portal/browser and Headwind Client must not receive it.
+
+Release authorization
+
+BFF authorizes a release; R2/CDN distributes an immutable artifact. R2 write credentials and APK signing private material never reach device/portal/browser. Exact URL/token/signing mechanics remain Security Review items.
+
+Local enforcement
+
+DCAM validates package identity, integrity/signature, compatibility and safe runtime state before installation. No Headwind status/configuration can directly execute DevicePolicyManager, Lock Task, restriction or install action.
+
+Identity/audit
+
+`dcam_cloud_device_id` is the platform device association; `serial_number` is recovery key; Headwind reference is mapping-only. Audit/log correlation must use bounded, access-controlled non-secret context and never credential material.
+
+Failure/revocation
+
+Credential/release/replay anomaly must cause BFF/DCAM rejection or deferral with safe reason; it must not unlock or interrupt recording/evidence preservation.
+
+Security and observability counterparts: [DDMP 07 Security, RBAC & Audit](/wiki/spaces/DVID/pages/68747311/07+Security+RBAC+Audit), [DDMP 08 Operations, SLO & Runbooks](/wiki/spaces/DVID/pages/68812869/08+Operations+SLO+Runbooks) and [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 05 R2 Release](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts). Hybrid is Phase 2+/POC-gated; Build 0.1 has no DDMP dependency.
+
 ## 8. Resolved and Remaining Decisions
 
 Item
@@ -253,7 +296,7 @@ Status
 
 Web auth provider
 
-Approved Direction: Firebase Authentication
+Approved Direction: BFF session/identity integration
 
 Worker authorization
 
@@ -283,13 +326,17 @@ QR cryptographic format
 
 TBD / Security Review
 
-Exact Firebase Security Rules/claims model
+Exact BFF authorization/claims/session model
 
 TBD / Backend + Security
 
 Update checksum/signature details
 
 TBD / Security Review
+
+DDMP device credential, release-authorization and R2 access mechanics
+
+TBD / Security Review + DDMP Contract
 
 Media/DB encryption and key management
 
@@ -331,6 +378,10 @@ Update validation
 
 Checksum/signature/package identity verification detail.
 
+DDMP trust boundary
+
+Device/BFF credential lifecycle, BFF–Headwind least privilege, release authorization and R2 access mechanics.
+
 Security QA
 
 Applicable QA IDs executed with evidence.
@@ -341,6 +392,13 @@ Target environment validates required protection mechanisms.
 
 ## 10. Practical Conclusion
 
-Authentication, authorization, maintenance entry, protected credential direction and sensitive logging rules are approved directions.
+Authentication, authorization, maintenance entry, protected credential direction, sensitive logging rules and DDMP Hybrid trust-boundary constraints are approved directions.
 Exact cryptographic, policy-value, retention and target-device security details remain open.
 Current status is Approved Pending Security Review, not Production Approved.
+## Device API credential and mTLS direction
+
+The authoritative credential decision is [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline). DCAM Device API authentication uses one active per-device mTLS client certificate bound to an asymmetric Android Keystore key. Private key material must not be exported, placed in app-private files, QR/configuration, logs or BFF storage.
+
+DCAM must distinguish serial_number/platformDeviceId identity from credential. Factory Worker sessions, Headwind JWT, artifact credentials and diagnostics-provider credentials are prohibited as Device API authentication. Credential loss, revoke, rotation and re-enrolment must reject or defer online control safely without unlocking or interrupting recording, kiosk or evidence preservation.
+
+Exact Device PKI, certificate profile/lifetime, revocation distribution, attestation verification and supported-device policy remain Security Review and POC gates.

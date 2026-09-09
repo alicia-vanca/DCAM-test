@@ -1,6 +1,6 @@
 # Data, storage, and DCAM–BDMA boundary
 
-Data Contract status: current Confluence page version 13, last registry review 2026-07-14. The [contract digest](../01-requirements/data-contract.md) is authoritative over earlier proposed directions in this architecture summary.
+Data Contract status: current Confluence page version 17 (approved contract 1.14), last updated 2026-08-25. The [contract digest](../01-requirements/data-contract.md) is authoritative over earlier proposed directions in this architecture summary.
 
 ## Core boundary decision
 
@@ -13,6 +13,7 @@ Build 0.1 controlling profile: internal storage only, finalized media only for B
 - BDMA detects the connected device and initiates discovery, reading, synchronization, import, validation, indexing, display, backup, export, and reporting.
 - DCAM does not push/upload/sync source data to BDMA in the current scope.
 - The current transfer/access boundary is ADB—not REST, WebSocket, FTP, MQTT, cloud upload, or a DCAM-to-BDMA socket.
+- BFF/PostgreSQL `ddmp` owns cloud identity and factory provisioning separately from the DCAM-to-BDMA ADB media boundary; the later BFF device API does not make DCAM push media to BDMA.
 
 ## Ownership by stage
 
@@ -24,7 +25,7 @@ Build 0.1 controlling profile: internal storage only, finalized media only for B
 | Import staging, validation, and retry | BDMA |
 | Managed desktop copy, index, display, backup/export | BDMA |
 
-BDMA must treat source media bytes, embedded metadata, MD5 content, `Temp`, active runtime state, and logs as non-writable. Contract 1.6 explicitly permits BDMA to update device information in `dcam_config.cson` through approved paths, write only approved `dcam.db` tables/fields, and delete successfully imported media under the cleanup rules. These writes require schema, locking, corruption, and concurrent-access safeguards.
+BDMA must treat source media bytes, embedded metadata, MD5 content, `Temp`, active runtime state, and logs as non-writable. Contract 1.14 explicitly permits BDMA to update device information in `dcam_config.cson` through approved paths, write only approved `dcam.db` tables/fields, and delete successfully imported media under the cleanup rules. These writes require schema, locking, corruption, and concurrent-access safeguards.
 
 ## Data categories
 
@@ -33,7 +34,7 @@ BDMA must treat source media bytes, embedded metadata, MD5 content, `Temp`, acti
 | Video | `.mp4` source media |
 | Image | `.jpg` source media |
 | Audio/PTT | Audio file if applicable; final format TBD |
-| Metadata | Embedded in media when supported; standalone media JSON is not part of contract 1.6; exact fields/encoding remain TBD |
+| Metadata | Embedded in media when supported; standalone media JSON is not part of contract 1.14; exact fields/encoding remain TBD |
 | App/contract metadata | App package/version plus data/media/encoder contract versions; no `bdma_decoder_profile_id` |
 | Local DB | Internal `Database/dcam.db`; identity/provisioning, user/operator, settings, runtime, media/session, tracking, import/write-back, and config-cache data |
 | Logs | Internal `Logs/logs.txt`; BDMA read-only |
@@ -45,7 +46,7 @@ Media formats are `.mp4`, `.jpg`, and `.mp3/.aac/.wav`. Logical roots, folders, 
 ## Import and integrity outcomes
 
 - MP4 with matching MD5: import as Verified when it passes; reject as Checksum Mismatch when it fails.
-- MP4 without MD5: import as Unverified; require per-file confirmation before source deletion.
+- MP4 without MD5: generic/legacy import may be Unverified with per-file confirmation before source deletion; Build 0.1 hard-blocks missing MD5 and preserves the source.
 - Image/audio: import without MD5 and do not warn about its absence.
 - Unsupported/unreadable/unsupported-encrypted media and `Temp` are not deleted.
 
@@ -53,7 +54,7 @@ The DCAM-side persisted lifecycle (`recording`, pending/finalizing, completed, c
 
 ## Metadata direction
 
-Contract 1.6 binds media association to deterministic naming and embedded metadata when supported. It does not define a standalone media JSON artifact. Exact embedded fields/types, GPS validity, source lifecycle, collision handling, and schema encoding still need Metadata/Database Design.
+Contract 1.14 binds media association to deterministic naming and embedded metadata when supported. It does not define a standalone media JSON artifact. Exact embedded fields/types, GPS validity, source lifecycle, collision handling, and schema encoding still need Metadata/Database Design.
 
 The filename baseline is `DCAM_<CameraID>_<UserID>_<YYYYMMDD>_<HHMMSS>[_IMP][_enc].<ext>`. Important media lives in `Media/IMP`; MD5 applies only to MP4 and uses the same base name in the same folder.
 
@@ -76,4 +77,4 @@ The filename baseline is `DCAM_<CameraID>_<UserID>_<YYYYMMDD>_<HHMMSS>[_IMP][_en
 - Streaming adds a real-time channel while recorded-media ownership remains local/ADB-based.
 - PTT adds real-time audio and possibly stored artifacts that need a contract.
 - Cloud sync may add a new consumer and must explicitly revisit ownership.
-- Any write/delete responsibility beyond the explicit device-info, database-field, and cleanup permissions in contract 1.6 requires a contract update and, when architecturally significant, an ADR.
+- Any write/delete responsibility beyond the explicit device-info, database-field, and cleanup permissions in contract 1.14 requires a contract update and, when architecturally significant, an ADR.

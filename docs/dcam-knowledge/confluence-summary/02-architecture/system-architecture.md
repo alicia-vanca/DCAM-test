@@ -2,9 +2,9 @@
 
 ## Architecture intent
 
-Architecture Home is current Confluence page version 39, last registry review 2026-07-14. It identifies current Data Contract as official storage/data/integration baseline. Active Build 0.1 profile is controlled by Release & Build Applicability Matrix, Architecture Delivery Profile, and DEC-01-DEC-07 Decision Brief.
+Architecture Home is current Confluence page version 53, last updated 2026-08-26. It identifies current Data Contract as official storage/data/integration baseline. Active Build 0.1 profile is controlled by Release & Build Applicability Matrix, Architecture Delivery Profile, and DEC-01-DEC-07 Decision Brief.
 
-The July 8 Technical Design pages add target-direction language for Android operation, kiosk policy, in-app console/settings, recording, storage, SQLite, BDMA integration, provisioning, update, security, sensors, and AI. Treat those pages as draft/expected design intent until implementation and review correct/complete them.
+The refreshed Technical Design pages add target-direction language for GMS-free operation, BFF/PostgreSQL provisioning, device credentials, local-first diagnostics, Android operation, kiosk policy, in-app console/settings, recording, storage, SQLite, BDMA integration, update, security, sensors, and AI. Treat target behavior as design intent until implementation and review correct/complete it.
 
 For Build 0.1, architecture must collapse to one recording-first vertical slice. Generic platform layers activate only when needed by capture, finalization, minimum contract outputs, local diagnostics, or BDMA import. Device-owner policy, cloud/provider adapters, advanced auth, update, AI, streaming, and PTT remain outside release-critical path.
 
@@ -12,16 +12,16 @@ For Build 0.1, architecture must collapse to one recording-first vertical slice.
 
 - DCAM is Android-side evidence producer; BDMA is desktop-side active reader/importer/manager. Android never depends on BDMA being connected to record or finalize data.
 - Source media, DB, CSON, and logs have explicit ownership. BDMA may read approved finalized artifacts and controlled write-back fields; it may not modify source media, temp files, checksum content, active runtime state, or local logs.
-- Dependency direction points inward. UI/use cases depend on owned domain boundaries; Android, camera, filesystem, SQLite, Firebase, update, and vendor/provider details stay behind adapters.
+- Dependency direction points inward. UI/use cases depend on owned domain boundaries; Android, camera, filesystem, SQLite, BFF/API, update, and vendor/provider details stay behind adapters.
 - Phase 1 begins with `:app` and `:core`; package-first growth is preferred. Maximum recommended Phase 1 modules are `:app`, `:core`, `:media`, `:storage`, and `:bdma-contract`, added only after documented extraction triggers.
 - One serialized recording authority owns camera state. Runtime services, hardware keys, UI, recovery, and remote commands cannot create parallel recording state machines.
-- Local-first operation is mandatory. Cloud, provisioning, remote config, crash upload, and update providers are optional adapters and cannot block capture/data integrity.
+- Local-first operation is mandatory. Cloud, provisioning, remote config, crash upload, and update providers are optional adapters for Build 0.1 and cannot block capture/data integrity. Production Android must still satisfy the GMS-free runtime guard.
 - Feature activation combines setting, capability, permission, policy authority, safety guard, and temporary availability. Unsupported or degraded behavior is explicit, never silently assumed.
-- Device identity separates `serial_number`, `dcam_cloud_device_id`, and recovery lookup `android_id_hash`; no raw Android identifier becomes business identity.
+- Device identity separates `serial_number`, `dcam_cloud_device_id`/`platformDeviceId`, and provider-neutral installation metadata; `android_id_hash` is not a current identity or recovery key.
 - Production dedicated-device direction uses local Device Owner/DPC plus Lock Task where supported; missing required authority produces controlled policy-required/degraded state.
-- Security protects credentials, identity, config, update, and media boundaries. Exact encryption algorithms, keys, rotation, and BDMA decryption remain security-profile decisions, not invented defaults.
+- Security protects credentials, identity, config, update, and media boundaries. Device API trust uses BFF-controlled per-device mTLS and Keystore proof-of-possession; exact PKI algorithms, keys, rotation, revocation, and BDMA decryption remain gated decisions.
 
-The [Architecture Delivery Profile](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50626744) is **Approved 1.1** (page version 4, updated 2026-07-09). It is the guardrail for converting that larger target architecture into current implementation work: Phase 1 stays deliberately small and proves a runnable recording/storage/BDMA slice before platform expansion.
+The [Architecture Delivery Profile](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50626744) is current page version 8 (**Approved 1.5**). It is the guardrail for converting that larger target architecture into current implementation work: Phase 1 stays deliberately small and proves a runnable recording/storage/BDMA slice before platform expansion. Its GMS-free dependency/source guard applies to every production profile.
 
 DCAM is an offline-first, modular, hardware-aware Android application. Core business logic should remain independent of Android APIs, BodyCamera vendor SDKs, camera SDKs, and cloud providers.
 
@@ -47,7 +47,7 @@ Optional cloud/config/diagnostics providers sit behind application-owned output 
 - **Reliability first:** data preservation and explicit failure state take priority over secondary work or visual polish.
 - **Capability based:** detect what the specific BodyCamera can do; do not assume all models, Android versions, firmware, GMS, sensors, or storage behave alike.
 - **Platform abstraction:** business logic must not call Android/vendor/cloud SDKs directly.
-- **Cloud-provider abstraction:** Firebase may be an implementation but is not the architecture.
+- **Cloud-provider abstraction:** Spring Boot BFF owns the API/authorization/audit boundary; PostgreSQL `ddmp` is BFF-only authoritative storage; providers such as Firebase or Crashlytics cannot silently become the architecture or device-management authority.
 - **BDMA-compatible by design:** source data is deterministic, versioned, and contract-driven.
 - **Configuration over hardcoding:** device/customer/environment-sensitive behavior comes from safe config layers.
 - **Observability:** important flows expose meaningful state and diagnostics.
@@ -115,15 +115,14 @@ Do not reserve future architecture with empty `*Service` interfaces. Location, m
 - Documentation direction: Android 7.0+ if device/SDK permits; final SDK policy and device matrix TBD.
 - Camera direction: CameraX first, Camera2/vendor fallback after real-device POC.
 - Centralize permission handling for camera, microphone, location, storage/media, network, notifications, and version-specific behavior.
-- Support GMS and non-GMS devices.
-- Treat GMS as a capability relevant to some SDKs, not a requirement for all cloud access.
-- REST/HTTPS and BDMA/backend-side cloud work can operate without Android GMS.
+- Production Android is GMS-free: no Google Play services, Play Store, Google account, FCM, Analytics, or Play Integrity dependency/flow.
+- REST/HTTPS and BDMA/backend-side cloud work operate without Android GMS; optional Crashlytics remains bounded telemetry only.
 - Gracefully degrade when GPS, network, cloud, or other optional capability is unavailable.
 
 ## Architecture decision status
 
 Decided direction: Java-first, offline-first, capability-based operation, feature-first Clean Architecture, application-owned ports/platform adapters, serialized hardware access where needed, cloud abstraction, BDMA compatibility, ADB boundary, DCAM-producer/BDMA-consumer ownership, and a phase-scoped delivery profile capped at five Gradle modules in Phase 1.
 
-Decided by Data Contract 1.6: logical storage layout, Internal/External/Auto selection, media formats and naming, `_IMP`/`_enc` suffixes, MP4-only MD5 behavior, app/data/media/encoder contract metadata, no dynamic `bdma_decoder_profile_id`, device-information-only `dcam_config.cson`, broader `dcam.db` ownership, BDMA import/write-back boundaries, and post-import cleanup.
+Decided by Data Contract 1.14: logical storage layout, Internal/External/Auto selection, media formats and naming, `_IMP`/`_enc` suffixes, MP4-only MD5 behavior, app/data/media/encoder contract metadata, no dynamic `bdma_decoder_profile_id`, device-information-only `dcam_config.cson`, BFF/PostgreSQL identity/provisioning boundary, broader `dcam.db` ownership, BDMA import/write-back boundaries, and post-import cleanup.
 
-Still pending: physical device paths, exact embedded metadata and SQLite table details, DB concurrency/write protocol, final camera API, which approved Gradle extractions are actually justified and when, source lifecycle/error model, duplicate/retry recovery behavior, Device Owner/DPC POC, maintenance credential policy, streaming/PTT protocols, encryption/key management/decryption detail, and detailed update mechanism.
+Still pending: physical device paths, exact embedded metadata and SQLite table details, DB concurrency/write protocol, final camera API, which approved Gradle extractions are actually justified and when, source lifecycle/error model, duplicate/retry recovery behavior, Device Owner/DPC POC, mTLS/PKI implementation and production evidence, maintenance credential policy, streaming/PTT protocols, encryption/key management/decryption detail, and detailed update mechanism.

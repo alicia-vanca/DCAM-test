@@ -1,7 +1,7 @@
 # DCAM Performance Budget & Resource Constraints
 
 **Page ID**: 50659486  
-**Version**: 8  
+**Version**: 10  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50659486
 
@@ -24,7 +24,7 @@ Technical Design / Performance Budget
 
 Version
 
-0.6
+0.8
 
 Status
 
@@ -32,7 +32,7 @@ Approved Pending Device POC
 
 Approval Scope
 
-Build 0.1 performance guardrails; numeric device evidence Pending Device POC
+Build 0.1 performance guardrails plus DDMP Hybrid pilot measurement boundary; numeric device evidence and Hybrid measurements remain Pending Device POC.
 
 Owner
 
@@ -56,7 +56,7 @@ Tech Lead, Android Lead, Android Developers, QA Lead, Support
 
 Last Updated
 
-2026-07-20
+2026-08-25
 
 Related Jira
 
@@ -71,6 +71,8 @@ Dependencies / Blockers
 Device POC: obtain reference-device timing, resource, battery/thermal/storage measurements and reviewed evidence before numeric performance validation.
 
 ## 1. Purpose
+
+GMS-free performance guard: performance measurement, resource budgets, diagnostics and recovery must not require Google Play services/Play Store or GMS-only telemetry. Any optional Crashlytics client must be isolated from the critical recording/finalization path; dependency and target-device evidence follow ADR - DCAM GMS-free Android Runtime Baseline.
 
 Tài liệu này định nghĩa **measurable performance targets** và **resource allocation constraints** cho DCAM Android BodyCamera application.
 
@@ -731,7 +733,7 @@ Không loop vô hạn và không block state machine lâu.
 
 Rule:
 
-Concurrency metrics must be logged through safe [PERF] or [THREAD] logs.
+Concurrency metrics must be logged through safe [PERF] or [THREAD] logs. Hybrid pilot events use the same bounded/sanitized observability rules; they must not contain credentials or raw provider tokens.
 No MainThread disk/network/DB/camera blocking operation is allowed in release candidate.
 ### 4.8 Long-running Stability Budget
 
@@ -885,6 +887,8 @@ Device POC may adjust provisional values through approved evidence-based change 
 ### 6.1 Logging Format
 
 Use safe `[PERF]` logs:
+
+Hybrid pilot correlation may use bounded `management_correlation_id` / `desired_state_revision` / `release_id` references, never a credential or signed URL.
 
 [PERF] recording_start_latency_ms=1850
 [PERF] recording_stop_latency_ms=900
@@ -1072,6 +1076,60 @@ PERF-IO-001 < 15 MB/s
 Medium
 
 Treat as hardware/storage limitation; adjust bitrate or storage policy after approval.
+
+## DDMP Hybrid Performance and Observability Boundary
+
+Hybrid performance work is Phase 2+/POC-gated. It adds pilot measurements only and must not consume recording-critical resources or change Build 0.1 budgets.
+
+Pilot metric
+
+Measurement direction
+
+Guardrail
+
+Status
+
+Device sync reconciliation
+
+Time from scheduled outbound sync to accepted/deferred/rejected result and ACK.
+
+Background/bounded work; no blocking camera, encoder, finalization or UI critical path.
+
+POC required
+
+Desired-state execution
+
+Time from accepted desired state to DCAM execution outcome.
+
+Report execution separately from delivery; defer in unsafe runtime state.
+
+POC required
+
+Artifact validation/install
+
+Download, validation, install, health-check and rollback duration.
+
+Run only in safe update window; measure impact on policy restore/Lock Task recovery.
+
+POC required
+
+Control-plane outage
+
+Sync/ACK/release retry behavior during BFF, Headwind or R2 unavailability.
+
+Local recording/kiosk/evidence runtime must remain unaffected.
+
+POC required
+
+Observability overhead
+
+CPU, memory, storage, network and log volume caused by Hybrid sync/event reporting.
+
+Sample/bound and prioritize recording; no unrestricted retry/log amplification.
+
+POC required
+
+Server SLI/SLO, queue age, database capacity and rollout wave measurements are owned by [DDMP 08 Operations, SLO & Runbooks](/wiki/spaces/DVID/pages/68812869/08+Operations+SLO+Runbooks) and DDMP 09. Device/BFF contract fields are owned by [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 05 R2 Release](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts).
 
 ## 8. Device POC Dependency and Adjustment Rules
 

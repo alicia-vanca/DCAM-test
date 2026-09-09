@@ -1,8 +1,8 @@
 # Android development standard
 
-Source status: current Confluence page version 14, last registry review 2026-07-14.
+Source status: current Confluence page version 16, last updated 2026-08-26.
 
-Delivery overlay: [DCAM Architecture Delivery Profile](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50626744) is current page version 6, reviewed 2026-07-14. It determines which target-architecture rules are mandatory in Phase 1 and which activate only when corresponding later-phase feature enters scope.
+Delivery overlay: [DCAM Architecture Delivery Profile](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50626744) is current page version 8 (**Approved 1.5**). It determines which target-architecture rules are mandatory in Phase 1 and which activate only when corresponding later-phase feature enters scope. Its GMS-free dependency/source guard applies to every production profile.
 
 ## Target stack from the documentation
 
@@ -30,7 +30,9 @@ Activity/Fragment/controller
     -> Android/vendor/cloud framework
 ```
 
-Dependency direction always points inward. UI, ViewModel, and use-case code must not call camera, hardware, storage, Retrofit, Firebase, or other provider SDKs directly. Application code depends only on domain values and boundaries it owns. Platform implementations translate external behavior into those boundaries.
+Dependency direction always points inward. UI, ViewModel, and use-case code must not call camera, hardware, storage, Retrofit, BFF, Firebase, or other provider SDKs directly. Application code depends only on domain values and boundaries it owns. Platform implementations translate external behavior into those boundaries.
+
+Production Android must be GMS-free: do not add direct or transitive Google Play services, Play Store/`com.android.vending`, FCM, Analytics, Play Integrity, Google Sign-In, Maps SDK, or Google-account maintenance/update flow. Firebase Crashlytics is optional bounded crash/stability telemetry only and requires dependency review.
 
 For the MVP paths currently in scope, the delivery profile makes the recording/capture controller, camera adapter, storage boundary, database/repository boundary, BDMA Data Contract, safe logging, and explicit disabling of unsupported optional features the P0 rules. Feature-specific managers and coordinators become mandatory when their feature enters implementation scope; they are not prerequisites for the first working recording slice.
 
@@ -80,6 +82,7 @@ Do not put fragile hardware commands into a general thread pool. Do not expose r
 - The approved Data Contract governs logical roots, folders, media naming, MD5 scope, BDMA permissions, import results, and cleanup. The future Storage/Database/Security designs must fill its explicitly open implementation details.
 - Cloud calls go through provider-neutral output ports defined from approved use cases.
 - Core recording/capture/storage/metadata and BDMA readiness remain fully local-capable.
+- Factory provisioning/device-management calls use the BFF boundary; PostgreSQL `ddmp` is not accessed from Android, UI, or browser clients.
 
 ## Pull-request checklist
 
@@ -91,6 +94,7 @@ Do not put fragile hardware commands into a general thread pool. Do not expose r
 - SDK errors are mapped.
 - Critical success/error paths are logged without sensitive data.
 - Cloud is abstracted and optional.
+- Production dependency/manifest/source review proves the GMS-free guard and excludes prohibited Play Store/Google-account flows.
 - Storage/metadata details do not leak upward.
 - Tests use fakes at application boundaries where practical.
 - Jira issue is linked when applicable.
@@ -102,6 +106,7 @@ Do not put fragile hardware commands into a general thread pool. Do not expose r
 - Use internal storage only for active profile. Preserve staging/final artifacts on failure; never expose partial media to BDMA.
 - Persist fixed `B01OPR` / `Build 0.1 Operator` consistently where required; do not build login/auth framework for this build.
 - Finalize MP4, compute MD5 off main thread, persist checksum state, then publish `BDMA_READY`. Missing/mismatch digest blocks import for affected item.
+- Keep production update handling on the BFF-authorized immutable Cloudflare R2/CDN path or an explicitly approved local/factory package; Play Store/Managed Google Play is not a fallback.
 - Record battery, internal free space, and GPS availability state. Coordinates/routes and continuous tracking are outside acceptance.
 - Attach Jira, PR/build, QA Test ID, logs, generated artifacts, and identifiable physical-device evidence. Unit tests alone do not close Pending Device POC.
 

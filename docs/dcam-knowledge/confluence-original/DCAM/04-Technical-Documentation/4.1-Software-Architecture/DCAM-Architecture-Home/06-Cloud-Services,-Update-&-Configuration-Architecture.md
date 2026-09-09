@@ -1,7 +1,7 @@
 # 06 - Cloud Services, Update & Configuration Architecture
 
 **Page ID**: 47120459  
-**Version**: 28  
+**Version**: 33  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47120459
 
@@ -10,305 +10,147 @@
 
 # 06 - Cloud Services, Update & Configuration Architecture
 
-Item
+Metadata
 
-Information
-
-Project
-
-DCAM (Android BodyCamera Application)
+Value
 
 Document Type
 
-Software Architecture Document / Cloud, Update & Configuration Architecture
+Architecture
+
+Status
+
+Approved
 
 Version
 
-Approved 3.3
-
-Status
-
-Approved
-
-Approval Scope
-
-Cloud, update và configuration architecture boundaries; exact API/schema thuộc Contract, security values thuộc Security Design.
-
-Owner
-
-Hoàng Ngọc Quyền
-
-Technical Reviewer
-
-Tech Lead / Cloud Lead / Security Reviewer / Android Lead
-
-Approver
-
-Hoàng Ngọc Quyền
-
-Parent Folder
-
-4.1 - Software Architecture
-
-Target Audience
-
-PM/BA, Tech Lead, Android Developers, Web/Backend Developers, QA, Factory, Cloud Team
+3.7
 
 Last Updated
 
-2026-07-14
-
-Related Jira
-
-None
-
-Related Documents
-
-DCAM Web Portal & Device API Contract, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Device Provisioning Web Portal Implementation Design, DCAM Factory Provisioning & Device Production SOP, 09 - System Settings Requirements, DCAM Android Device Owner & Kiosk Policy Design, DCAM Self Update Design, DCAM Security & Encryption Design
+2026-08-26
 
 ## 1. Purpose
 
-Trang này định nghĩa cloud/provider boundary cho provisioning, device identity, remote config và update.
+This page defines the cloud/provider boundaries for factory provisioning, device identity, desired-state configuration and artifact/update delivery. DCAM remains the only Android Device Owner/DPC and privileged executor. The production Android runtime is GMS-free under the approved baseline.
 
-Current baseline:
+## 2. Approved provider model
 
-Web frontend = Firebase Hosting
-Web authentication = Firebase Authentication
-Web backend = Firebase Cloud Functions
-Cloud storage = Firebase Cloud Firestore
-Firebase Realtime Database = not used
-Primary update path = DCAM Self Update / approved APK artifact provider
-## 2. Identity and Provisioning Baseline
+Concern
 
-serial_number = Hardware Identity / primary recovery key
-dcam_cloud_device_id = Cloud Identity / primary cloud device id
-serial_lookup/{serial_number} = create/restore lookup
-SD Identity File = recovery cache only
-No production dependency on `ANDROID_ID`, `android_id_hash` or `device_lookup/{android_id_hash}`.
+Approved authority
 
-Approved business flow:
+Notes
 
-DSetup verifies imported serial
-    ↓
-DCAM displays provisioning QR
-    ↓
-Factory Worker logs in
-    ↓
-Workspace scans QR and shows serial read-only
-    ↓
-Factory Worker enters owner/date and submits
-    ↓
-Cloud Functions creates/restores cloud identity
-Device Owner setup is separate from Web business provisioning.
+Factory provisioning UI
 
-## 3. Current Cloud Components
+Spring Boot BFF + Thymeleaf Factory Portal
 
-Component
+Server-rendered factory-only interface; Build 0.2 minimum.
 
-Responsibility
+Factory authentication/authorization
 
-Status
+BFF session/identity integration + server-side RBAC
 
-Firebase Hosting
+Exact IdP/protocol/MFA remains Security Review gated.
 
-Host Web Portal frontend.
+Factory provisioning and identity
 
-Approved
+Spring Boot BFF
 
-Firebase Authentication
+Validation, create/restore, conflict policy and audit boundary.
 
-Authenticate Factory Worker.
+Factory authoritative data
 
-Approved
+PostgreSQL ddmp
 
-Firebase Cloud Functions
+BFF-only access; separate DB/role/pool/migrations from Headwind hmdm.
 
-Backend authority for provisioning and audit.
+Fleet desired-state and audit
 
-Approved
+Spring Boot BFF
 
-Firebase Cloud Firestore
+DDMP Phase 2+/POC-gated control plane.
 
-Worker profile, serial lookup, device and audit data.
+MDM control plane
 
-Approved
+Headwind Community self-host
 
-Firebase Realtime Database
+Limited application-mode control plane; not identity or Device Owner authority.
 
-Không dùng.
+APK artifacts
 
-Not Applicable
+Cloudflare R2/CDN
 
-Android cloud adapter
+Artifact plane; signed/versioned release policy applies.
 
-Fetch/restore identity/config through approved API/provider interface.
+Android configuration provider
 
-Approved Direction
+BFF desired-state/config contract
 
-APK Artifact Provider
+No Android remote-config SDK baseline.
 
-Manifest/APK delivery for Self Update.
+Device API authentication
 
-Approved boundary; exact deployment TBD
+BFF-controlled Device PKI + per-device mTLS
 
-Provider abstraction remains required even though current implementations are selected.
+DCAM Keystore proof-of-possession; identity fields are not credentials.
 
-## 4. Firestore Logical Contract
+No Firebase web/auth/data component is used in the factory provisioning or device-management line. Firebase Crashlytics, if retained, is bounded optional telemetry only and is not a cloud authority.
 
-Logical paths are defined in **DCAM Web Portal & Device API Contract**:
+## 3. Factory provisioning / identity flow
 
-workers/{firebase_uid}
-serial_lookup/{serial_number}
-devices/{dcam_cloud_device_id}
-audit_events/{audit_event_id}
-These names are no longer generally `TBD`. Environment-specific project/database identifiers, index definitions, retention and exact Security Rules remain deployment/security details.
+flowchart TD
+  W["Factory Worker"] --> P["BFF Thymeleaf Factory Portal"]
+  P --> B["Spring Boot BFF"]
+  B --> D["PostgreSQL ddmp"]
+  B --> A["Device-facing BFF identity contract"]
+  A --> C["DCAM Device Owner/DPC"]
 
-Frontend access rule:
+Worker scans a DCAM-generated QR. serial_number is read-only, QR-originated recovery key.
 
-Frontend authenticates with Firebase Authentication.
-Frontend calls Cloud Functions/backend.
-Frontend must not direct-write serial_lookup, devices or audit_events.
-## 5. Provisioning API Boundary
+BFF validates, authorizes and creates/restores dcam_cloud_device_id; in the device contract this same ID is named platformDeviceId.
 
-Logical endpoint:
+BFF writes provisioning audit with the result. Browser clients never write database records directly.
 
-```
-POST /v1/factory/provisioning/devices
-```
+DCAM uses device-facing identity credentials only; it never uses Factory Worker session material.
 
-Concrete Cloud Function name, Hosting rewrite and physical deployed URL remain implementation/deployment details.
+## 4. Desired-state and configuration
 
-Backend responsibilities:
+Factory provisioning establishes identity; it does not independently control fleet configuration. In the Hybrid DDMP profile, BFF owns desired-state, capability-aware resolution, audit and device-facing configuration contract. DCAM validates and applies only behavior within its Device Owner authority. Headwind can deliver limited application-mode commands/profile information but cannot replace BFF desired-state authority or DCAM enforcement.
 
-verify Firebase identity token
-verify active Factory Worker profile
-validate QR-derived serial and business fields
-create/restore device identity transactionally
-write audit event
-return stable result/reason code
-## 6. QR Contract Boundary
+Remote configuration must not use Google Play services, FCM or any SDK/provider that changes the GMS-free baseline without an ADR.
 
-Minimum logical fields are defined:
+## 5. Artifact and update plane
 
-payload_type
-payload_version
-serial_number
-app_package_name
-app_version_name
-app_version_code
-device_model
-firmware_version
-Optional fields include nonce, timestamps, signature and contract metadata. Exact serialization/signature/expiration/replay policy remains TBD under API Contract and Security Design.
+Cloudflare R2/CDN hosts immutable/versioned APK artifacts. DCAM Self Update verifies trusted release metadata and artifact integrity, obeys kiosk/safe-window policy and remains the update executor. Headwind Client may coexist as an application but does not become Device Owner or override DCAM's update policy.
 
-## 7. Remote Configuration
+## 6. Security and deployment controls
 
-Remote Config baseline is approved:
+Use BFF administrative routes for Factory Portal and separate device-facing routes/scopes for DCAM.
 
-publish target revision
-    ↓
-device fetches by dcam_cloud_device_id
-    ↓
-validate schema/version/allowed fields/capability
-    ↓
-cache pending config in dcam.db
-    ↓
-apply only when runtime guard allows
-    ↓
-report applied revision/result
-Initial setting groups and kiosk requested-policy keys are defined in **09 - System Settings Requirements**. Exact field-level schema, rollout algorithm, wake-up/polling values and profile model remain TBD.
+ddmp and Headwind hmdm are logical databases with separate roles, pools, migrations, backups and access controls; no cross-database business query.
 
-Remote config does not directly modify Android system policy or `dcam_config.cson` operational settings.
+Provider/protocol selection for factory worker authentication, MFA, QR cryptographic details, database DDL, retention, network deployment and production environment separation remain designated review gates.
 
-## 8. Device Owner / Kiosk Boundary
+Factory provisioning remains Phase 2 / Build 0.2 minimum; DDMP fleet profile remains POC-gated Phase 2+. Neither activates Build 0.1.
 
-Current direction is not wholly TBD:
+## 7. Related documents
 
-No external EMM / Android Management API / Managed Google Play
-Preferred model = DCAM-as-DPC / local Device Owner when supported
-Factory baseline = DSetup + ADB dpm set-device-owner when required
-Maintenance entry = authorized role + Maintenance Password Gate + Controlled Mode
-Exact DPC component/wrapper, OEM feasibility, restriction support and package allowlist remain Device POC/implementation details.
+DCAM Factory Provisioning Portal & BFF API Contract
 
-## 9. Update Boundary
+DCAM Device Provisioning Web Portal Design / App Design / Implementation Design
 
-Approved update guard:
+ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
 
-Self Update request
-    ↓
-check runtime and AutoUpdate preconditions
-    ↓
-load manifest/download APK
-    ↓
-validate identity/checksum/signature/version/compatibility
-    ↓
-install through approved target-device path
-    ↓
-verify version and restore kiosk policy
-Policy-safe update behavior is defined by System Settings, State Machine, Kiosk Policy and Self Update Design. Only artifact provider deployment, manifest fields, algorithms and target-device install mechanics remain TBD.
+03 Management API / BFF Architecture Baseline
 
-## 10. Resolved and Remaining Decisions
+05 APK Release & Cloudflare R2
 
-Item
+ADR – DCAM GMS-free Android Runtime Baseline
 
-Status
+## Device API trust boundary
 
-Web frontend/auth/backend/storage
+Device API authentication follows [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline). DCAM connects outbound through the approved public edge and authenticates only to BFF using its per-device mTLS certificate. BFF validates active/revoked certificate status and maps credential server-side to platformDeviceId. Factory Portal worker sessions and Headwind credentials are separate and never reach DCAM.
 
-Approved: Hosting/Auth/Functions/Firestore
-
-REST/backend vs direct Firestore writes
-
-Resolved: frontend calls backend; no direct production writes
-
-Logical Firestore paths
-
-Approved in API Contract
-
-Logical provisioning endpoint
-
-Approved
-
-Web Portal actor/UI model
-
-Approved: Factory Worker, Login + Workspace, QR-only
-
-QR minimum logical fields
-
-Approved
-
-DCAM-as-DPC ownership direction
-
-Approved direction; feasibility POC required
-
-Factory Device Owner method
-
-Approved baseline: DSetup + ADB `dpm set-device-owner`
-
-Policy-safe update contract
-
-Approved direction
-
-Environment-specific Firebase Security Rules/indexes
-
-TBD / Security + Deployment
-
-QR cryptographic policy
-
-TBD / API + Security
-
-Remote config exact payload/rollout/wake-up
-
-TBD
-
-APK provider deployment and install mechanics
-
-TBD / Deployment + Device POC
-
-Owner validation/account lifecycle
-
-TBD / Product + Factory + Security
-
-## 11. Practical Conclusion
-
-Cloud/Web implementation and logical provisioning contract are already selected.
-The remaining TBDs are deployment, cryptographic, policy-value and target-device details—not the overall architecture.
+Exact Device PKI, certificate profile, public hostname/TLS termination and revocation mechanics remain Security/Operations/POC decisions.

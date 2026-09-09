@@ -1,7 +1,7 @@
 # DCAM Device Capability & Feature Eligibility Design
 
 **Page ID**: 48758788  
-**Version**: 9  
+**Version**: 11  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48758788
 
@@ -24,7 +24,7 @@ Technical Design
 
 Version
 
-Draft 0.8
+Draft 0.10
 
 Status
 
@@ -32,7 +32,7 @@ Draft
 
 Approval Scope
 
-Draft capability/eligibility design only; exact device support phụ thuộc approved Build Profile và Device POC evidence.
+Draft capability/eligibility design, including DDMP Hybrid coexistence eligibility; exact device support depends on approved Build Profile and Device POC evidence.
 
 Owner
 
@@ -52,7 +52,7 @@ Parent Folder
 
 Last Updated
 
-2026-07-20
+2026-08-25
 
 Related Jira
 
@@ -194,7 +194,7 @@ Kiosk policy capability
 
 Device Owner/DPC authority, Lock Task permitted, restriction support, Home/Launcher behavior.
 
-Current baseline does not use external EMM.
+DCAM is sole DPC; Headwind Client has no policy authority.
 
 In-app console capability
 
@@ -210,15 +210,27 @@ Full Android unrestricted mode is not supported.
 
 Self Update capability
 
-Manifest access, APK download, package validation, install path and policy restore capability.
+BFF release authorization, manifest/APK download from R2/CDN, package validation, install path and policy restore capability.
 
-Primary update path for current baseline.
+Primary path in Hybrid profile; exact implementation remains Draft/POC-gated.
 
-Play Store fallback capability
+Headwind coexistence capability
 
-GMS available, Play Store available, controlled fallback process approved.
+Headwind Client Application-mode package presence, no HOME/launcher takeover, no Lock Task/restriction/boot conflict.
 
-Optional only; not required for core DCAM.
+Required only when Hybrid profile is activated; does not grant policy authority.
+
+BFF management sync capability
+
+Outbound desired-state/ACK connectivity, identity mapping and safe retry/offline behavior.
+
+Required only when Hybrid profile is activated.
+
+GMS-free compliance capability
+
+Prohibited dependency/manifest/source scan status plus target-device evidence profile.
+
+Mandatory for production profile claim; no Play Store capability exists.
 
 BDMA capability
 
@@ -242,13 +254,17 @@ Device Owner / EMM / Managed Google Play
 
 ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision
 
-Update and Play Store fallback
+Update and GMS-free boundary
 
-DCAM Self Update Design / DCAM In-App Operation, Device Settings & Media Console Design
+DCAM Self Update Design / ADR - DCAM GMS-free Android Runtime Baseline
 
 Kiosk and maintenance policy
 
 DCAM Android Device Owner & Kiosk Policy Design
+
+DDMP Hybrid authority and shared contract
+
+[DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2)
 
 Local eligibility impact:
 
@@ -292,11 +308,11 @@ Enable update only when update capability and runtime guard allow.
 
 DCAM Self Update Design
 
-Play Store fallback
+GMS-free compliance
 
-Hide/disable if GMS/Play Store unavailable or fallback not approved.
+Block production-profile claim if prohibited dependency/flow or target-device evidence is missing.
 
-In-App Console + Self Update + Security Design
+ADR + Release Matrix + QA/POC
 
 Recording/capture
 
@@ -334,6 +350,12 @@ Reference state set này cho runtime registration decisions.
 
 DCAM State Machine Design
 
+DDMP Hybrid management
+
+Evaluate Headwind coexistence and BFF sync only when Hybrid profile is enabled; no eligibility result may grant Android policy authority.
+
+DCAM Android Operation Design + DDMP 06
+
 ## 7. Database Direction
 
 `feature_eligibility_state.eligibility_state` chỉ được dùng official state set dưới đây.
@@ -367,9 +389,38 @@ maintenance.password_gate
 maintenance.approved_targets
 update.self_update
 update.play_store_fallback
+management.headwind_client_coexistence
+management.bff_sync
+management.r2_artifact_access
 bdma.adb_import
 bdma.user_sync
 ai.realtime_detection
+## DDMP Hybrid Eligibility Boundary
+
+Capability evaluation for Hybrid does not change Android authority. It reports whether the optional profile can be safely activated.
+
+Capability result
+
+Required behavior
+
+`management.headwind_client_coexistence = ENABLED`
+
+Headwind Client can coexist as Application mode only; DCAM DPC remains sole privileged executor.
+
+`management.bff_sync = TEMPORARILY_UNAVAILABLE`
+
+Defer management reconciliation and retry; local recording/policy runtime continues.
+
+`management.r2_artifact_access = ERROR`
+
+Do not install/update; preserve current controlled app and report actionable reason.
+
+Any Hybrid capability unsupported
+
+Do not activate Hybrid behavior; no fallback may hand policy authority to Headwind or another external provider.
+
+Exact evaluator algorithm, persistence schema and POC evidence remain Draft. Authoritative DDMP sources: [DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2).
+
 ## 8. Conclusion
 
 Device Capability Design sở hữu eligibility state name, capability category và evaluation rule.

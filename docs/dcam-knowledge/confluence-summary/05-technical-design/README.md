@@ -1,6 +1,6 @@
 # Technical design draft digest
 
-Source status: Confluence folder [4.2 - Technical Design](https://ducviet.atlassian.net/wiki/spaces/DVID/folder/47120392), refreshed on **2026-07-15**; current page versions are recorded in `docs/dcam-knowledge/confluence-original`.
+Source status: Confluence folder [4.2 - Technical Design](https://ducviet.atlassian.net/wiki/spaces/DVID/folder/47120392), refreshed on **2026-08-26**; current page versions are recorded in `docs/dcam-knowledge/confluence-original`.
 
 Interpretation rule: these pages describe expected target behavior and design direction. Treat them as draft/boss-intent material, not as a concrete description of the current repository and not as final acceptance evidence. After implementation, the official Confluence pages should be corrected and completed against actual behavior.
 
@@ -10,7 +10,7 @@ Generic Internal/External/Auto storage, authenticated operator flow, and Importa
 
 ## Source pages
 
-The original table below is a July 8 digest snapshot. For current versions, use the downloaded source files. Latest key versions: Android Operation `v23`, Device Owner/Kiosk `v10`, In-App Console `v13`, Recording `v14`, Storage `v11`, SQLite `v19`, State Machine `v14`, BDMA Integration `v11`, Device Capability `v8`, Provisioning `v12`, Web API `v10`, Self Update `v12`, Security `v17`, Sensors `v7`, AI `v8`, Concurrency `v5`, Logging `v9`, and Performance `v7`.
+Latest key versions from the 2026-08-26 refresh: Android Operation `v28`, Device Owner/Kiosk `v12`, In-App Console `v16`, Recording `v16`, Storage `v11`, SQLite `v22`, State Machine `v17`, BDMA Integration `v12`, Device Capability `v11`, Provisioning `v16`, Factory Portal/BFF API `v13`, Self Update `v14`, Security `v22`, Sensors `v7`, AI `v8`, Concurrency `v6`, Logging `v14`, and Performance `v10`.
 
 ## Technical Documentation coverage map
 
@@ -26,30 +26,34 @@ This digest set preserves content from every current page under `04 - Technical 
 | Dedicated device | Android Device Owner & Kiosk Policy; In-App Operation, Device Settings & Media Console |
 | Capture and persistence | Recording & Capture; Storage; SQLite Database; BDMA Integration Technical Design |
 | Capability and diagnostics | Device Capability & Feature Eligibility; Logging & Diagnostics; Performance Budget & Resource Constraints |
-| Provisioning | Device Provisioning Web Portal; Web Portal App Design; Web Portal Implementation Design; Web Portal & Device API Contract |
+| Provisioning | Device Provisioning Web Portal; Web Portal App Design; Web Portal Implementation Design; Factory Provisioning Portal & BFF API Contract |
 | Platform services | Self Update; Security & Encryption; Sensor & Location Monitoring; Realtime AI Detection |
 | Development | Android Development Standard; Android Training & Architecture Onboarding; Device POC & Hardware Validation Report |
-| Decisions | ADR for Dedicated Device / Device Owner / Lock Task; ADR for `serial_number` + `dcam_cloud_device_id` |
+| Decisions | ADR for Dedicated Device / Device Owner / Lock Task; ADR for `serial_number` + `dcam_cloud_device_id`; GMS-free Android Runtime ADR; Device API Credential & mTLS ADR |
+| Evidence | DCAM-23 Recording & Recovery; DCAM-30 Camera/Import; DCAM-6 Working Recording Slice Integration |
 
 Architecture pages are condensed mainly in `02-architecture`; Android rules and training in `03-development`; feature applicability in `04-features`; detailed runtime/design behavior remains in this file. These summaries are intended to remain usable if downloaded originals are removed.
 
 | Page | Confluence status/version | Last API update (UTC) | Local interpretation |
 |---|---:|---|---|
-| [DCAM Android Operation Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48562239) | Draft 1.4 / v14 | 2026-07-08 08:59 | Runtime orchestration expectation |
-| [DCAM Android Device Owner & Kiosk Policy Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49840280) | Draft 0.3 / v3 | 2026-07-08 08:53 | Dedicated-device/kiosk policy expectation |
-| [DCAM In-App Operation, Device Settings & Media Console Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49840330) | Draft 0.8 / v8 | 2026-07-08 08:47 | In-app console/settings/media expectation |
-| [DCAM Recording & Capture Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529484) | Draft 0.9 / v9 | 2026-07-08 02:54 | Recording/capture lifecycle expectation |
-| [DCAM Storage Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496699) | Draft 0.6 / v6 | 2026-07-08 02:55 | Android storage mechanics expectation |
-| [DCAM SQLite Database Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529463) | Draft 1.1 / v11 | 2026-07-08 09:17 | Database/table ownership expectation |
-| [DCAM State Machine Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496753) | Approved 1.8 / v10 | 2026-07-08 09:16 | Cross-runtime guard model; still treat as target design until implemented |
-| [DCAM BDMA Integration Technical Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48595030) | Draft 0.5 / v5 | 2026-07-08 05:54 | BDMA implementation expectation |
-| [DCAM Device Capability & Feature Eligibility Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48758788) | Draft 0.5 / v5 | 2026-07-08 09:15 | Capability/eligibility state expectation |
-| [DCAM Device Provisioning Web Portal Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49315858) | Draft 0.5 / v5 | 2026-07-08 09:58 | Provisioning business-flow expectation |
-| [DCAM Web Portal & Device API Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49873154) | Draft 0.1 / v1 | 2026-07-08 09:56 | API/schema boundary expectation |
-| [DCAM Self Update Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529439) | Draft 0.8 / v8 | 2026-07-08 09:18 | APK update expectation |
-| [DCAM Security & Encryption Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496720) | Draft 1.0 / v10 | 2026-07-08 08:57 | Security/key/update/auth expectation |
-| [DCAM Sensor & Location Monitoring Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496794) | Draft 0.6 / v6 | 2026-07-08 02:57 | Optional monitoring expectation |
-| [DCAM Realtime AI Detection Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48595090) | Draft 0.7 / v7 | 2026-07-08 02:57 | Optional realtime analytics expectation |
+| [DCAM Android Operation Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48562239) | Approved Provisional Baseline 2.6 / v28 | 2026-08-26 | Runtime orchestration and credential-state expectation |
+| [DCAM Android Device Owner & Kiosk Policy Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49840280) | Approved Pending Device POC 1.1 / v12 | 2026-08-26 | Dedicated-device/kiosk policy expectation |
+| [DCAM In-App Operation, Device Settings & Media Console Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49840330) | Draft 1.4 / v16 | 2026-08-26 | In-app console/settings/media expectation |
+| [DCAM Recording & Capture Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529484) | Approved Provisional Baseline 1.5 / v16 | 2026-08-26 | Recording/capture lifecycle expectation |
+| [DCAM Storage Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496699) | Approved Pending Device POC 0.10 / v11 | 2026-08-26 | Android storage mechanics expectation |
+| [DCAM SQLite Database Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529463) | Approved Provisional Baseline 2.0 / v22 | 2026-08-26 | Database/table ownership expectation |
+| [DCAM State Machine Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496753) | Approved Provisional Baseline 2.4 / v17 | 2026-08-26 | Cross-runtime guard and credential-state model |
+| [DCAM BDMA Integration Technical Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48595030) | Draft 0.10 / v12 | 2026-08-26 | BDMA implementation expectation |
+| [DCAM Device Capability & Feature Eligibility Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48758788) | Draft 0.10 / v11 | 2026-08-26 | Capability/eligibility state expectation |
+| [DCAM Device Provisioning Web Portal Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49315858) | Approved Direction 1.5 / v16 | 2026-08-26 | Provisioning business-flow expectation |
+| [DCAM Factory Provisioning Portal & BFF API Contract](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49873154) | Approved Direction 1.1 / v13 | 2026-08-26 | BFF/Thymeleaf/PostgreSQL factory and identity boundary |
+| [DCAM Self Update Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48529439) | Draft 1.3 / v14 | 2026-08-26 | BFF-authorized APK update expectation |
+| [DCAM Security & Encryption Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496720) | Approved Pending Security Review / v22 | 2026-08-26 | GMS-free, credential, mTLS, update, and sensitive-data direction |
+| [DCAM Sensor & Location Monitoring Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48496794) | Draft 0.7 / v7 | 2026-08-26 | Optional monitoring expectation |
+| [DCAM Realtime AI Detection Design](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48595090) | Draft 0.8 / v8 | 2026-08-26 | Optional realtime analytics expectation |
+
+| [ADR - DCAM GMS-free Android Runtime Baseline](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/69730306) | Approved Direction 1.0 / v1 | 2026-08-25 | Mandatory production Android runtime guard |
+| [ADR – DCAM Device API Credential & mTLS Baseline](https://ducviet.atlassian.net/wiki/spaces/DVID/pages/70287362) | Approved Direction 1.0 / v1 | 2026-08-26 | Device credential, enrollment, rotation, and revocation direction |
 
 ## Runtime and kiosk expectations
 
@@ -88,17 +92,17 @@ Architecture pages are condensed mainly in `02-architecture`; Android rules and 
 
 ## Cloud, provisioning, and update expectations
 
-- `dcam_cloud_device_id` is the server/cloud primary key. `android_id_hash` is the recovery lookup key. Raw Android system identifiers must not be logged.
+- `dcam_cloud_device_id` is the BFF/PostgreSQL `ddmp` cloud primary key and is named `platformDeviceId` in the device contract. `serial_number` is the primary recovery key; `android_id_hash` is not used. Raw Android system identifiers must not be logged.
 - Web Portal QR provisioning is DCAM business provisioning, not Android Enterprise Device Owner enrollment.
-- The current Web Portal baseline has Android generate a local QR and poll lookup by `android_id_hash`; backend pre-created provisioning challenge/session is not required for the current baseline.
-- Web Portal/device APIs must be versioned, use stable reason codes, and treat server config as requested values. Android validates capability, policy, and runtime guard before applying.
-- DCAM Self Update / APK update is the primary update path for the current no-external-EMM baseline. Managed Google Play policy-driven update is not applicable.
-- Optional manual Play Store fallback requires GMS/Play Store, approved maintenance/factory process, Controlled Maintenance Mode, Maintenance Password Gate, no personal Google account dependency, and policy restore afterward.
+- The current Factory Portal baseline uses Spring Boot BFF + Thymeleaf with PostgreSQL `ddmp`; BFF owns authorization, create/restore, idempotency, and audit. Exact QR/PKI/session details remain gated.
+- Device-facing API authentication uses a BFF-controlled per-device mTLS certificate bound to an Android Keystore key and proof-of-possession; identity fields and Factory Worker sessions are not credentials.
+- Web/device APIs must be versioned, use stable reason codes, and treat server config as requested values. Android validates capability, policy, and runtime guard before applying.
+- BFF-authorized immutable Cloudflare R2/CDN artifacts are the production Self Update primary path. Play Store/Managed Google Play/Google-account update flows are prohibited.
 
 ## Capability, security, sensors, and AI expectations
 
 - Official feature eligibility states are `ENABLED`, `DEGRADED`, `DISABLED_BY_POLICY`, `DISABLED_BY_PERMISSION`, `UNSUPPORTED_HARDWARE`, `UNSUPPORTED_PERFORMANCE`, `TEMPORARILY_UNAVAILABLE`, `PRUNED`, and `ERROR`. `SUPPORTED` is descriptive wording, not a runtime/persisted state.
-- Capability categories include camera, audio, sensors, location, storage, compute, auth method, kiosk policy, in-app console, maintenance, Self Update, Play Store fallback, and BDMA.
+- Capability categories include camera, audio, sensors, location, storage, compute, auth method, kiosk policy, in-app console, maintenance, Self Update, GMS-free compliance, device credential, and BDMA.
 - Maintenance credentials must not be hardcoded, stored plaintext, synced to BDMA, exposed through media/file viewer, or logged. Protected representation, lockout/cooldown, reset, and rotation details remain security-review TBD.
 - Media encryption naming follows the Data Contract suffixes, but algorithm, key storage, rotation, and BDMA decryption compatibility remain TBD.
 - Sensor/location monitoring and realtime AI are optional, capability-gated modules. They may emit event candidates or metadata, but they must not directly control recording, camera, or storage. Their failure must not crash or block core recording unless a future approved policy makes them a direct dependency.
@@ -126,8 +130,8 @@ Use these pages to understand intended direction, design vocabulary, and future 
 
 ## Provisioning, Web Portal, and device API
 
-- Business provisioning is separate from Android Enterprise enrollment. Current direction uses Android-generated local QR data, Web Portal lookup by `android_id_hash`, authenticated operator review, validation, and server-side provisioning result.
-- `dcam_cloud_device_id` is cloud primary identity. `android_id_hash` is recovery/lookup input, not business identity or authentication secret. Raw Android identifiers must not be logged or exposed.
+- Business provisioning is separate from Android Enterprise enrollment. Current direction uses DCAM-generated non-secret QR pairing data, Factory Portal/BFF worker authorization, server-side validation, pending enrollment, and a device-facing Keystore proof-of-possession result.
+- `dcam_cloud_device_id` is cloud primary identity and `platformDeviceId` is its BFF contract name. `serial_number` is the primary recovery key; `android_id_hash` is not used. Raw Android identifiers must not be logged or exposed.
 - APIs are versioned and return stable reason codes. Server configuration is requested state; Android still validates capability, permission, device policy, safety, active recording/finalization, and local applicability before applying it.
 - Portal workflow includes login, QR scan/manual lookup, serial/owner/manufacture-date review, conflict validation, submit, result/error state, audit, and safe retry. Duplicate serials, stale challenges, invalid QR, identity conflict, and unauthorized changes must fail explicitly.
 - Portal app and backend implementation separate UI, authentication, QR parsing, validation, provisioning service, and repositories. Secrets remain server-side; client code must not embed privileged credentials.
@@ -143,7 +147,7 @@ Use these pages to understand intended direction, design vocabulary, and future 
 
 ## Dedicated-device and kiosk ADR
 
-- Current architecture rejects external EMM, Android Management API, and Managed Google Play as required baseline dependencies. Direction is local DCAM policy control using Device Owner/DPC and Lock Task where target firmware permits.
+- Current architecture rejects external EMM, Android Management API, and Managed Google Play as required baseline dependencies. Direction is local DCAM policy control using Device Owner/DPC and Lock Task where target firmware permits, with a mandatory GMS-free production runtime.
 - Fullscreen or launcher behavior alone is insufficient for production kiosk assurance. Missing required authority yields `DEVICE_POLICY_REQUIRED` or `POLICY_DEGRADED`; normal unrestricted field operation must not continue silently.
 - Controlled Maintenance Mode is audited temporary escape for approved settings/tools. Entry requires safe runtime state and protected authorization; exit restores required policy.
 - Build 0.1 does not require full kiosk implementation unless device POC proves Working Recording Slice cannot operate without it. Dedicated-device direction remains binding for later production profiles.
@@ -152,7 +156,7 @@ Use these pages to understand intended direction, design vocabulary, and future 
 
 - POC records exact model, Android/API, firmware, build, hardware identity, storage, camera/audio, GPS, GMS, policy authority, and test evidence. Empty/TBD rows mean not qualified.
 - Build 0.1 WRS covers start/stop video, image capture, internal staging/finalization, MD5 success and mismatch behavior, DB/CSON/log outputs, ADB visibility/import, storage failure, interruption/reboot recovery, and basic battery/storage/GPS status.
-- Kiosk/Device Owner, Self Update, optional Play Store fallback, in-app console, storage/BDMA/ADB, and factory flow each have separate POC matrices. A pass in one matrix does not imply another.
+- Kiosk/Device Owner, GMS-free compliance, Self Update, device credentials, in-app console, storage/BDMA/ADB, and factory flow each have separate POC matrices. A pass in one matrix does not imply another.
 - Evidence must come from identifiable physical reference device. Emulator, desktop tests, or another firmware cannot substitute without impact review and appropriate regression.
 - POC output drives capability eligibility, implementation selection, ADR updates, factory acceptance, and documented unsupported/degraded states.
 

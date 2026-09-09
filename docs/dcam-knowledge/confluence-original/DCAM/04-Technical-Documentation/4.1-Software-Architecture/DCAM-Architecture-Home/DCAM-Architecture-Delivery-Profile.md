@@ -1,7 +1,7 @@
 # DCAM Architecture Delivery Profile
 
 **Page ID**: 50626744  
-**Version**: 6  
+**Version**: 8  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50626744
 
@@ -24,7 +24,7 @@ Architecture Delivery Profile / MVP Implementation Architecture Guardrail
 
 Version
 
-1.3
+1.5
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, QA, BDMA Team, Factory, Stakeholders
 
 Last Updated
 
-2026-07-13
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM MVP Scope, DCAM 9-Month Development Plan, 04 - Application & Module Architecture, DCAM Android Development Standard, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM-BDMA Data Contract, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+DCAM MVP Scope, DCAM 9-Month Development Plan, 04 - Application & Module Architecture, DCAM Android Development Standard, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM-BDMA Data Contract, ADR - DCAM GMS-free Android Runtime Baseline, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 ## 1. Purpose
 
@@ -174,7 +174,7 @@ Full Device Owner / Kiosk Policy stack
 
 Phase 2+
 
-MVP có thể chỉ chạy Lock Task POC. Full policy recovery/user restrictions/maintenance mode thuộc phase sau.
+MVP có thể chỉ chạy Lock Task POC. Full policy recovery/user restrictions/maintenance mode thuộc phase sau; no Play Store fallback is introduced.
 
 Full In-App Console advanced
 
@@ -200,11 +200,11 @@ Phase 2+
 
 Không được block recording slice.
 
-Play Store fallback
+GMS-free Android runtime guard
 
-Phase 2+ / Conditional
+All build profiles
 
-Chỉ áp dụng nếu device có GMS/Play Store và approved process.
+No Google Play services/Play Store/account/GMS-only dependency or flow; it does not activate deferred features.
 
 Device Capability & Feature Eligibility full engine
 
@@ -338,7 +338,7 @@ RealtimeAnalyticsService
 SensorEventRouter
 Full StateMachineCoordinator
 Full KioskPolicyManager recovery stack
-PlayStoreFallbackService
+ProhibitedUpdateSourceGuard
 ## 6. Runtime State Profile
 
 ### 6.1 MVP State Set
@@ -600,13 +600,13 @@ Basic APK update
 
 Hardened update
 
-Play Store fallback
+GMS-free dependency/source guard
 
-Not required
+Required — no prohibited dependency/flow
 
-Conditional POC
+Required
 
-Conditional
+Required
 
 Device Capability
 

@@ -1,6 +1,6 @@
 # Delivery model, team, and documentation workflow
 
-Source refresh: **2026-07-15**. Documentation workflow now includes registry synchronization, Build 0.1 applicability, DEC-01-DEC-07 traceability, and evidence links before release acceptance.
+Source refresh: **2026-08-26**. Documentation workflow now includes registry synchronization, Build 0.1 applicability, DEC-01-DEC-07 traceability, evidence links, GMS-free dependency/source checks, and BFF/mTLS/PKI qualification gates before any production claim.
 
 ## Delivery assumptions
 
@@ -73,6 +73,8 @@ Source refresh: **2026-07-15**. Documentation workflow now includes registry syn
 - Update relevant documentation before release.
 - Synchronize changed page metadata with Document Status Registry in same change set.
 - Store raw Build 0.1 evidence in internal NAS `DCAM-EVID-NAS-01`; keep Confluence/Jira limited to SOP, metadata, conclusions, and evidence links.
+- Keep working evidence summaries such as DCAM-23, DCAM-30, and DCAM-6 separate from the parent Device POC conclusion and release approval.
+- Treat Spring Boot BFF/Thymeleaf, PostgreSQL `ddmp`, per-device mTLS, Keystore proof-of-possession, and GMS-free runtime details as controlled cross-document authorities; synchronize their page metadata through the Registry.
 - Use Jira-linked Evidence IDs and immutable run folders; never overwrite reviewed evidence runs.
 - Trace each Build 0.1 decision through requirement/design, Jira issue, implementation/PR, QA Test ID, and evidence link.
 - Do not mark Pending Device POC rows Covered/Passed before identifiable physical-device evidence is attached.

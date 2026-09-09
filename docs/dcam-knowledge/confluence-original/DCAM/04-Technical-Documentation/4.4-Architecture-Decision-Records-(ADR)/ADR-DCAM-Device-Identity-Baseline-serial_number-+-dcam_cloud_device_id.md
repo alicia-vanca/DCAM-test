@@ -1,7 +1,7 @@
 # ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id
 
 **Page ID**: 50692110  
-**Version**: 4  
+**Version**: 7  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/50692110
 
@@ -24,19 +24,23 @@ Architecture Decision Record
 
 Version
 
-Approved Direction 1.1
+Approved 1.9
 
 Status
 
-Approved Direction
+Approved
 
 Approval Scope
 
-Device Identity direction: serial_number là Hardware Identity / primary recovery key và dcam_cloud_device_id là Cloud Identity; implementation, migration, Security/Factory/QA evidence chưa được Production-approved.
+Device Identity direction: serial_number là Hardware Identity / primary recovery key; dcam_cloud_device_id là Cloud Identity and is exposed as DDMP platformDeviceId without introducing a third root identity; implementation, migration, Security/Factory/QA evidence chưa được Production-approved.
 
 Decision Date
 
 2026-07-09
+
+DDMP Integration Approval Date
+
+2026-08-24
 
 Owner
 
@@ -60,7 +64,7 @@ PM/BA, Tech Lead, Android Developers, Backend/Web Portal Developers, QA, Factory
 
 Last Updated
 
-2026-07-21
+2026-08-26
 
 Related Jira
 
@@ -72,7 +76,7 @@ Security Review; downstream implementation alignment; Factory/QA evidence; autho
 
 Related Documents
 
-DCAM Project Home, DCAM Architecture Home, DCAM Documentation Governance, 04 - Device Configuration Requirements, DCAM Android Operation Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM Web Portal & Device API Contract, DCAM Device Provisioning Web Portal Design, DCAM Factory Provisioning & Device Production SOP, DCAM QA Test Strategy & Test Matrix
+DCAM Project Home, DCAM Architecture Home, DCAM Documentation Governance, 04 - Device Configuration Requirements, DCAM Android Operation Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM Web Portal & Device API Contract, DCAM Device Provisioning Web Portal Design, DCAM Factory Provisioning & Device Production SOP, DCAM QA Test Strategy & Test Matrix, DDMP Architecture Overview & Reading Guide, 03 Management API / BFF, 06 Device Integration Contracts
 
 ## 1. Status
 
@@ -90,7 +94,11 @@ Hardware Identity / primary recovery key.
 
 dcam_cloud_device_id
 
-Cloud Identity / primary cloud device ID.
+Cloud Identity / primary cloud device ID; exposed to DDMP as `platformDeviceId`.
+
+DDMP platformDeviceId
+
+Contract name of the same logical identifier as `dcam_cloud_device_id`; not a third root identity.
 
 Identity mapping semantics
 
@@ -123,7 +131,7 @@ app reinstall trong approved rework flow
 factory reset
 DSetup factory provisioning
 SD card recovery
-Web Portal / Firebase business provisioning
+Factory Portal / BFF business provisioning
 Backend identity restore
 BDMA import / user sync boundary
 QA release readiness
@@ -137,6 +145,8 @@ device_lookup/{android_id_hash}
 Cách tiếp cận này không phù hợp với current production baseline vì `ANDROID_ID` và `android_id_hash` không phải Hardware Identity của BodyCamera. Chúng phụ thuộc vào Android runtime / app / user / firmware behavior và có thể gây duplicate cloud device sau factory reset, reinstall hoặc rework.
 
 Trong current DCAM baseline, Factory SOP đã có nguồn Hardware Identity rõ ràng là `serial_number`. Vì vậy identity baseline cần thống nhất quanh `serial_number` và `dcam_cloud_device_id`.
+
+DDMP bổ sung BFF Platform DB và Headwind Community integration, nhưng không được tạo một identity hierarchy song song. DDMP dùng tên contract `platformDeviceId` cho chính Cloud Identity hiện hữu là `dcam_cloud_device_id`. `headwindDeviceRef` chỉ là external mapping do BFF quản lý; không phải identity gốc hoặc credential.
 
 ## 3. Decision
 
@@ -156,6 +166,18 @@ Cloud device record:
 
 Recovery cache:
     SD Identity File on external SD card
+### 3.1 DDMP identity mapping
+
+platformDeviceId = dcam_cloud_device_id
+dcamInstallationId = local installation lifecycle correlation only
+headwindDeviceRef = Headwind mapping only; not authentication identity
+Rules:
+
+BFF must preserve the one-to-one platformDeviceId ↔ dcam_cloud_device_id semantic.
+DCAM stores and sends its resolved dcam_cloud_device_id as platformDeviceId in the BFF contract.
+dcamInstallationId may rotate after approved reinstall/rework and must not create a new cloud device.
+headwindDeviceRef is not a recovery key, a global identity or a device credential.
+Headwind JWT is never a device credential.
 DCAM current production baseline không sử dụng:
 
 ANDROID_ID
@@ -187,15 +209,35 @@ Factory / DSetup / DCAM runtime
 
 Ổn định theo vòng đời production nếu được recover đúng sau factory reset hoặc rework.
 
-Cloud Identity
+Cloud Identity / DDMP Platform Identity
 
-`dcam_cloud_device_id`
+`dcam_cloud_device_id` / `platformDeviceId`
 
-Primary cloud/backend device id.
+Một logical cloud device id. `platformDeviceId` là tên trong BFF ↔ DCAM contract cho cùng định danh này.
 
-Backend / Firebase / WebServer
+BFF issues or restores; DCAM persists it
 
 Ổn định sau khi device được provisioned hoặc restored.
+
+Installation Correlation
+
+`dcamInstallationId`
+
+Local installation lifecycle correlation cho reinstall/re-enrollment diagnostics; không dùng làm cloud primary key hoặc recovery key.
+
+DCAM runtime
+
+Có thể đổi sau approved reinstall/rework.
+
+External Management Mapping
+
+`headwindDeviceRef`
+
+Reference tới Headwind-owned record; chỉ dùng reconciliation.
+
+BFF / Headwind
+
+Có thể thay đổi; không phải authentication identity.
 
 Recovery Cache
 
@@ -239,7 +281,7 @@ serial_number change must be exceptional, permission-controlled and auditable.
 
 Rules:
 
-dcam_cloud_device_id is generated or restored by Backend/Firebase.
+dcam_cloud_device_id is generated or restored by BFF.
 dcam_cloud_device_id is the primary key for devices/{dcam_cloud_device_id}.
 dcam_cloud_device_id is stored locally after successful provisioning or restore.
 dcam_cloud_device_id is used for cloud requests after identity is resolved.
@@ -260,7 +302,18 @@ If serial_lookup/{serial_number} maps to DISABLED, REVOKED or QUARANTINED device
     Android must not enter normal field operation.
 
 Duplicate serial_number must not silently create another active cloud device.
-### 5.4 SD Identity File
+### 5.4 DDMP identity mapping
+
+`platformDeviceId` là tên contract của cùng Cloud Identity `dcam_cloud_device_id`, không phải một global ID mới.
+
+Rules:
+
+BFF issues/restores and binds platformDeviceId using the existing dcam_cloud_device_id identity semantics.
+DCAM uses resolved dcam_cloud_device_id as platformDeviceId for BFF sync/enrollment.
+serial_lookup/{serial_number} remains the only current production create/restore lookup path.
+headwindDeviceRef is held by BFF as an external mapping and must not be trusted for device authentication.
+dcamInstallationId is local correlation only; it never replaces serial_number or dcam_cloud_device_id.
+### 5.5 SD Identity File
 
 SD Identity File là recovery cache, không phải Hardware Identity.
 
@@ -345,13 +398,25 @@ Rejected
 
 File này có thể bị xóa, copy, tráo SD card hoặc conflict; chỉ được xem là recovery cache.
 
+Separate DDMP root device ID
+
+Rejected
+
+`platformDeviceId` must represent the existing `dcam_cloud_device_id`, avoiding a competing logical identity.
+
+`headwindDeviceRef` as device identity or authentication
+
+Rejected
+
+Đây là external mapping state và do Headwind lifecycle chi phối; không đủ cho recovery hoặc trust decision.
+
 ## 7. Rationale
 
 Quyết định này được chọn vì các lý do sau:
 
 `serial_number` là Hardware Identity gần nhất với thiết bị vật lý BodyCamera.
 
-`dcam_cloud_device_id` giúp Backend/Firebase có một primary cloud device id ổn định, không phụ thuộc trực tiếp vào Android runtime identifier.
+`dcam_cloud_device_id` giúp BFF có một primary cloud device id ổn định, không phụ thuộc trực tiếp vào Android runtime identifier.
 
 `serial_lookup/{serial_number}` giúp factory reset hoặc rework restore lại đúng cloud identity cũ.
 
@@ -401,6 +466,8 @@ If serial_number is missing, enter SERIAL_REQUIRED / PROVISIONING_REQUIRED / app
 Never use ANDROID_ID as production identity.
 Never compute or send android_id_hash as production recovery identity.
 Never call device_lookup/{android_id_hash} in current production baseline.
+Use resolved dcam_cloud_device_id as platformDeviceId when enrolling or syncing with DDMP BFF.
+Never use headwindDeviceRef or Headwind JWT as a device identity/credential.
 ### 9.2 DSetup / Factory SOP
 
 DSetup must:
@@ -409,10 +476,11 @@ Recover serial_number from SD Identity File if valid.
 Fallback to barcode scan if SD Identity File is missing, invalid or conflicting.
 Inject serial_number into DCAM after Device Owner verification.
 Record serial source in production record.
-Use serial_number for Firebase/WebServer business provisioning or restore flow.
+Use serial_number for BFF Factory Portal business provisioning or restore flow.
+Bind the restored dcam_cloud_device_id to DDMP BFF as platformDeviceId; persist any headwindDeviceRef only as external mapping state.
 Never use ANDROID_ID or android_id_hash for production provisioning.
 Never treat Web Portal QR Flow as Android Device Owner setup.
-### 9.3 Backend / Firebase / Web Portal
+### 9.3 BFF / Factory Portal
 
 Backend must:
 
@@ -434,6 +502,8 @@ last_identity_restore_at
 sd_identity_sync_state
 device_identity_history
 provisioning_state
+dcam_installation_id
+headwind_device_ref_mapping_state
 `dcam.db` must not store:
 
 raw ANDROID_ID
@@ -462,7 +532,7 @@ Recovery lookup key = serial_number
 serial_number = Hardware Identity / primary recovery key
 dcam_cloud_device_id = Cloud Identity / primary cloud device id
 serial_lookup/{serial_number}
-Web Portal/Firebase creates or restores devices/{dcam_cloud_device_id} by serial_number
+Factory Portal/BFF creates or restores devices/{dcam_cloud_device_id} by serial_number
 
 Document
 
@@ -492,6 +562,10 @@ DCAM Factory Provisioning & Device Production SOP
 
 Giữ làm source of truth cho DSetup, barcode scan, SD Identity File và ready-to-ship flow.
 
+DDMP 06 Device Integration Contracts
+
+`platformDeviceId = dcam_cloud_device_id`, `dcamInstallationId` local-only và `headwindDeviceRef` mapping-only phải giữ cùng semantics.
+
 ## 11. QA Acceptance Criteria
 
 QA must verify:
@@ -506,6 +580,8 @@ android_id_hash is not sent, stored or logged as production identity.
 device_lookup/{android_id_hash} is not used.
 SD Identity File conflict does not override app-private serial_number during normal operation.
 Device with DISABLED / REVOKED / QUARANTINED cloud state cannot enter normal field operation.
+BFF receives dcam_cloud_device_id as platformDeviceId without creating a second root device identity.
+headwindDeviceRef cannot authenticate a device or alter its resolved cloud identity.
 Production record includes safe serial source metadata but no Android ID/hash.
 Suggested QA cases:
 
@@ -557,6 +633,18 @@ Disabled/revoked/quarantined device.
 
 Android does not enter normal field operation.
 
+QA-ID-008
+
+DDMP enrollment/sync identity.
+
+BFF receives the resolved `dcam_cloud_device_id` as `platformDeviceId`; no third root ID is created.
+
+QA-ID-009
+
+Headwind mapping change or re-enrollment.
+
+`headwindDeviceRef` may reconcile but cannot authenticate, replace or restore cloud identity.
+
 ## 12. Alternatives Considered
 
 Alternative
@@ -595,6 +683,18 @@ Rejected
 
 Backend vẫn cần `dcam_cloud_device_id` làm Cloud Identity ổn định để hỗ trợ migration, audit, rebind và internal reference.
 
+Create a separate DDMP `platformDeviceId` root identity
+
+Rejected
+
+Tạo competing identity/migration burden; DDMP contract uses existing `dcam_cloud_device_id` semantic instead.
+
+Use `headwindDeviceRef` as primary device identity
+
+Rejected
+
+Headwind reference is integration-owned mapping, not a stable recovery or trust identity.
+
 ## 13. Final Decision Summary
 
 DCAM current production identity baseline là:
@@ -604,6 +704,9 @@ dcam_cloud_device_id = Cloud Identity / primary cloud device id
 SD Identity File = recovery cache on external SD card
 serial_lookup/{serial_number} = cloud create/restore lookup
 devices/{dcam_cloud_device_id} = cloud device record
+platformDeviceId = DDMP contract name for the same dcam_cloud_device_id
+headwindDeviceRef = external Headwind mapping only
+dcamInstallationId = local installation lifecycle correlation only
 Current production baseline explicitly does not use:
 
 ANDROID_ID
@@ -613,4 +716,8 @@ Advertising ID
 owner_name as identity
 manufacture_date as identity
 SD Identity File as authoritative identity
-ADR này thống nhất Android runtime, DSetup, Factory SOP, Web Portal, Backend/Firebase, SQLite, Security, QA và BDMA-facing behavior quanh một identity model duy nhất.
+ADR này thống nhất Android runtime, DSetup, Factory SOP, Web Portal, BFF, PostgreSQL ddmp, SQLite, Security, QA và BDMA-facing behavior quanh một identity model duy nhất.
+
+## Device credential boundary
+
+Credential and identity are separate by decision. The authoritative device credential model is [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline). serial_number and dcam_cloud_device_id/platformDeviceId retain their approved identity semantics but must never independently authenticate a device. A certificate/key binding is managed by BFF and does not create a third root identity.

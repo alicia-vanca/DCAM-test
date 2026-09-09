@@ -1,7 +1,7 @@
 # 07 - Logging & Diagnostics Requirements
 
 **Page ID**: 47776094  
-**Version**: 10  
+**Version**: 12  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47776094
 
@@ -24,7 +24,7 @@ Functional Requirements
 
 Version
 
-Approved 1.7
+Approved 1.9
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, AI/ML Engineer, QA, Support, Cloud/WebServ
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -71,6 +71,8 @@ Related Documents
 07 - Logging, Diagnostics, Performance & Security, DCAM Logging & Diagnostics Design, DCAM-BDMA Data Contract, DCAM Security & Encryption Design, DCAM Performance Budget & Resource Constraints, DCAM QA Test Strategy & Test Matrix, DCAM Device Capability & Feature Eligibility Design, DCAM State Machine Design, DCAM Sensor & Location Monitoring Design, DCAM Realtime AI Detection Design, DCAM Recording & Capture Design, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 ## 1. Purpose
+
+GMS-free logging rule: no FCM, Analytics, Play Integrity, Google account or other GMS dependency may be introduced for logging/diagnostics. Crashlytics is optional bounded telemetry; local-first logs and BDMA diagnostics are required independently. See ADR - DCAM GMS-free Android Runtime Baseline.
 
 Trang này là source of truth cho các yêu cầu chức năng về logging và diagnostics của DCAM.
 
@@ -162,19 +164,19 @@ Approved
 
 Offline Queue
 
-Khi network, Backend Relay hoặc Loggly unavailable, event phải được queue/retry theo bounded policy.
+DiagnosticsOutbox phải persist event/crash summary đã sanitize trước delivery; khi network, BFF Diagnostics Ingestion hoặc provider unavailable, queue/retry theo bounded policy.
 
 Approved
 
 Bounded Storage
 
-Local log files và upload queue phải có rotation/retention/size limit để không làm đầy storage.
+Local log files và DiagnosticsOutbox phải có rotation/retention/size limit, priority/drop policy và drop summary để không làm đầy storage hoặc ảnh hưởng recording/evidence.
 
 Approved
 
 Provider Recovery
 
-Khi provider trở lại, hệ thống retry theo policy và không tạo duplicate event ngoài idempotency/duplicate-tolerance contract.
+DCAM batch tới BFF với stable event_id; chỉ ACK BFF mới xác nhận delivery. Retry dùng backoff+jitter và retry hint/rate limit để không tạo duplicate hoặc reconnect storm. Provider downstream recovery không đổi Android delivery semantics.
 
 Approved Direction
 
@@ -184,9 +186,9 @@ DCAM phải expose artifact tương thích `logs.txt` theo DCAM-BDMA Data Contra
 
 Approved
 
-Non-GMS Fallback
+GMS-free / Provider Independence
 
-Core operational diagnostics vẫn phải hoạt động local khi Crashlytics/GMS/provider không available trên target device.
+Core operational diagnostics must operate locally without Google Play services, Crashlytics, Loggly or network; this is mandatory for production profile.
 
 Approved
 
@@ -440,7 +442,7 @@ Status
 
 Fatal Crash Reporting
 
-Unhandled fatal crash phải được Crashlytics capture khi provider available.
+Unhandled fatal crash phải được Crashlytics capture khi optional provider available; sanitized local crash summary phải vào DiagnosticsOutbox khi practical. Crashlytics receipt không phải authoritative delivery ACK.
 
 Approved
 
@@ -470,7 +472,7 @@ Approved
 
 Local Fallback
 
-Provider unavailable không làm mất Operational Logging local hoặc làm core flow fail.
+Prolonged offline, BFF/provider unavailable hoặc Crashlytics delayed không làm mất Operational Logging local, bounded crash summary hoặc làm core flow fail.
 
 Approved
 
@@ -620,7 +622,7 @@ Approved
 QA phải verify tối thiểu:
 
 Operational event is available locally before/independent of cloud delivery.
-Offline queue is bounded and retryable.
+DiagnosticsOutbox is bounded, retryable and supports late delivery after prolonged offline; batch acknowledgement and idempotency are BFF-owned.
 Loggly/Backend Relay outage does not block core operation.
 Crashlytics receives fatal and approved unexpected non-fatal events.
 Expected operational failures do not create Crashlytics spam.
@@ -665,9 +667,9 @@ Required
 
 LOG-LOCAL-005
 
-Provider Recovery
+BFF Delivery Recovery
 
-Conditional khi cloud provider client được enable
+Conditional khi BFF Diagnostics Ingestion được enable; stable event_id, ACK, retry/backoff+jitter and rate-limit handling required.
 
 LOG-LOCAL-006
 
@@ -677,9 +679,9 @@ Required
 
 LOG-LOCAL-007
 
-Non-GMS Fallback
+GMS-free / Provider Independence
 
-Conditional theo target device/provider profile
+Required for production profile
 
 LOG-EVT-APP-001
 
@@ -787,7 +789,7 @@ Required
 
 Operational Logging is the primary operational observability channel.
 Loggly is the centralized Operational Logging provider.
-Firebase Crashlytics is the Crash & Stability Monitoring provider.
+Firebase Crashlytics is the optional Crash & Stability Monitoring provider; it must not introduce Google Play services or a dependency on GMS-only Firebase features. BFF Diagnostics Ingestion is the authoritative remote delivery boundary for local operational events and crash summaries; the downstream operational provider remains replaceable.
 Crashlytics does not replace Operational Logging.
 Operational Logging is local-first, asynchronous and bounded.
 Cloud/provider failure must not block core DCAM operation.

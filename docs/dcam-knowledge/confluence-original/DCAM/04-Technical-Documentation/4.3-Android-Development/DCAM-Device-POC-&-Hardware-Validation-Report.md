@@ -1,7 +1,7 @@
 # DCAM Device POC & Hardware Validation Report
 
 **Page ID**: 49545399  
-**Version**: 13  
+**Version**: 18  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49545399
 
@@ -24,7 +24,7 @@ Device POC / Hardware Validation Report
 
 Version
 
-Approved Pending Device POC 0.9
+Approved Pending Device POC 1.1
 
 Status
 
@@ -32,7 +32,7 @@ Approved Pending Device POC
 
 Approval Scope
 
-Reference configuration và Build 0.1 test plan approved; qualification/result chưa pass
+Reference configuration và scoped Build 0.1 POC results đã được ghi nhận; full device qualification, fleet/production readiness và các POC gate còn lại vẫn pending
 
 Owner
 
@@ -56,11 +56,11 @@ Tech Lead, Android Developers, QA, Security Reviewer, Support, Factory/Admin Use
 
 Last Updated
 
-2026-08-03
+2026-08-21
 
 Related Jira
 
-DCAM-2
+[DCAM-2](https://ducviet.atlassian.net/browse/DCAM-2)
 
 Related Documents
 
@@ -68,7 +68,7 @@ DCAM Project Home, DCAM Architecture Home, DCAM Android Device Owner & Kiosk Pol
 
 Dependencies / Blockers
 
-POC-WRS-004: Fail — bắt buộc khắc phục và kiểm tra lại; POC-WRS-009: Blocked — chờ quyết định về nguồn và quy tắc DEVICE_TOKEN; 
+|  
 
 ## 1. Purpose
 
@@ -83,7 +83,7 @@ Không dùng Android Management API.
 Không dùng Managed Google Play policy-driven update.
 Tính khả thi của DCAM-as-DPC / local Device Owner phải được validate trên thiết bị thật.
 Primary update path = DCAM Self Update / APK update.
-Manual Google Play Store update chỉ là optional controlled fallback nếu có GMS/Play Store và có approved process/account.
+Google Play Store/Managed Google Play/Google-account update is not a production path; POC validates mandatory GMS-free behavior.
 Chỉ hỗ trợ Controlled Maintenance Mode; không hỗ trợ full Android unrestricted mode.
 Factory SOP chỉ được approve cho một device model sau khi các POC blockers bắt buộc đã được xử lý hoặc được accept rõ ràng.
 ## 2. POC Scope
@@ -166,21 +166,21 @@ Xác nhận có thể thu thập required safe production metadata mà không l�
 
 P0
 
-GMS / Play Store availability
+GMS-free target profile
 
-Xác nhận thiết bị có Google Play Services và Google Play Store hay không.
-
-P1
-
-Manual Play Store fallback
-
-Xác nhận optional fallback chỉ được dùng nếu available và được Product/Security approve.
+Xác nhận target firmware/core operation không yêu cầu Google Play services hoặc Play Store.
 
 P1
 
-Google account handling
+GMS-free dependency/source gate
 
-Xác nhận approved maintenance/factory account behavior nếu Play Store fallback được cho phép.
+Validate prohibited dependencies and Play Store/account flows are absent.
+
+P1
+
+Google-account prohibition
+
+Validate no production provisioning, maintenance or update step requires/stores Google account.
 
 P1
 
@@ -230,11 +230,11 @@ Build/Firmware Version
 
 `877AOOAKN1_RK2_V009`
 
-GMS Available
+GMS-free dependency graph pass
 
 TBD
 
-Google Play Store Available
+No Play Store/Google-account flow
 
 TBD
 
@@ -486,83 +486,57 @@ Silent install supported/not supported được ghi nhận bằng firmware evide
 
 TBD
 
-## 6. Optional Google Play Store Fallback POC Matrix
+## 6. GMS-free Android Runtime POC Matrix
 
-Chỉ chạy section này nếu device có GMS/Play Store và Product/Security cho phép fallback.
+This matrix validates the mandatory production guard. It does not test a Play Store fallback.
 
-Test ID
+POC ID
 
-Scenario
+Test
 
-Expected Evidence
+Expected Result
 
 Status
 
-POC-PLAY-001
+POC-GMS-001
 
-Check GMS availability.
+Inspect resolved release runtime dependency graph.
 
-GMS present/missing được ghi nhận.
-
-TBD
-
-POC-PLAY-002
-
-Check Google Play Store availability.
-
-Play Store present/missing/disabled được ghi nhận.
+No `com.google.android.gms:*`, FCM, Analytics, Play Integrity/App Check Play Integrity, Google Sign-In, Maps or other prohibited dependency.
 
 TBD
 
-POC-PLAY-003
+POC-GMS-002
 
-Open Play Store từ Controlled Maintenance Mode.
+Inspect manifest/source/update/maintenance paths.
 
-Chỉ mở được sau Maintenance Password Gate.
-
-TBD
-
-POC-PLAY-004
-
-Sign in approved maintenance/factory Google account nếu required.
-
-Account process được ghi nhận; không dùng personal account.
+No Play Store/`com.android.vending`, Google account, FCM registration or GMS availability path.
 
 TBD
 
-POC-PLAY-005
+POC-GMS-003
 
-Update DCAM/approved app qua Play Store.
+Run provisioning, kiosk, recording, evidence finalization, recovery and local diagnostics on target firmware without GMS/Play Store.
 
-Update result và version được verify.
-
-TBD
-
-POC-PLAY-006
-
-Thử unapproved Play Store browse/install.
-
-Bị block hoặc được ghi nhận là non-compliant; fallback phải disabled nếu không kiểm soát được.
+Core operation passes without GMS/Play Store.
 
 TBD
 
-POC-PLAY-007
+POC-GMS-004
 
-Return to DCAM và restore kiosk.
+Exercise BFF sync and safe R2 update defer/update behavior.
 
-Lock Task/User Restrictions được restore.
-
-TBD
-
-POC-PLAY-008
-
-Account persistence/removal behavior.
-
-Security/Product decision được ghi nhận.
+No FCM, Play Store or Google account is required; kiosk/DPC remains controlled.
 
 TBD
 
-Nếu không thể kiểm soát unapproved app browsing/install, manual Play Store fallback phải bị disable cho production.
+POC-GMS-005
+
+Attempt prohibited update source request.
+
+Request is rejected; device stays controlled and current trusted APK remains.
+
+TBD
 
 ## 7. In-app Console POC Matrix
 
@@ -768,17 +742,13 @@ Self Update silent install unsupported
 
 Dùng approved maintenance/update UX và document limitation.
 
-Play Store unavailable
+Prohibited dependency/source detected
 
-Disable Play Store fallback.
+Block production GMS-free profile claim and record evidence.
 
-Play Store cannot be controlled
+GMS-free target POC passes
 
-Disable Play Store fallback cho production.
-
-GMS unavailable
-
-Production baseline không được phụ thuộc Google APIs.
+Eligible for downstream production gate; does not itself grant production approval.
 
 BDMA blocked by restrictions
 
@@ -849,8 +819,7 @@ Lock Task, User Restrictions, Home/Launcher và recovery phải được validat
 Controlled Maintenance Mode không được expose full Android unrestricted mode.
 Maintenance Password Gate phải bảo vệ kiosk exit.
 Primary update path là DCAM Self Update / APK update.
-Manual Play Store update chỉ là optional fallback nếu GMS/Play Store tồn tại và có thể kiểm soát được.
-Nếu không kiểm soát được Play Store fallback thì phải disable cho production.
+Production baseline has no Play Store fallback. GMS-free dependency/manifest/source and target-device evidence are mandatory before a production profile claim.
 BDMA ADB import/user sync phải hoạt động dưới approved restriction profile.
 Factory SOP chỉ được approve sau khi required POC gates đã closed hoặc được accept rõ ràng.
 Tất cả TBD từ POC này phải feed back vào Technical Design, QA Matrix, Factory SOP và ADR nếu cần.
@@ -886,21 +855,21 @@ Not Applicable
 
 Physical Device Identifier
 
-Pending execution evidence
+`36NCC0901` (serial; single reference device)
 
 Qualification Status
 
-Pending Device POC
+Scoped Build 0.1 POC results recorded; not fleet/production qualification
 
 Execution Status
 
-Not Executed
+POC-WRS-003 **Pass** via `EV-DCAM-DCAM-13-20260724-02`; POC-WRS-004/007/009 **Pass** via `EV-DCAM-DCAM-15-20260819-04`; parser/import support via `EV-DCAM-8-20260814-001`
 
 PM approval xác nhận test target, không xác nhận device qualification hoặc production readiness.
 
 ### 16.1 Working Recording Slice POC Cases
 
-Chi tiết kết quả thực thi, cơ sở evidence và limitation được tổng hợp tại: [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary) 
+Chi tiết kết quả thực thi, cơ sở evidence và limitation được tổng hợp tại: [DCAM-2 — Device POC Results & Evidence Summary](/wiki/spaces/DVID/pages/57344040/DCAM-2+Device+POC+Results+Evidence+Summary)
 
 Test ID
 
@@ -940,7 +909,7 @@ Failed Internal pre-check và runtime storage failure.
 
 Không start khi pre-check fail; safe-stop/finalize nếu runtime failure và còn khả năng.
 
-Fail
+Pass
 
 POC-WRS-005
 
@@ -980,6 +949,8 @@ Media filename token validation.
 
 Xác nhận serial_number thực tế đáp ứng [A-Z0-9]{6,10}; filename dùng DEVICE_TOKEN từ validated serial_number và OPERATOR_TOKEN = B01OPR; không truncation/underscore; lưu filename + parser/import evidence.
 
-Blocked
+Pass
 
 GPS Unavailable/Unsupported không làm fail POC-WRS-007 nếu trạng thái được báo đúng. Kết quả trên configuration này không đại diện multi-model, multi-firmware, Production hoặc fleet readiness.
+
+‌

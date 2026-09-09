@@ -1,7 +1,7 @@
 # DCAM Android Training & Architecture Onboarding
 
 **Page ID**: 46825510  
-**Version**: 10  
+**Version**: 11  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/46825510
 
@@ -24,7 +24,7 @@ Developer Onboarding Guide
 
 Version
 
-Approved 1.6
+Approved 1.7
 
 Status
 
@@ -56,7 +56,7 @@ Java Desktop Developers, Android Newcomers, QA, Tech Lead, PM/BA
 
 Last Updated
 
-2026-07-14
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM 9-Month Development Plan, DCAM Architecture Home, DCAM Android Development Standard, DCAM Documentation Governance, 05 - User & Device Operation Requirements, 10 - Android Device Operation Requirements, DCAM Android Device Owner & Kiosk Policy Design, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM SQLite Database Design, DCAM Storage Design, DCAM Security & Encryption Design, DCAM-BDMA Data Contract
+DCAM 9-Month Development Plan, DCAM Architecture Home, DCAM Android Development Standard, DCAM Documentation Governance, 05 - User & Device Operation Requirements, 10 - Android Device Operation Requirements, DCAM Android Device Owner & Kiosk Policy Design, ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM SQLite Database Design, DCAM Storage Design, DCAM Security & Encryption Design, DCAM-BDMA Data Contract, [ADR – DCAM GMS-free Android Runtime Baseline](/wiki/spaces/DVID/pages/69730306/ADR+-+DCAM+GMS-free+Android+Runtime+Baseline)
 
 ## 1. Purpose
 
@@ -915,6 +915,12 @@ Kiosk policy POC if assigned
 
 Dev test được policy state/Lock Task/restriction sample trên thiết bị POC.
 
+Week 2+
+
+GMS-free runtime baseline
+
+Dev nhận diện và loại dependency/manifest/source flow bị cấm; hiểu local-first diagnostics và optional provider boundary.
+
 ## 18. Onboarding Exit Criteria
 
 Criteria
@@ -986,6 +992,10 @@ Developer understands Service / Foreground Service concept
 Yes
 
 Developer can follow Git Workflow Standard
+
+Yes
+
+Developer understands the GMS-free Android runtime baseline and prohibited dependency/update-source guard
 
 Yes
 
@@ -1167,7 +1177,11 @@ Offline-first, capability-based design và các architecture principles.
 
 03 - Android Platform & Compatibility Strategy
 
-Chiến lược tương thích Android version, GMS/non-GMS, BodyCamera and kiosk policy behavior.
+Chiến lược tương thích Android version, **GMS-free runtime bắt buộc**, BodyCamera and kiosk policy behavior.
+
+ADR – DCAM GMS-free Android Runtime Baseline
+
+Baseline bắt buộc: không GMS/Play Store/Google account/FCM/Play Integrity/GMS-only flow trong Android production runtime.
 
 04 - Application & Module Architecture
 

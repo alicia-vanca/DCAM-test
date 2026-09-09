@@ -1,7 +1,7 @@
 # 04 - Device Configuration Requirements
 
 **Page ID**: 47710554  
-**Version**: 10  
+**Version**: 11  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47710554
 
@@ -24,7 +24,7 @@ Functional Requirements
 
 Version
 
-Approved 1.7
+Approved 1.8
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, BDMA Developers, QA, Cloud/WebServer Team
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -64,18 +64,18 @@ None
 
 Related Documents
 
-DCAM Release & Build Applicability Matrix, DCAM Factory Provisioning & Device Production SOP, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Web Portal & Device API Contract, DCAM Requirements Home, DCAM-BDMA Data Contract, 09 - System Settings Requirements, 06 - Cloud Services, Update & Configuration Architecture, DCAM SQLite Database Design, DCAM Android Operation Design, DCAM Security & Encryption Design, 08 - DCAM-BDMA Integration Boundary, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
+DCAM Release & Build Applicability Matrix, DCAM Factory Provisioning & Device Production SOP, DCAM Device Provisioning Web Portal Design, DCAM Device Provisioning Web Portal App Design, DCAM Factory Provisioning Portal & BFF API Contract, DCAM Requirements Home, DCAM-BDMA Data Contract, 09 - System Settings Requirements, 06 - Cloud Services, Update & Configuration Architecture, DCAM SQLite Database Design, DCAM Android Operation Design, DCAM Security & Encryption Design, 08 - DCAM-BDMA Integration Boundary, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice
 
 ## 1. Purpose
 
 Trang này ghi nhận các yêu cầu chức năng liên quan đến **device configuration** của DCAM.
 
-Các rule chi tiết về `dcam_config.cson`, device information, device identity, Firebase/WebServer identity và remote config boundary thuộc các tài liệu authoritative tương ứng.
+Các rule chi tiết về `dcam_config.cson`, device information, device identity, BFF/PostgreSQL ddmp identity và remote config boundary thuộc các tài liệu authoritative tương ứng.
 
-Trang này áp dụng requirement-level baseline từ **DCAM Factory Provisioning & Device Production SOP**, **ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id** và **DCAM Web Portal & Device API Contract**. Không hardcode version của dependent document trong requirement text; current approved/draft version được quản lý bởi Project Home và Governance.
+Trang này áp dụng requirement-level baseline từ **DCAM Factory Provisioning & Device Production SOP**, **ADR - DCAM Device Identity Baseline: serial_number + dcam_cloud_device_id** và **DCAM Factory Provisioning Portal & BFF API Contract**. Không hardcode version của dependent document trong requirement text; current approved/draft version được quản lý bởi Project Home và Governance.
 
 serial_number is Hardware Identity / primary recovery key.
-dcam_cloud_device_id is the Firebase/WebServer Cloud Identity / primary key.
+dcam_cloud_device_id is the BFF Cloud Identity / primary key.
 SD Identity File is a recovery cache on external SD card, not Hardware Identity.
 owner_name is device information and may change.
 manufacture_date is device information and should use ISO date format YYYY-MM-DD.
@@ -107,13 +107,13 @@ Approved
 
 Serial Number
 
-`serial_number` là Hardware Identity / primary recovery key; lưu trong app-private storage, mirror vào `dcam_config.cson`, `dcam.db` và Firebase/WebServer.
+`serial_number` là Hardware Identity / primary recovery key; lưu trong app-private storage, mirror vào `dcam_config.cson`, `dcam.db` và BFF/PostgreSQL ddmp.
 
 Approved
 
 Cloud Device ID
 
-`dcam_cloud_device_id` là Firebase/WebServer primary cloud device id.
+`dcam_cloud_device_id` là BFF/PostgreSQL ddmp primary cloud device id.
 
 Approved
 
@@ -125,13 +125,13 @@ Approved
 
 Owner Name
 
-`owner_name` là thông tin chủ sở hữu/đơn vị sở hữu thiết bị, lưu trong `dcam_config.cson`, mirror vào `dcam.db` và Firebase/WebServer.
+`owner_name` là thông tin chủ sở hữu/đơn vị sở hữu thiết bị, lưu trong `dcam_config.cson`, mirror vào `dcam.db` và BFF/PostgreSQL ddmp.
 
 Approved
 
 Manufacture Date
 
-`manufacture_date` là ngày sản xuất thiết bị, lưu trong `dcam_config.cson`, mirror vào `dcam.db` và Firebase/WebServer; format chuẩn là `YYYY-MM-DD`.
+`manufacture_date` là ngày sản xuất thiết bị, lưu trong `dcam_config.cson`, mirror vào `dcam.db` và BFF/PostgreSQL ddmp; format chuẩn là `YYYY-MM-DD`.
 
 Approved
 
@@ -149,7 +149,7 @@ Approved
 
 Device Identity Key
 
-Firebase/WebServer primary key là `dcam_cloud_device_id`; recovery/create/restore dùng `serial_lookup/{serial_number}`.
+BFF/PostgreSQL ddmp primary key là `dcam_cloud_device_id`; recovery/create/restore dùng `serial_lookup/{serial_number}`.
 
 Approved
 
@@ -201,15 +201,15 @@ Purpose
 
 `dcam_cloud_device_id`
 
-`dcam.db`, Firebase/WebServer
+`dcam.db`, BFF/PostgreSQL ddmp
 
 Stable after provisioning
 
-Primary device key on Firebase/WebServer.
+Primary device key on BFF/PostgreSQL ddmp.
 
 `serial_number`
 
-App-private storage, `dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer, SD Identity File cache
+App-private storage, `dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp, SD Identity File cache
 
 Stable Hardware Identity; changed only by approved rework/admin flow
 
@@ -225,7 +225,7 @@ Recovery cache used by DSetup after factory reset.
 
 `owner_name`
 
-`dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer
+`dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp
 
 Mutable / semi-static
 
@@ -233,7 +233,7 @@ Owner, customer, agency or organization name for admin/support/BDMA display.
 
 `manufacture_date`
 
-`dcam_config.cson`, `dcam.db` mirror, Firebase/WebServer
+`dcam_config.cson`, `dcam.db` mirror, BFF/PostgreSQL ddmp
 
 Semi-static; corrected only through approved admin flow
 
@@ -241,15 +241,15 @@ Device manufacture date in ISO format `YYYY-MM-DD`.
 
 `serial_history`
 
-Firebase/WebServer, optional DB mirror
+BFF/PostgreSQL ddmp, optional DB mirror
 
 Append-only direction
 
 Tracks previous serial values if approved rework/admin flow changes serial.
 
-`firebase_installation_id`
+`app_installation_id`
 
-`dcam.db`, Firebase/WebServer metadata
+`dcam.db`, BFF/PostgreSQL ddmp metadata
 
 May change after reinstall
 
@@ -277,7 +277,7 @@ If local dcam_cloud_device_id and serial_number exist:
     sync SD Identity File if available
     ↓
 If local dcam_cloud_device_id is missing but serial_number exists:
-    lookup Firebase/WebServer:
+    lookup BFF/PostgreSQL ddmp:
         serial_lookup/{serial_number}
     ↓
     If found:
@@ -371,15 +371,15 @@ Web Portal business flow and Workspace behavior
 
 DCAM Device Provisioning Web Portal Design + DCAM Device Provisioning Web Portal App Design
 
-API/data schema and Firestore contract
+Factory Portal/BFF API and identity contract
 
-DCAM Web Portal & Device API Contract
+DCAM Factory Provisioning Portal & BFF API Contract
 
 `dcam_config.cson` scope and external contract
 
 DCAM-BDMA Data Contract
 
-Firebase/WebServer identity and provisioning architecture
+BFF/PostgreSQL ddmp identity and provisioning architecture
 
 06 - Cloud Services, Update & Configuration Architecture
 
@@ -406,7 +406,7 @@ Device configuration requirements are aligned with the current authoritative Fac
 dcam_config.cson = device information and identity mirror only
 dcam.db = operational/runtime settings + identity/cache mirror
 serial_number = Hardware Identity / primary recovery key
-dcam_cloud_device_id = Firebase/WebServer Cloud Identity / primary key
+dcam_cloud_device_id = BFF Cloud Identity / primary key
 SD Identity File = recovery cache on external SD card, not Hardware Identity
 serial_lookup/{serial_number} = create/restore path for dcam_cloud_device_id
 owner_name = mutable/semi-static device information

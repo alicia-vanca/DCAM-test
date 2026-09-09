@@ -1,7 +1,7 @@
 # 07 - Logging, Diagnostics, Performance & Security
 
 **Page ID**: 47185971  
-**Version**: 11  
+**Version**: 12  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47185971
 
@@ -24,7 +24,7 @@ Software Architecture Document / Operational Quality Architecture
 
 Version
 
-Approved 1.8
+Approved 1.9
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, Backend Developers, QA, BDMA Team, Support
 
 Last Updated
 
-2026-07-14
+2026-08-25
 
 Related Jira
 
@@ -67,6 +67,8 @@ Related Documents
 DCAM Architecture Home, 02 - Architecture Principles, 05 - Data, Storage & BDMA Architecture, 06 - Cloud Services, Update & Configuration Architecture, 08 - DCAM-BDMA Integration Boundary, DCAM Documentation Governance, 05 - User & Device Operation Requirements, 07 - Logging & Diagnostics Requirements, DCAM Logging & Diagnostics Design, DCAM Performance Budget & Resource Constraints, DCAM Android Operation Design, DCAM Recording & Capture Design, DCAM Storage Design, DCAM SQLite Database Design, DCAM Security & Encryption Design, DCAM Self Update Design, DCAM Android Device Owner & Kiosk Policy Design, DCAM Web Portal & Device API Contract, DCAM-BDMA Data Contract, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report
 
 ## 1. Purpose
+
+GMS-free quality architecture guard: DCAM must not use Google Play services/Play Store, FCM, Analytics, Play Integrity, Google account or other GMS-only dependency for quality/observability. Crashlytics remains optional bounded crash telemetry; Loggly and BDMA diagnostics remain local-first/provider-isolated. ADR - DCAM GMS-free Android Runtime Baseline is authoritative.
 
 Trang này mô tả baseline kiến trúc cho logging, diagnostics, performance, reliability và security của DCAM.
 
@@ -340,7 +342,7 @@ Sync conflict/reject/apply result phải có log để phục vụ Support/BDMA.
 
 Local First
 
-Operational log phải có local fallback cho offline/non-GMS/provider-unavailable devices.
+Operational log phải có local fallback for offline/GMS-free/provider-unavailable devices; mandatory production behavior.
 
 Asynchronous
 
@@ -440,7 +442,7 @@ Android version
 
 Required
 
-GMS availability
+GMS-free dependency/source evidence
 
 Required
 
@@ -450,7 +452,7 @@ Required
 
 Crashlytics availability/mode
 
-Recommended
+Optional; never a GMS dependency or core-operation dependency
 
 Operational log queue/upload status
 

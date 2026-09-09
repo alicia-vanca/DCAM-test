@@ -1,6 +1,6 @@
 # Scope, roadmap, and release intent
 
-Source refresh: **2026-07-15**. Active profile is DCAM MVP Internal Build 0.1 / Working Recording Slice. Important Media is Conditional - Not Activated; cloud provisioning, full kiosk, auth expansion, Self Update, AI, streaming, PTT, and production security remain deferred unless approved applicability changes.
+Source refresh: **2026-08-26**. Active profile is DCAM MVP Internal Build 0.1 / Working Recording Slice. Important Media is Conditional - Not Activated; cloud provisioning, full kiosk, auth expansion, Self Update, AI, streaming, PTT, and production security remain deferred unless approved applicability changes. The GMS-free Android runtime guard applies across production profiles without activating deferred features.
 
 ## MVP definition
 
@@ -26,6 +26,8 @@ record or capture
 | Device status | Battery level, internal free storage, and GPS Available/Unavailable/Unsupported |
 | Evidence | One identifiable physical reference device must pass Working Recording Slice |
 | Important Media | Contract values remain recognizable, but creation/marking workflow is Conditional - Not Activated |
+
+The current Phase 2 platform direction is a Spring Boot BFF + Thymeleaf Factory Portal with PostgreSQL `ddmp`, BFF-controlled device identity/provisioning, and per-device mTLS enrollment. This is a Build 0.2 minimum/deferred boundary, not a Build 0.1 dependency.
 
 Required MVP capabilities:
 
@@ -71,6 +73,7 @@ The plan assumes 18 two-week sprints, though the week ranges extend to week 40. 
 - Live Streaming and Push-to-Talk (Phase 3).
 - Advanced Encryption and Full GPS Tracking Route (Phase 3; basic encryption may begin in Phase 2).
 - Cloud upload, OTA update, and AI analytics (future).
+- Factory Portal/BFF provisioning, DDMP Hybrid management, and device credential enrollment are Phase 2+/POC-gated; they do not change the Build 0.1 acceptance path.
 
 The wider Phase 2 project also excludes a cloud video management platform, facial recognition, ANPR, third-party VMS integration, a public mobile application, and a separate web portal.
 

@@ -1,7 +1,7 @@
 # 09 - System Settings Requirements
 
 **Page ID**: 47710614  
-**Version**: 20  
+**Version**: 23  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/47710614
 
@@ -24,7 +24,7 @@ Functional Requirements
 
 Version
 
-Approved 1.17
+Approved 1.20
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-System settings target requirements; build applicability thuộc Matrix, exact provider/payload/runtime implementation thuộc Design/Contract.
+System settings target requirements, including approved DDMP Hybrid authority boundary; build applicability thuộc Matrix, exact provider/payload/runtime implementation thuộc Design/Contract.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Android Developers, QA, Cloud/WebServer Team
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -75,7 +75,7 @@ Current update and identity baseline follows the current authoritative **DCAM Fa
 Current DCAM device baseline has no external EMM.
 Managed Google Play / Android Management API policy-driven update is not applicable.
 Primary update path = DCAM Self Update / APK update.
-Manual Google Play Store update is optional controlled maintenance fallback only if GMS/Play Store exists and approved process/account exists.
+Google Play Store/Managed Google Play/Google-account update is not a supported device setting or maintenance flow.
 serial_number = Hardware Identity / primary recovery key.
 dcam_cloud_device_id = Cloud Identity / primary cloud device id.
 SD Identity File = recovery cache on external SD card, not Hardware Identity.
@@ -137,7 +137,7 @@ In-app operation/device/media console
 
 DCAM In-App Operation, Device Settings & Media Console Design
 
-Định nghĩa App Operation Settings, Device/System Settings proxy, File/Storage Manager, Media Viewer, Login/User settings, Controlled Maintenance Mode and optional Play Store fallback UX.
+Định nghĩa App Operation Settings, Device/System Settings proxy, File/Storage Manager, Media Viewer, Login/User settings and Controlled Maintenance Mode; no Play Store fallback UX.
 
 Recording setting application
 
@@ -167,7 +167,7 @@ Feature eligibility states
 
 DCAM Device Capability & Feature Eligibility Design
 
-Settings không được override capability limits; GMS/Play Store availability must be capability-detected.
+Settings không được override capability limits; GMS-free compliance is a mandatory release gate, not an end-user capability.
 
 Cross-runtime guards
 
@@ -271,7 +271,7 @@ Approved Direction
 
 Remote config được resolve bằng stable server-side device identity.
 
-Cloud Identity / Firebase-WebServer primary key = dcam_cloud_device_id
+Cloud Identity / BFF Factory Portal boundary and DDMP `platformDeviceId` = dcam_cloud_device_id
 Hardware Identity / recovery key = serial_number
 Cloud recovery/create/restore lookup = serial_lookup/{serial_number}
 Recovery cache = SD Identity File
@@ -878,9 +878,9 @@ Approved Direction
 
 Current baseline:
 
-Primary update path = DCAM Self Update / APK update.
-Manual Google Play Store update = optional controlled fallback only if GMS/Play Store exists and approved maintenance/factory Google account exists.
-Managed Google Play / Android Management API policy-driven update = not applicable.
+Primary update path in the Hybrid profile = BFF-authorized DCAM Self Update from immutable Cloudflare R2/CDN artifact.
+No Google Play Store/Managed Google Play/Google-account fallback exists; remote update uses BFF/R2 and approved local/factory package is separate support fallback.
+Managed Google Play / Android Management API policy-driven update = not applicable; Headwind Client does not provide Android policy authority.
 Update setting examples:
 
 Setting
@@ -915,13 +915,13 @@ Self Update Design
 
 TBD
 
-`update.manual_play_store_fallback_enabled`
+`device.gms_free_compliance`
 
-Whether controlled manual Play Store fallback is available.
+Dependency/manifest/source gate and target-device evidence status.
 
-In-App Console + Security
+ADR + Release Matrix
 
-TBD
+Required for production profile claim
 
 `update.managed_google_play_enabled`
 
@@ -999,6 +999,48 @@ Managed Google Play policy-driven update not requested on current no-EMM baselin
 
 AutoUpdate must not bypass runtime guards defined in Android Operation, State Machine, Recording, Self Update, Kiosk Policy and In-App Console designs.
 
+## DDMP Hybrid Management Settings Boundary
+
+Hybrid management is an optional Phase 2+/POC-gated profile. This page defines requirement-level constraints only; payload/schema and endpoint details belong to DDMP 03/06.
+
+Rule
+
+Requirement
+
+Status
+
+HSET-001
+
+DCAM must use BFF as the device-facing management boundary. It must not call Headwind REST API/database directly.
+
+Approved Direction
+
+HSET-002
+
+Headwind Client configuration/status must not directly apply Android Device Owner, kiosk, Lock Task, restriction or package-install policy. DCAM remains the sole privileged executor.
+
+Approved Direction
+
+HSET-003
+
+Desired-state/config from BFF is requested input. DCAM validates identity, schema, version and runtime safety before persist/apply; unsafe or duplicate input is ACKed/deferred/rejected with reason.
+
+Approved Direction
+
+HSET-004
+
+`dcam_cloud_device_id` is the DDMP `platformDeviceId`; `serial_number` remains hardware recovery key. A Headwind reference is mapping-only and not an authentication credential.
+
+Approved Direction
+
+HSET-005
+
+Build 0.1 must not require DDMP, Headwind, BFF or R2 to start or record.
+
+Approved
+
+Authoritative DDMP sources: [DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2).
+
 ## 10. Performance Class, Policy Class and Threshold Status
 
 Item
@@ -1027,7 +1069,7 @@ Approved Direction / Values TBD
 
 `device.gms_available`
 
-Approved Direction / Values TBD
+Not Applicable in production configuration; DCAM must not depend on this capability.
 
 `device.play_store_available`
 
@@ -1079,7 +1121,7 @@ Remote config identity/apply baseline and initial setting groups have been defin
 Identity and apply architecture are aligned with the current authoritative Factory SOP and identity/API documents.
 Document references do not pin a mutable dependent document version.
 Build applicability is owned by DCAM Release & Build Applicability Matrix.
-dcam_cloud_device_id identifies the device on Firebase/WebServer.
+dcam_cloud_device_id identifies the device in BFF/PostgreSQL ddmp.
 serial_number is Hardware Identity / primary recovery key.
 serial_lookup/{serial_number} is used to create/restore dcam_cloud_device_id.
 SD Identity File is recovery cache on external SD card, not Hardware Identity.
@@ -1092,5 +1134,5 @@ Actual Device Owner / Lock Task / User Restrictions apply behavior belongs to DC
 In-app operation/device/media console behavior belongs to DCAM In-App Operation, Device Settings & Media Console Design.
 Current DCAM device baseline has no external EMM / Android Management API / Managed Google Play policy-driven update.
 Primary update path is DCAM Self Update / APK update.
-Manual Google Play Store update is optional controlled maintenance fallback only if GMS/Play Store exists and approved process exists.
+No Google Play Store/Managed Google Play/Google-account update path is supported; prohibited source requests are rejected.
 AutoUpdate requires device policy state, console/admin transition state and Self Update artifact state to be safe before install.

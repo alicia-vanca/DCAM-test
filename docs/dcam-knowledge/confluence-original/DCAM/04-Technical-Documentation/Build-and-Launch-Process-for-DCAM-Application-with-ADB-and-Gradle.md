@@ -1,7 +1,7 @@
 # Build and Launch Process for DCAM Application with ADB and Gradle
 
 **Page ID**: 54394925  
-**Version**: 8  
+**Version**: 9  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/54394925
 
@@ -36,7 +36,7 @@ Local build/install/launch instruction and expected-output template only; not ap
 
 Owner
 
-[phiha](https://ducviet.atlassian.net/wiki/people/557058:9faf7c54-9287-4a39-a5cd-09337b4b73b9?ref=confluence) [Việt Anh](https://ducviet.atlassian.net/wiki/people/70121:291a3abc-1d00-4cc3-84e8-af1e4491aeb1?ref=confluence) 
+[phiha (Unlicensed)](https://ducviet.atlassian.net/wiki/people/557058:9faf7c54-9287-4a39-a5cd-09337b4b73b9?ref=confluence) [Việt Anh](https://ducviet.atlassian.net/wiki/people/70121:291a3abc-1d00-4cc3-84e8-af1e4491aeb1?ref=confluence) 
 
 Technical Reviewer
 
@@ -56,7 +56,7 @@ Android Developers, QA, Technical Reviewers
 
 Last Updated
 
-05 Aug 2026
+21 Aug 2026
 
 Related Jira
 
@@ -98,9 +98,9 @@ Repository
 
 `https://github.com/DucVietTech/dcam.git`
 
-Nhánh phát triển chính
+Branch / Exact Commit SHA
 
-`develop`
+`develop` / `c4da859868f3147bbd59b35ef38c098fdba58a94`
 
 Gradle module
 
@@ -139,6 +139,42 @@ Compile SDK
 `36.1`
 
 Các giá trị trên phải được đối chiếu lại với `app/build.gradle`, `gradle/wrapper/gradle-wrapper.properties` và `app/src/main/AndroidManifest.xml` nếu cấu hình dự án thay đổi.
+
+## Controlled Verification Record
+
+Field
+
+Value
+
+Parent task
+
+`DCAM-3`
+
+Automation support
+
+`DCAM-48`
+
+Verified baseline
+
+`develop @ c4da859868f3147bbd59b35ef38c098fdba58a94`
+
+Evidence
+
+`EV-DCAM-3-20260821-001`
+
+Evidence path
+
+`\\192.168.100.2\SERVER-SnT\2. DCAM\Artifacts\Build-0.1\Sprint-2\DCAM-3\20260821_001`
+
+Result
+
+`PASS`
+
+Scope
+
+Developer build/install/launch baseline
+
+This record supplements the configuration above; it does not change the `Draft` status or establish camera qualification, complete Device POC, production approval or release readiness.
 
 ‌
 

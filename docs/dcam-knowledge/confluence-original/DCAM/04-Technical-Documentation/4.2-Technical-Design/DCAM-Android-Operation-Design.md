@@ -1,7 +1,7 @@
 # DCAM Android Operation Design
 
 **Page ID**: 48562239  
-**Version**: 24  
+**Version**: 28  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48562239
 
@@ -24,7 +24,7 @@ Technical Design
 
 Version
 
-2.2
+2.6
 
 Status
 
@@ -32,7 +32,7 @@ Approved Provisional Baseline
 
 Approval Scope
 
-Build 0.1 operation overlay; reference-device behavior Pending Device POC
+Build 0.1 operation overlay plus DDMP Hybrid runtime boundary and GMS-free Android runtime guard; reference-device behavior and Hybrid coexistence remain Pending Device POC.
 
 Owner
 
@@ -56,7 +56,7 @@ Tech Lead, Android Developers, QA, Support, Cloud/WebServer Team
 
 Last Updated
 
-2026-07-20
+2026-08-26
 
 Related Jira
 
@@ -72,7 +72,9 @@ Device POC: confirm reference-device lifecycle, boot/background/foreground/recov
 
 ## 1. Current Runtime Baseline
 
-Project-wide Device Identity và Device Owner/Kiosk baseline không được định nghĩa lại tại đây.
+Project-wide Device Identity, Device Owner/Kiosk và GMS-free runtime baseline không được định nghĩa lại tại đây.
+
+Production runtime must not require Google Play services, Play Store, Google account, FCM, Analytics or Play Integrity. Runtime recovery, recording, diagnostics, BFF sync and safe update deferral remain functional without them; authoritative gates belong to **ADR - DCAM GMS-free Android Runtime Baseline**.
 
 Baseline Topic
 
@@ -147,7 +149,7 @@ Web provisioning uses Factory Worker, Login/Workspace and QR-derived read-only s
 
 ## 5. Login and Operation Gate
 
-same-boot valid session → restore
+same-boot valid session �� restore
 reboot → require login
 normal recording without operator → OPERATOR_AUTH_REQUIRED
 emergency without operator → EMERGENCY_OVERRIDE_ADMIN when approved
@@ -193,6 +195,65 @@ Login screen after READY
 `≤ 1s`
 
 Targets are owned by Performance Budget and validated by Device POC.
+
+## DDMP Hybrid Runtime Boundary
+
+Hybrid activation is Phase 2+/POC-gated. DCAM continues to start, record, recover and enforce local policy with no Headwind/BFF/R2 dependency in Build 0.1.
+
+DCAM boot / local policy + recovery
+    ↓
+DCAM starts its own runtime and enters safe lifecycle state
+    ↓
+Headwind Client, if installed, runs as a normal Application-mode app
+    ↓
+DCAM outbound sync to BFF reads desired state / release authorization
+    ↓
+DCAM validates identity + schema + runtime guards
+    ↓
+DCAM applies only safe local actions and sends ACK/result to BFF
+
+Runtime rule
+
+Behavior
+
+Authority
+
+Only DCAM DPC executes DevicePolicyManager, kiosk/Lock Task/restrictions and package install/rollback. Headwind Client has no privileged path.
+
+Command source
+
+BFF is the device-facing boundary. Headwind is reached through BFF adapter only; no direct Headwind REST/database call and no assumed Headwind-to-DCAM command bridge.
+
+Identity
+
+`platformDeviceId = dcam_cloud_device_id`; `serial_number` remains local/factory recovery key; Headwind reference is mapping-only.
+
+Delivery semantics
+
+Desired-state is versioned/idempotent; DCAM separates received, accepted/deferred/rejected, executed and acknowledged outcomes.
+
+Update
+
+BFF authorizes an immutable R2/CDN artifact. DCAM download/validate/install/health-check/rollback follows Self Update and local safety guards.
+
+Coexistence gate
+
+OEM/firmware validation must prove Headwind package does not disturb DCAM boot, HOME, Lock Task, auto-start, restrictions or policy recovery.
+
+Diagnostics delivery
+
+Local DiagnosticsOutbox is written before remote delivery. Upload is opportunistic after startup and only when network/runtime guards allow; BFF batch ACK, not provider receipt, confirms remote delivery.
+
+### Offline diagnostics scheduler
+
+boot / network opportunity
+    → verify local runtime is not in critical recording/finalization/recovery pressure
+    → select bounded pending DiagnosticsOutbox batch by priority
+    → upload to BFF with backoff+jitter and stable event_id
+    → apply BFF ACK or retry/rate-limit hint
+Diagnostics upload must not run on the main thread, block startup, compete with protected recording/finalization or require FCM/GMS. Prolonged offline only increases bounded queue age; it does not change DCAM safe runtime state.
+
+Authoritative DDMP sources: [DDMP 00](/wiki/spaces/DVID/pages/68845572/00+DDMP+Architecture+Overview+Reading+Guide), [DDMP 03 BFF](/wiki/spaces/DVID/pages/68812826/03+Management+API+BFF+Architecture+Baseline), [DDMP 06 Device Integration Contracts](/wiki/spaces/DVID/pages/68812848/06+Device+Integration+Contracts), [DDMP 05 APK Release & Cloudflare R2](/wiki/spaces/DVID/pages/68780056/05+APK+Release+Cloudflare+R2), [DDMP 08 Operations](/wiki/spaces/DVID/pages/68812869/08+Operations+SLO+Runbooks).
 
 ## 8. Resolved and Remaining Decisions
 
@@ -295,3 +356,49 @@ Device Coverage
 Chỉ NCC-036V / Android 12 / API 31 / 877AOOAKN1_RK2_V009; Pending Device POC.
 
 Target-state login/operator behavior không áp dụng cho Build 0.1.
+
+## Device credential operational states
+
+Device credential lifecycle inherits [ADR – DCAM Device API Credential & mTLS Baseline](/wiki/spaces/DVID/pages/70287362/ADR+DCAM+Device+API+Credential+mTLS+Baseline). This is a network-management state overlay and must not replace the recording/evidence state machine.
+
+State
+
+Entry condition
+
+Required DCAM behaviour
+
+Credential absent
+
+First boot, protected key/certificate unavailable
+
+Generate/prepare Keystore key and enter controlled enrollment path; no Device API mutation.
+
+Enrollment pending
+
+BFF factory/support pairing exists
+
+Prove key possession, obtain certificate only after BFF approval; bounded retry while online.
+
+Credential active
+
+Valid mTLS certificate is present
+
+Use Device API only; attach requestId/eventId to replay-sensitive operations.
+
+Rotation due
+
+BFF/local policy indicates replacement needed
+
+Rotate through active credential/proof-of-possession; preserve approved grace behaviour.
+
+Credential rejected/revoked
+
+BFF rejects certificate or local trust fails
+
+Reject/defer cloud control, persist safe reason and audit when possible; do not interrupt local recording/evidence.
+
+Re-enrolment required
+
+Reset/reinstall/key loss/rework
+
+Do not authenticate by serial alone; require authorized factory/support flow.

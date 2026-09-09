@@ -1,7 +1,7 @@
 # DCAM Engineering Evidence & NAS Artifact SOP
 
 **Page ID**: 53608471  
-**Version**: 5  
+**Version**: 6  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/53608471
 
@@ -48,7 +48,7 @@ Hoàng Ngọc Quyền
 
 Parent Folder
 
-02  Sprint Operations
+02 Sprint Operations
 
 Target Audience
 
@@ -56,7 +56,7 @@ Dev, QA, Tech Lead, PM, IT
 
 Last Updated
 
-2026-07-21
+2026-08-21
 
 Related Jira
 
@@ -182,7 +182,7 @@ Lưu raw build, ADB output, logs, media, screenshots và reports vào đúng sub
 
 Hoàn tất manifest, xác nhận Evidence ID và UNC path.
 
-Ghi vào Jira: Evidence ID, UNC path đầy đủ tới run folder, kết quả **Pass/Fail**, thời điểm và ghi chú thiếu evidence nếu có.
+Ghi vào Jira: Evidence ID, UNC path đ���y đủ tới run folder, kết quả **Pass/Fail**, thời điểm và ghi chú thiếu evidence nếu có.
 
 Cập nhật row liên quan trong Traceability Matrix bằng Jira/evidence linkage theo quy tắc hiện hành; không đánh dấu **Covered** nếu thiếu Jira hoặc execution evidence.
 
@@ -223,3 +223,83 @@ Giữ giá trị **TBD**; không tự điền hoặc suy diễn.
 ## 10. Readiness Boundary
 
 SOP này không phê duyệt NAS readiness, Device POC, Build 0.1 hay Production release. NAS chỉ có thể được coi là **Active** sau khi toàn bộ điều kiện tại §3 được xác nhận.
+
+## 11. Evidence Cohort Rule
+
+### 11.1 Purpose
+
+Rule này ngăn việc gộp evidence từ nhiều APK, commit hoặc device configuration khác nhau để nâng trạng thái một Build 0.1 candidate. Một evidence set có thể chứng minh capability trong phạm vi riêng, nhưng chỉ được dùng để close build gate khi thuộc đúng cohort của candidate được review.
+
+### 11.2 Mandatory cohort identity
+
+Mỗi evidence được dùng cho Build 0.1 gate phải liên kết tới một record trong **DCAM Build 0.1 Candidate Baseline & Evidence Cohort Register** và có đầy đủ:
+
+Candidate ID;
+
+Repository, commit hoặc immutable tag;
+
+APK package, versionCode/versionName, APK SHA-256 và signer fingerprint khi áp dụng;
+
+Device model, serial/reference configuration, Android/API và firmware;
+
+Jira key, Test ID, Evidence ID, execution time ICT và UNC path của run folder;
+
+Result, reviewer và review timestamp ICT.
+
+Thiếu bất kỳ field nào, ghi **TBD**, **Not captured** hoặc **Evidence located — not cohort-eligible**; không suy diễn hoặc tự bổ sung từ artifact khác.
+
+### 11.3 Evidence eligibility
+
+Classification
+
+Rule
+
+Build-gate use
+
+**Same-candidate**
+
+Candidate identity, APK SHA-256/commit và required device configuration khớp cohort baseline.
+
+Có thể dùng sau QA/Tech Lead review.
+
+**Supporting-only**
+
+Evidence chứng minh behavior nhưng khác candidate, APK, commit hoặc configuration.
+
+Không close gate; chỉ dùng làm technical context.
+
+**Superseded**
+
+Có evidence mới hơn được controlled review thay thế rõ ràng.
+
+Không dùng để close gate hiện hành.
+
+**Blocked**
+
+Test/evidence chưa hoàn tất, bị product/environment/tooling block hoặc thiếu proof bắt buộc.
+
+Không close gate; phải có disposition.
+
+**Evidence located — review pending**
+
+Artifact đã định vị nhưng chưa được xác minh về scope, integrity hoặc cohort.
+
+Không close gate.
+
+### 11.4 Cohort controls
+
+Không ghép các test Pass từ candidate khác nhau để kết luận một candidate Pass.
+
+Một row Traceability chỉ được ghi **Candidate Gate Passed** khi evidence là **Same-candidate** và đã review.
+
+**Evidence located**, Jira Done, PR merge, link artifact hoặc manifest tự khai không tự động là **Evidence Verified**, POC Pass hoặc Build acceptance.
+
+Mọi case **Blocked**, **Fail**, evidence thiếu hoặc cross-candidate mismatch phải nằm trong QA Exception & Blocker Disposition với impact, action/retest condition, decision và approver.
+
+Retest phải có Evidence ID và run folder mới; không ghi đè artifact/review của run cũ.
+
+Candidate Baseline & Evidence Cohort Register là index controlled; raw artifact vẫn lưu tại NAS theo §4–§8.
+
+### 11.5 Review and readiness boundary
+
+QA/Tech Lead review xác nhận evidence đúng Test ID, candidate cohort và acceptance criteria trước khi uplift bất kỳ trạng thái nào. Rule này không tự phê duyệt Build 0.1, Device POC, NAS operational readiness, production release, fleet readiness hoặc multi-model readiness.

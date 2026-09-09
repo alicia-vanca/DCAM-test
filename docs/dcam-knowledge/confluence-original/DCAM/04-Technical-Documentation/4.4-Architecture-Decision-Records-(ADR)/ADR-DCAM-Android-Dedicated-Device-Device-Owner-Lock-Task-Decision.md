@@ -1,7 +1,7 @@
 # ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision
 
 **Page ID**: 49774787  
-**Version**: 5  
+**Version**: 6  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/49774787
 
@@ -24,7 +24,7 @@ Architecture Decision Record
 
 Version
 
-Approved Direction 1.0
+Approved Direction 1.1
 
 Status
 
@@ -32,7 +32,7 @@ Approved Direction
 
 Approval Scope
 
-Dedicated-device, local Device Owner và Lock Task architecture direction; exact DPC component, OEM/firmware feasibility và policy evidence còn phụ thuộc Device POC/Security Review.
+Dedicated-device, DCAM-only Device Owner/DPC và Lock Task architecture direction, bao gồm approved DDMP hybrid boundary; exact DPC component, OEM/firmware coexistence feasibility và policy evidence còn phụ thuộc Device POC/Security Review.
 
 Decision Date
 
@@ -40,7 +40,7 @@ Decision Date
 
 Last Updated
 
-2026-07-14
+2026-08-24
 
 Related Jira
 
@@ -68,7 +68,7 @@ PM/BA, Tech Lead, Android Developers, QA, Security Reviewer, Factory, Support
 
 Related Documents
 
-DCAM Android Device Owner & Kiosk Policy Design, 10 - Android Device Operation Requirements, DCAM Android Operation Design, 03 - Android Platform & Compatibility Strategy, 09 - System Settings Requirements, DCAM Security & Encryption Design, DCAM Self Update Design, DCAM QA Test Strategy & Test Matrix, DCAM Device Provisioning Web Portal Design, DCAM Web Portal & Device API Contract, DCAM Factory Provisioning & Device Production SOP
+DCAM Android Device Owner & Kiosk Policy Design, 10 - Android Device Operation Requirements, DCAM Android Operation Design, 03 - Android Platform & Compatibility Strategy, 09 - System Settings Requirements, DCAM Security & Encryption Design, DCAM Self Update Design, DCAM QA Test Strategy & Test Matrix, DCAM Device Provisioning Web Portal Design, DCAM Web Portal & Device API Contract, DCAM Factory Provisioning & Device Production SOP, DDMP Architecture Overview & Reading Guide, 01 Hybrid System Architecture, 03 Management API / BFF, 06 Device Integration Contracts
 
 ## 1. Context
 
@@ -91,7 +91,7 @@ DCAM production deployment hướng tới Android dedicated-device operation.
 DCAM deployment mode = Android Fully Managed / Dedicated Device
 
 DCAM Android runtime phải support:
-1. Device Owner / DPC-capable policy enforcement, hoặc integration với approved external DPC/EMM.
+1. DCAM-only Device Owner / DPC policy enforcement. Không external DPC/EMM nào được làm policy owner trong approved DDMP profile.
 2. Lock Task Mode cho normal field operation.
 3. Approved User Restrictions cho kiosk hardening.
 4. Controlled Admin / Maintenance Mode cho support và service workflows.
@@ -101,6 +101,20 @@ Source of truth cho detailed policy behavior là:
 DCAM Android Device Owner & Kiosk Policy Design
 ```
 
+### 2.1 Approved DDMP hybrid boundary
+
+DCAM DPC = the only Android privileged-policy executor
+Headwind Client = normal Android application (Application mode only)
+BFF = management API, desired-state, audit and Headwind adapter boundary
+Headwind Community = limited fleet control-plane; not a DPC or Android policy executor
+Cloudflare R2/CDN = immutable APK/manifest artifact plane
+Rules:
+
+Headwind Client must not be provisioned as Device Owner or a competing DPC.
+Headwind Client must not own HOME/launcher, Lock Task, user restrictions, auto-start policy or privileged APK install/rollback.
+Portal and device must not call Headwind REST API or Headwind PostgreSQL directly.
+Privileged policy/update commands follow BFF desired-state → DCAM DPC validation/execution → ACK.
+Headwind Client push/configuration is not an authoritative privileged command bridge.
 ## 3. Important Boundary
 
 ADR này tách rõ hai provisioning concepts:
@@ -161,7 +175,7 @@ Update flow phải preserve Device Owner state và không làm hỏng kiosk/Lock
 
 QA
 
-QA Test Matrix phải bao gồm dedicated-device/kiosk policy tests và serial lookup identity restore tests.
+QA Test Matrix phải bao gồm dedicated-device/kiosk policy tests, serial lookup identity restore tests và POC coexistence DCAM DPC + Headwind Client qua boot/reboot/Doze/offline.
 
 ## 5. Accepted Risks and Mitigations
 
@@ -193,13 +207,18 @@ Identity baseline drift trở lại Android ID lookup.
 
 Treat `serial_number` / `serial_lookup/{serial_number}` as current production baseline và reject `ANDROID_ID`, `android_id_hash`, `device_lookup/{android_id_hash}` trong implementation và QA.
 
+Headwind Client conflicts with kiosk/HOME or is incorrectly treated as a policy channel.
+
+DCAM remains the only DPC; allowlist/coexistence, boot/reboot, Doze, Lock Task and recovery behavior require Device POC evidence before Headwind push becomes a functional dependency.
+
 ## 6. Decision Summary
 
 DCAM không chỉ là fullscreen Android application.
 DCAM production deployment là dedicated-device/kiosk deployment.
-Device Owner / DPC policy, Lock Task Mode và User Restrictions là platform-level controls.
+Device Owner / DPC policy, Lock Task Mode và User Restrictions là platform-level controls do DCAM thực thi.
+DCAM là Android Device Owner / DPC duy nhất trong approved DDMP profile; Headwind Client chỉ chạy Application mode.
 DCAM business provisioning tách biệt với Android Enterprise Device Owner enrollment.
 DCAM business provisioning dùng serial_number và serial_lookup/{serial_number} để create/restore dcam_cloud_device_id.
 Detailed policy behavior thuộc DCAM Android Device Owner & Kiosk Policy Design.
 Các tài liệu khác phải reference design đó và chỉ mô tả local impact.
-All DCAM documents must reference this ADR for the No-EMM/No-AMAPI/No-Managed-GP decision instead of repeating the full block.
+No external EMM / Android Management API / Managed Google Play owns Android privileged policy in this profile. DDMP BFF/Headwind may manage fleet workflow and telemetry, but cannot replace DCAM DPC authority.

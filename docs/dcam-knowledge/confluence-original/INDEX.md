@@ -1,6 +1,6 @@
 # Confluence Original Documentation
-Downloaded: 2026-08-08T02:23:21.848Z
-Total pages: 79
+Downloaded: 2026-08-26T09:41:52.199Z
+Total pages: 84
 
 ## Page Structure
 
@@ -54,7 +54,7 @@ Total pages: 79
       - [ADR - DCAM Android Dedicated Device / Device Owner / Lock Task Decision](DCAM/04-Technical-Documentation/4.4-Architecture-Decision-Records-(ADR)/ADR-DCAM-Android-Dedicated-Device-Device-Owner-Lock-Task-Decision.md)
       - [DCAM Android Device Owner & Kiosk Policy Design](DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Android-Device-Owner-&-Kiosk-Policy-Design.md)
       - [DCAM In-App Operation, Device Settings & Media Console Design](DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-In-App-Operation,-Device-Settings-&-Media-Console-Design.md)
-      - [DCAM Web Portal & Device API Contract](DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Web-Portal-&-Device-API-Contract.md)
+      - [DCAM Factory Provisioning Portal & BFF API Contract](DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Factory-Provisioning-Portal-&-BFF-API-Contract.md)
       - [DCAM DSetup Factory Tool Design](DCAM/05-Release-Management/DCAM-Factory-Provisioning-&-Device-Production-SOP/DCAM-DSetup-Factory-Tool-Design.md)
         - [DCAM Architecture Delivery Profile](DCAM/04-Technical-Documentation/4.1-Software-Architecture/DCAM-Architecture-Home/DCAM-Architecture-Delivery-Profile.md)
       - [DCAM Performance Budget & Resource Constraints](DCAM/04-Technical-Documentation/4.2-Technical-Design/DCAM-Performance-Budget-&-Resource-Constraints.md)
@@ -83,3 +83,8 @@ Total pages: 79
         - [DCAM-2 — Device POC Results & Evidence Summary](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-2-—-Device-POC-Results-&-Evidence-Summary.md)
         - [DCAM-9: Image Capture POC Results & Evidence Summary](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-9-Image-Capture-POC-Results-&-Evidence-Summary.md)
         - [DCAM-8: BDMA Sample Import & Evidence Summary](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-8-BDMA-Sample-Import-&-Evidence-Summary.md)
+        - [DCAM-23 — Build 0.1 Recording & Recovery Evidence Summary](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-23-—-Build-0.1-Recording-&-Recovery-Evidence-Summary.md)
+        - [DCAM-6: Working Recording Slice Integration & Evidence Summary](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-6-Working-Recording-Slice-Integration-&-Evidence-Summary.md)
+        - [DCAM-30 — Build 0.1 Camera Recording, Image Capture and BDMA Sample Import](DCAM/04-Technical-Documentation/4.3-Android-Development/DCAM-Device-POC-&-Hardware-Validation-Report/DCAM-30-—-Build-0.1-Camera-Recording,-Image-Capture-and-BDMA-Sample-Import.md)
+      - [ADR - DCAM GMS-free Android Runtime Baseline](DCAM/04-Technical-Documentation/4.4-Architecture-Decision-Records-(ADR)/ADR-DCAM-GMS-free-Android-Runtime-Baseline.md)
+      - [ADR – DCAM Device API Credential & mTLS Baseline](DCAM/04-Technical-Documentation/4.4-Architecture-Decision-Records-(ADR)/ADR-–-DCAM-Device-API-Credential-&-mTLS-Baseline.md)

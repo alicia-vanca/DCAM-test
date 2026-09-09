@@ -1,7 +1,7 @@
 # DCAM Non-functional Requirements
 
 **Page ID**: 48595009  
-**Version**: 15  
+**Version**: 16  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/48595009
 
@@ -24,7 +24,7 @@ Non-functional Requirements
 
 Version
 
-Approved 1.13
+Approved 1.14
 
 Status
 
@@ -56,7 +56,7 @@ PM/BA, Tech Lead, Developers, QA, Security Reviewer, Support, Factory
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -67,6 +67,8 @@ Related Documents
 DCAM Release & Build Applicability Matrix, DCAM Performance Budget & Resource Constraints, DCAM Concurrency & Threading Model Design, 07 - Logging & Diagnostics Requirements, DCAM Logging & Diagnostics Design, DCAM Security & Encryption Design, DCAM Android Device Owner & Kiosk Policy Design, DCAM QA Test Strategy & Test Matrix, DCAM Device POC & Hardware Validation Report
 
 ## 1. Purpose
+
+GMS-free quality guard: resolved runtime dependency graph, manifest/source flows and target-device operation must meet ADR - DCAM GMS-free Android Runtime Baseline. Crashlytics remains optional and provider degradation must never affect core operation.
 
 Trang này định nghĩa quality baseline cho reliability, performance, resource use, security, diagnostics, compatibility, maintainability và production operation.
 
@@ -185,7 +187,7 @@ Battery/thermal numeric budgets and device-specific adjustment remain POC-depend
 ## 4. Logging and Diagnostics Requirements
 
 Operational Logging → Loggly through local-first queue and Backend Relay
-Crash & Stability Monitoring → Firebase Crashlytics
+Crash & Stability Monitoring → Firebase Crashlytics (optional; no GMS dependency permitted)
 BDMA diagnostic artifact → Logs/logs.txt
 Performance operational events use `[PERF]` / `[THREAD]` through Operational Logging. Crash/ANR and approved unexpected non-fatal context use Crashlytics.
 
@@ -273,9 +275,9 @@ Kiosk
 
 Validate Device Owner, Lock Task, restrictions and Home behavior on target firmware.
 
-GMS
+GMS-free Android Runtime
 
-Core operation and local diagnostics must support non-GMS profile when required.
+Core operation, local diagnostics, kiosk recovery, BFF sync and safe update deferral must not require GMS/Play Store/account; mandatory production profile guard.
 
 BDMA
 

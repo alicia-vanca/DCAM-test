@@ -1,7 +1,7 @@
 # DCAM Release & Build Applicability Matrix
 
 **Page ID**: 51020012  
-**Version**: 9  
+**Version**: 11  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/51020012
 
@@ -24,7 +24,7 @@ Release / Build Applicability Matrix
 
 Version
 
-Approved 1.6
+Approved 1.8
 
 Status
 
@@ -32,7 +32,7 @@ Approved
 
 Approval Scope
 
-Build applicability for DCAM MVP Internal Build 0.1, DEC-01–DEC-07, Important Media Conditional — Not Activated, legacy MD5 exclusion guardrail and DEC-P2-WEB-01 Phase 2 Web Portal minimum-scope boundary.
+Build applicability for DCAM MVP Internal Build 0.1, DEC-01–DEC-07, Important Media Conditional — Not Activated, legacy MD5 exclusion guardrail, DEC-P2-WEB-01 Phase 2 Web Portal minimum-scope boundary and mandatory GMS-free Android runtime guard.
 
 Owner
 
@@ -56,7 +56,7 @@ PM/BA, Product Owner, Tech Lead, Developers, BDMA Team, QA, Factory, Security Re
 
 Last Updated
 
-2026-07-21
+2026-08-25
 
 Related Jira
 
@@ -64,7 +64,7 @@ None
 
 Related Documents
 
-DCAM MVP Scope, DCAM Roadmap, DCAM 9-Month Development Plan, DCAM Architecture Delivery Profile, DCAM Requirements Home, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Documentation Governance, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
+DCAM MVP Scope, DCAM Roadmap, DCAM 9-Month Development Plan, DCAM Architecture Delivery Profile, DCAM Requirements Home, DCAM Architecture Home, DCAM QA Test Strategy & Test Matrix, DCAM Documentation Governance, ADR - DCAM GMS-free Android Runtime Baseline, Decision Brief – DCAM MVP Internal Build 0.1 – Working Recording Slice , [Decision Brief – DCAM Phase 2 Web Portal Scope Precedence](/wiki/spaces/DVID/pages/54296681/Decision+Brief+DCAM+Phase+2+Web+Portal+Scope+Precedence)
 
 ## 1. Purpose
 
@@ -213,7 +213,7 @@ Required when enabled
 
 Required
 
-Required or approved fallback
+Required or approved fallback; Crashlytics remains optional telemetry and never a GMS dependency
 
 Local `serial_number`
 
@@ -303,7 +303,61 @@ Customer/public/general administration/fleet portal, video viewer/reporting/gene
 
 Pending boundary
 
-Firebase Security Rules/IAM, QR signature/replay, worker lifecycle, owner validation, retention/reconciliation and deployment/environment detail remain Pending.
+BFF identity/session/RBAC security, QR signature/replay, worker lifecycle, owner validation, retention/reconciliation and deployment/environment detail remain Pending.
+
+### 5.2 GMS-free Android Runtime Guard
+
+[ADR - DCAM GMS-free Android Runtime Baseline](/wiki/spaces/DVID/pages/69730306/ADR+-+DCAM+GMS-free+Android+Runtime+Baseline) is a mandatory cross-build Android guard. It does **not** activate deferred Phase 2 features for Build 0.1.
+
+Guard
+
+Build 0.1
+
+Build 0.2
+
+Build 0.3
+
+Pilot / Production Candidate
+
+No prohibited Android dependency/flow (`com.google.android.gms:*`, Play Store, FCM, Analytics, Play Integrity, Google account maintenance)
+
+Required — no new dependency/flow
+
+Required
+
+Required
+
+Required
+
+Firebase Crashlytics boundary
+
+Conditional when explicitly enabled; local diagnostics remain required
+
+Optional telemetry only; no GMS dependency
+
+Optional telemetry only; no GMS dependency
+
+Optional telemetry only; no GMS dependency
+
+Target firmware operation without GMS/Play Store
+
+POC Blocked / evidence when target profile is exercised
+
+POC Blocked until target-device evidence
+
+Required before profile acceptance
+
+Required production gate
+
+Remote APK update source
+
+Deferred
+
+BFF-authorized R2/CDN foundation; no Play Store fallback
+
+BFF-authorized R2/CDN
+
+BFF-authorized R2/CDN; approved local/factory package only as controlled fallback
 
 ## 6. Build 0.1 Release Gate
 

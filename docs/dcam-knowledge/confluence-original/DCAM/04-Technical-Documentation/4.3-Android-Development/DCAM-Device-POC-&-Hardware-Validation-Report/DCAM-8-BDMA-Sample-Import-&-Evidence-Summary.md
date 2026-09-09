@@ -1,7 +1,7 @@
 # DCAM-8: BDMA Sample Import & Evidence Summary
 
 **Page ID**: 60030996  
-**Version**: 59  
+**Version**: 67  
 **Type**: page  
 **URL**: https://ducviet.atlassian.net/wiki/spaces/DVID/pages/60030996
 
@@ -20,13 +20,21 @@ Document Type
 
 Test/Verification Items for MP4/JPG File Detection and Import Functionality & Evidence Summary
 
+Version
+
+0.1
+
 Status
 
 Draft
 
-Version
+Approval Scope
 
-0.1
+Tổng hợp bằng chứng kiểm thử import mẫu BDMA cho Build 0.1, gồm sample, scan path, import MP4/JPG, kiểm tra MD5 gating, log/parser và limitation; không xác nhận BDMA import pass, Device POC pass hoặc release readiness.
+
+Document Owner
+
+[phiha (Unlicensed)](https://ducviet.atlassian.net/wiki/people/557058:9faf7c54-9287-4a39-a5cd-09337b4b73b9?ref=confluence) 
 
 Related Documents
 
@@ -34,43 +42,21 @@ Related Documents
 
 [DCAM Engineering Evidence & NAS Artifact SOP](/wiki/spaces/DVID/pages/53608471/DCAM+Engineering+Evidence+NAS+Artifact+SOP) 
 
-Document Owner
-
-[phiha](https://ducviet.atlassian.net/wiki/people/557058:9faf7c54-9287-4a39-a5cd-09337b4b73b9?ref=confluence) 
-
 Technical Reviewer
 
 Tech Lead / QA
-
-BDMA Version
-
-`1.0.150`
-
-DCAM Branch
-
-`Build-and-verify-camera-capture-profiles`
-
-Commit
-
-BDMA:`678fc06924113eeeb164b3f2e3fefde98ee8f665`
-
-DCAM:`97b4f1ead6bee5eb566899a9e41bf9e5dfa41980`
-
-Link root
-
-/sdcard/Android/data/com.dvid.dcam/files/Media
-
-Folder save
-
-Media/Audio,Media/Image,Media/IMP,Media/Video
 
 Approver
 
 PM — sau khi Tech Lead hoàn tất rà soát kỹ 
 
-Approval Scope
+Parent Page
 
-Tổng hợp bằng chứng kiểm thử import mẫu BDMA cho Build 0.1, gồm sample, scan path, import MP4/JPG, kiểm tra MD5 gating, log/parser và limitation; không xác nhận BDMA import pass, Device POC pass hoặc release readiness.
+DCAM Device POC & Hardware Validation Report
+
+Target Audience
+
+PM/BA, Tech Lead, Android Developers, QA, BDMA Lead, Reviewers, Approvers
 
 Related Jira
 
@@ -120,17 +106,29 @@ Related Jira
                                     STATUS
             
  
+Related Documents
+
+[DCAM Requirement–Design–Test Traceability Matrix](/wiki/spaces/DVID/pages/51085669/DCAM+Requirement+Design+Test+Traceability+Matrix);
+
 Dependencies / Blockers
 
-BDMA chưa quét đúng scan path/folder do DCAM cung cấp, nên chưa xác minh được detect/import, parser output và MD5 gating
+TBD
 
-Parent Page
+Data cutoff
 
-DCAM Device POC & Hardware Validation Report
+14 Aug 2026
 
 Last Updated
 
-05 Aug 2026
+21 Aug 2026
+
+BDMA,DCAM with Branch,Commit
+
+(BDMA with version: `1.0.150` ,commit: `678fc06924113eeeb164b3f2e3fefde98ee8f665`
+
+and DCAM with branch: `Build-and-verify-camera-capture-profiles` ,commit: `97b4f1ead6bee5eb566899a9e41bf9e5dfa41980`)(1)
+
+(BDMA with branch : `BDMA-164-Allow-sync-from-DCAM` ,commit: `7bda3f9a773db50be04c42cd834562ffca4dd9b2` and DCAM with branch : `DCAM-5-Storage-Temp-/-Finalization` , commit: `941a26c907678d71a062e0bd10aab8ea50a2dff9`)(2)
 
 Cách đặt tên file và nơi lưu file Build 0.1 quy định
 
@@ -381,11 +379,13 @@ Kết quả đã sẵn sàng cho BDMA Lead và QA review.
 
 Traceability giữa DCAM-8, DCAM-35, DCAM-36, DCAM-37, DCAM-41, sample và evidence được duy trì đầy đủ.
 
-**Tổng kết trách nhiệm ,kết quả , nguyên nhân của task**
+**Tổng kết trách nhiệm ,kết quả , nguyên nhân của task **(với (1) và (2) là ở hàng** “**BDMA,DCAM with Branch,Commit” bảng trên đầu)
 
 Task
 
 Responsibility
+
+Branch và Commit
 
 Result
 
@@ -395,45 +395,85 @@ DCAM-37
 
 chứng minh sample đã được chuẩn bị đúng.
 
+(1)
+
 `Pass`
 
 Sample, MD5 và sidecar đã capture đầy đủ.
+
+(2)
+
+`Pass`
 
 DCAM-35
 
 chứng minh positive samples import thành công.
 
+(1)
+
 `Blocked`
 
 Chưa thể chứng minh positive MP4/JPG import thành công vì BDMA chưa quét đúng scan path/folder của DCAM.
+
+(2)
+
+`Pass`
+
+MP4/JPG import thành công và BDMA quét đúng scan path/folder của DCAM.
 
 DCAM-36
 
 chứng minh các trường hợp MD5 không hợp lệ bị chặn.
 
+(1)
+
 `Blocked`
 
 MP4 thiếu/sai MD5 chưa import, nhưng chưa chứng minh được đây là do checksum gate của BDMA vì BDMA chưa quét đúng dữ liệu DCAM.
+
+(2)
+
+`Pass`
+
+MP4 thiếu/sai MD5 không được import và chứng minh được đây là do checksum gate của BDMA
 
 DCAM-41
 
 tập hợp log, parser output và limitation.
 
+(1)
+
 `Blocked`
 
 Chưa có parser output, MD5 decision, import decision và visible error từ luồng BDMA thực tế.
+
+(2)
+
+`Pass`
+
+Có đầy đủ log,parser output và limitation
 
 DCAM-8
 
 tổng hợp traceability và đưa ra kết luận cuối cùng.
 
+(1)
+
 `Blocked`
 
 Các bằng chứng chính phụ thuộc vào việc BDMA quét đúng dữ liệu DCAM, hiện chưa đủ điều kiện kết luận Pass/Fail.
 
+(2)
+
+`Pass`
+
+Đã có đầy đủ thông tin và đưa ra được kết luận cuối cùng `Pass`
+
 **Tổng hợp**
 
 Evidence ID
+
+Branch và Commit
 
 Result
 
@@ -441,6 +481,16 @@ Reason
 
 `EV-DCAM-8-20260804-001`
 
+(1)
+
 `Blocked`
 
 DCAM-8 hiện chưa đủ điều kiện kết luận Pass hoặc Fail cho luồng BDMA import. DCAM side đã chuẩn bị sample, naming rule, folder structure và evidence ban đầu. Tuy nhiên, do BDMA chưa quét đúng scan path/folder của DCAM nên các bằng chứng bắt buộc về detect/import, parser output, MD5 gate và DataSync/DataBackup chưa được xác minh
+
+`EV-DCAM-8-20260814-001`
+
+(2)
+
+`Pass`
+
+Acceptance Criterion  hoàn thành
